@@ -64,7 +64,7 @@ object TreadmillPlanner {
         return preferred[Random(seed).nextInt(preferred.size)]
     }
 
-    fun build(style: TreadmillStyle, minutes: Int, base: Calibration = Calibration()): TreadmillPlan {
+    fun build(style: TreadmillStyle, minutes: Int, base: Calibration = Calibration(), settings: UserSettings = UserSettings()): TreadmillPlan {
         val totalSec = minutes.coerceIn(20, 120) * 60
         val mainSec = totalSec - WARMUP_SEC - COOLDOWN_SEC
         val shape = shapes[style]
@@ -80,7 +80,7 @@ object TreadmillPlanner {
             }
         }
         val effective = if (main.size == 1) TreadmillStyle.STEADY else style
-        return TreadmillPlan(effective, listOf(WARMUP) + main + listOf(COOLDOWN))
+        return TreadmillPlan(effective, listOf(WARMUP.copy(speedKmh = settings.warmupSpeedKmh, inclinePct = settings.warmupInclinePct)) + main + listOf(COOLDOWN))
     }
 
     private fun repeatToFit(shape: Shape, mainSec: Int): List<Int> {

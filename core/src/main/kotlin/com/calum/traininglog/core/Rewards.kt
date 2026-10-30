@@ -133,7 +133,7 @@ object Rewards {
 
     // ---------------------------------------------------------------- summary
 
-    fun summary(records: List<SessionRecord>, today: LocalDate): RewardsSummary {
+    fun summary(records: List<SessionRecord>, today: LocalDate, settings: UserSettings = UserSettings()): RewardsSummary {
         val sorted = records.filter { it.date <= today }.sortedBy { it.date }
         val a = analyse(sorted)
         val xp = a.xp.values.sumOf { it.total }
@@ -147,7 +147,7 @@ object Rewards {
             xpForNextLevel = levelSpan(level),
             prs = a.prs,
             prSessionIds = a.prs.map { it.sessionId }.toSet(),
-            ring = ring(sorted, today),
+            ring = ring(sorted, today, settings),
             activeWeekStreak = streak.streak,
             longestStreak = streak.longest,
             restTokens = streak.tokens,
@@ -165,20 +165,25 @@ object Rewards {
 
     // ---------------------------------------------------------------- weekly ring
 
-    fun ring(sorted: List<SessionRecord>, today: LocalDate): WeeklyRing {
+    fun ring(sorted: List<SessionRecord>, today: LocalDate, settings: UserSettings = UserSettings()): WeeklyRing {
+        val gymTarget = settings.gymTarget
+        val tmTarget = settings.treadmillTarget
+        val gymStretch = settings.effectiveGymStretch
+        val tmStretch = settings.effectiveTreadmillStretch
         val w = Stats.week(sorted.filter { it.date <= today }, today)
-        val gymDone = min(w.gym, GYM_TARGET)
-        val tmDone = min(w.treadmill, TREADMILL_TARGET)
-        val progress = (gymDone + tmDone).toDouble() / (GYM_TARGET + TREADMILL_TARGET)
-        val bonusCap = (GYM_STRETCH - GYM_TARGET) + (TREADMILL_STRETCH - TREADMILL_TARGET)
-        val bonusDone = (min(w.gym, GYM_STRETCH) - gymDone) + (min(w.treadmill, TREADMILL_STRETCH) - tmDone)
+        val gymDone = min(w.gym, gymTarget)
+        val tmDone = min(w.treadmill, tmTarget)
+        val total = gymTarget + tmTarget
+        val progress = if (total == 0) 1.0 else (gymDone + tmDone).toDouble() / total
+        val bonusCap = (gymStretch - gymTarget) + (tmStretch - tmTarget)
+        val bonusDone = (min(w.gym, gymStretch) - gymDone) + (min(w.treadmill, tmStretch) - tmDone)
         return WeeklyRing(
             gym = w.gym,
             treadmill = w.treadmill,
-            gymTarget = GYM_TARGET,
-            treadmillTarget = TREADMILL_TARGET,
+            gymTarget = gymTarget,
+            treadmillTarget = tmTarget,
             progress = progress.coerceIn(0.0, 1.0),
-            bonus = (bonusDone.toDouble() / bonusCap).coerceIn(0.0, 1.0),
+            bonus = if (bonusCap == 0) 0.0 else (bonusDone.toDouble() / bonusCap).coerceIn(0.0, 1.0),
         )
     }
 

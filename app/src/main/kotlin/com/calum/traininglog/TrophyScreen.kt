@@ -34,7 +34,7 @@ import java.time.LocalDate
 @Composable
 fun TrophyScreen(vm: AppViewModel) {
     val data by vm.data.collectAsState()
-    val r = Rewards.summary(data.records, LocalDate.now())
+    val r = Rewards.summary(data.records, LocalDate.now(), data.profile.settings)
     val prs = r.prs.sortedByDescending { it.date }
     LazyColumn(
         Modifier.fillMaxSize(),

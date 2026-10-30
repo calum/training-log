@@ -17,26 +17,26 @@ data class Prescription(
 data class HistoryEntry(val date: LocalDate, val log: ExerciseLog)
 
 object Progression {
-    private const val RESTART_AFTER_DAYS = 21
-    private const val RESTART_FACTOR = 0.9
     private const val LIMIT_DROP = 0.925
     private const val RIR_TO_PROGRESS = 2
 
     fun next(
-        ex: Exercise,
+        exercise: Exercise,
         history: List<HistoryEntry>,
         today: LocalDate,
         easedRestart: Boolean = false,
+        settings: UserSettings = UserSettings(),
     ): Prescription {
+        val ex = settings.resolve(exercise)
         val last = history.firstOrNull()
             ?: return Prescription(ex.startKg, ex.sets, ex.repsLow, "First time: starting weight, adjust as needed.")
         val lastKg = last.log.sets.maxOf { it.weightKg }
         val gapDays = ChronoUnit.DAYS.between(last.date, today)
 
-        if (gapDays >= RESTART_AFTER_DAYS || easedRestart) {
-            val kg = roundTo(lastKg * RESTART_FACTOR, 2.5)
-            val why = if (gapDays >= RESTART_AFTER_DAYS) "Back after ${gapDays / 7} weeks" else "Easing back in"
-            return Prescription(kg, ex.sets, ex.repsLow, "$why: 90% of last working weight.")
+        if (gapDays >= settings.restartAfterDays || easedRestart) {
+            val kg = roundTo(lastKg * settings.restartFactor, 2.5)
+            val why = if (gapDays >= settings.restartAfterDays) "Back after ${gapDays / 7} weeks" else "Easing back in"
+            return Prescription(kg, ex.sets, ex.repsLow, "$why: ${Math.round(settings.restartFactor * 100)}% of last working weight.")
         }
 
         return if (ex.role == Role.MAIN) mainNext(ex, history, lastKg) else accessoryNext(ex, last, lastKg)
@@ -77,7 +77,7 @@ object Progression {
     }
 
     /** Deload suggested after ~6 weeks of consistent training with no recent deload. */
-    fun deloadDue(sessionDates: List<LocalDate>, lastDeload: LocalDate?, today: LocalDate, afterWeeks: Int = 6): Boolean {
+    fun deloadDue(sessionDates: List<LocalDate>, lastDeload: LocalDate?, today: LocalDate, afterWeeks: Int = 6, settings: UserSettings = UserSettings()): Boolean {
         val recent = sessionDates.filter { lastDeload == null || it.isAfter(lastDeload) }.sorted()
         if (recent.isEmpty()) return false
         // A gap of 2+ weeks resets the clock: only count the current consistent run.
@@ -86,7 +86,7 @@ object Progression {
             if (ChronoUnit.DAYS.between(d, runStart) > 14) break
             runStart = d
         }
-        return ChronoUnit.WEEKS.between(runStart, today) >= afterWeeks
+        return ChronoUnit.WEEKS.between(runStart, today) >= (if (afterWeeks != 6) afterWeeks else settings.deloadWeeks)
     }
 
     fun deloadSets(sets: Int): Int = max(1, ceil(sets * 0.6).toInt())

@@ -25,6 +25,15 @@ Personal progressive training app for Android (Pixel 6a). Asks how much time and
 - **Google Drive**: your full private data is backed up to the hidden app folder in your own Drive. Setup: `docs/google-drive-setup.md`.
 - **Safety**: the release workflow only runs when dispatched by hand (no tag trigger), and `main` should be protected so a leaked sync token cannot change code.
 
+## Added in v0.4
+
+- **Settings**: edit starting weights, increments, rest times, weekly targets, gym travel time, deload cadence and treadmill warm-up. Defaults match the old behaviour.
+- **Training blocks**: 4-8 week blocks with a headline target and extra goals, progress on Home, a block-end export for Claude and a suggested next block.
+- **Easing back in**: after 21+ days off, the first 3 gym sessions are lighter with reps in reserve guidance.
+- **Plan** now forecasts upper-body lifts too; the Home "Next up" card names the real session.
+- **Treadmill reliability**: audible beeps over YouTube (audio focus ducking), catch-up after stalls, notification and picture-in-picture buttons for pause and +/-30 s. On-phone checklist in `docs/treadmill-testing.md`.
+- **Custom exercises** remember their movement group.
+
 Not yet built: training blocks, in-app settings for increments and starting weights.
 
 ## Starting weights are placeholders

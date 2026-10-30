@@ -31,6 +31,7 @@ import com.calum.traininglog.core.HeadlineTarget
 import com.calum.traininglog.core.Projection
 import com.calum.traininglog.core.Scenario
 import com.calum.traininglog.core.SessionRecord
+import com.calum.traininglog.core.UserSettings
 import com.calum.traininglog.ui.AppColors
 import com.calum.traininglog.ui.AppShapes
 import com.calum.traininglog.ui.AppType
@@ -59,6 +60,7 @@ fun PlanScreen(vm: AppViewModel) {
         onHeadline = { id, kg -> vm.updateProfile { it.copy(headlineExerciseId = id, headlineKg = kg) } },
         onBack = { vm.home() },
         today = LocalDate.now(),
+        settings = data.profile.settings,
     )
 }
 
@@ -70,16 +72,17 @@ internal fun PlanContent(
     onHeadline: (String, Double) -> Unit,
     onBack: () -> Unit,
     today: LocalDate,
+    settings: UserSettings = UserSettings(),
 ) {
-    var gym by remember { mutableIntStateOf(2) }
-    var tread by remember { mutableIntStateOf(3) }
+    var gym by remember { mutableIntStateOf(settings.gymTarget) }
+    var tread by remember { mutableIntStateOf(settings.treadmillTarget) }
     var lift by remember { mutableStateOf("squat") }
-    val forecast = remember(records, today, gym, tread, headlineId, headlineKg) {
-        Projection.forecast(records, today, HORIZON, gym, tread, HeadlineTarget(headlineId, headlineKg))
+    val forecast = remember(records, today, gym, tread, headlineId, headlineKg, settings) {
+        Projection.forecast(records, today, HORIZON, gym, tread, HeadlineTarget(headlineId, headlineKg), settings)
     }
     // This week's outlook always assumes the standard good week (2 gym, 3 treadmill).
-    val outlook = remember(records, today) {
-        Projection.forecast(records, today, HORIZON, 2, 3).weekOutlook
+    val outlook = remember(records, today, settings) {
+        Projection.forecast(records, today, HORIZON, settings = settings).weekOutlook
     }
 
     Column(
@@ -256,11 +259,11 @@ private fun WhatIfCard(gym: Int, tread: Int, onGym: (Int) -> Unit, onTread: (Int
     SectionCard(title = "What if...") {
         Text("GYM PACE", style = AppType.eyebrow, color = AppColors.textMuted)
         Row(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
-            listOf(1, 2, 3).forEach { n -> SelectChip("$n gym a week", gym == n, { onGym(n) }) }
+            (listOf(1, 2, 3) + gym).distinct().sorted().forEach { n -> SelectChip("$n gym a week", gym == n, { onGym(n) }) }
         }
         Text("TREADMILL PACE", style = AppType.eyebrow, color = AppColors.textMuted)
         Row(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
-            listOf(2, 3, 4).forEach { n -> SelectChip("$n treadmill", tread == n, { onTread(n) }, accent = AppColors.energy) }
+            (listOf(2, 3, 4) + tread).distinct().sorted().forEach { n -> SelectChip("$n treadmill", tread == n, { onTread(n) }, accent = AppColors.energy) }
         }
         Text(
             "Everything above updates as you switch. 2 gym and 3 treadmill is the default good week.",

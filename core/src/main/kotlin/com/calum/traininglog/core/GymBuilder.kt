@@ -35,7 +35,7 @@ object GymBuilder {
     /** Rotation order for the upper-body movements; also breaks ties between equally stale ones. */
     val upperRotation = listOf("vertical-pull", "horizontal-pull", "horizontal-push", "vertical-push")
 
-    fun liftingMinutes(minutesAvailable: Int) = minutesAvailable - 2 * TRAVEL_MIN_EACH_WAY
+    fun liftingMinutes(minutesAvailable: Int, settings: UserSettings = UserSettings()) = minutesAvailable - 2 * settings.travelMinEachWay
 
     private fun gymRecords(records: List<SessionRecord>) = records.filter { it.type == SessionType.GYM }
 
@@ -95,10 +95,11 @@ object GymBuilder {
         deload: Boolean = false,
         easedRestart: Boolean = false,
         rebaseline: RebaselineStatus? = null,
+        settings: UserSettings = UserSettings(),
     ): GymPlan {
         val easing = rebaseline?.takeIf { it.active }
         @Suppress("NAME_SHADOWING") val deload = deload && easing?.stage != 1
-        fun p(ex: Exercise) = plan(ex, records, today, deload, easedRestart, easing)
+        fun p(ex: Exercise) = plan(ex, records, today, deload, easedRestart, easing, settings)
         val hinge = nextHinge(records)
         val (u1, u2) = nextUpperMovements(records, 2).map { preferredFor(it, records) }
 
@@ -130,7 +131,8 @@ object GymBuilder {
      * Plan one exercise. Library exercises use [Progression]; custom (free-text) ones get 3 x 10 at
      * the weight and reps of their last logged session (0 kg if none) and never auto-progress.
      */
-    fun plan(ex: Exercise, records: List<SessionRecord>, today: LocalDate, deload: Boolean, easedRestart: Boolean = false, rebaseline: RebaselineStatus? = null): PlannedExercise {
+    fun plan(libraryEx: Exercise, records: List<SessionRecord>, today: LocalDate, deload: Boolean, easedRestart: Boolean = false, rebaseline: RebaselineStatus? = null, settings: UserSettings = UserSettings()): PlannedExercise {
+        val ex = settings.resolve(libraryEx)
         val history = history(ex.id, records)
         var rx = if (ExerciseLibrary.isCustom(ex.id)) {
             val last = history.firstOrNull()?.log?.sets
@@ -139,7 +141,7 @@ object GymBuilder {
                 val top = last.maxByOrNull { it.weightKg }!!
                 Prescription(top.weightKg, ex.sets, top.reps.coerceAtLeast(1), "Your own exercise: repeating last time (no automatic progression).")
             }
-        } else Progression.next(ex, history, today, easedRestart)
+        } else Progression.next(ex, history, today, easedRestart, settings)
         if (rebaseline != null && rebaseline.active) {
             // Progression already applies its 90% restart after a long gap; only never-done exercises need the factor.
             val w = if (history.isEmpty() && rebaseline.weightFactor < 1.0 && rx.weightKg > 0) roundTo(rx.weightKg * rebaseline.weightFactor, 2.5) else rx.weightKg
@@ -148,15 +150,15 @@ object GymBuilder {
         if (deload) {
             rx = rx.copy(sets = Progression.deloadSets(rx.sets), note = "Deload week: fewer sets, same loads.")
         }
-        val warmups = if (ex.warmup) Warmup.squatSets(rx.weightKg) else emptyList()
+        val warmups = if (ex.warmup) Warmup.squatSets(rx.weightKg, settings.barKg) else emptyList()
         return PlannedExercise(ex, rx, warmups)
     }
 
     /** Plan any library or custom exercise by id (custom names come from history when logged before). */
-    fun planFor(id: String, records: List<SessionRecord>, today: LocalDate, deload: Boolean, easedRestart: Boolean = false, rebaseline: RebaselineStatus? = null): PlannedExercise {
+    fun planFor(id: String, records: List<SessionRecord>, today: LocalDate, deload: Boolean, easedRestart: Boolean = false, rebaseline: RebaselineStatus? = null, settings: UserSettings = UserSettings()): PlannedExercise {
         val ex = ExerciseLibrary.find(id) ?: customFromHistory(records).firstOrNull { it.id == id }
             ?: ExerciseLibrary.custom(ExerciseLibrary.nameOf(id))
-        return plan(ex, records, today, deload, easedRestart, rebaseline)
+        return plan(ex, records, today, deload, easedRestart, rebaseline, settings)
     }
 
     /** Free-text exercises logged before, newest first (no extra storage). */
