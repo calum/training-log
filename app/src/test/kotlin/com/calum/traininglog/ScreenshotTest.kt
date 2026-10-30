@@ -2,7 +2,14 @@ package com.calum.traininglog
 
 import android.content.Context
 import androidx.activity.ComponentActivity
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.foundation.layout.size
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
@@ -39,6 +46,39 @@ class ScreenshotTest(private val shot: Shot) {
 
     /** Everything a setup lambda can touch. [clock] is a fake monotonic clock (ms) for [TreadmillEngine]. */
     class Env(val vm: AppViewModel, val ctx: Context) {
+        /** Overwrites a private `MutableStateFlow` field of a singleton (GithubSync, DriveBackup, UpdateManager). */
+        fun force(owner: Any, field: String, value: Any?) {
+            val f = owner.javaClass.getDeclaredField(field).apply { isAccessible = true }
+            @Suppress("UNCHECKED_CAST")
+            (f.get(owner) as kotlinx.coroutines.flow.MutableStateFlow<Any?>).value = value
+        }
+
+        /** Guided core session started and advanced [intoMs] into the first step of [kind] (after [skipSteps] of them). */
+        fun corePlayer(kind: com.calum.traininglog.core.CoreKind, intoMs: Long, skipSteps: Int = 0, pausedAway: Boolean = false) {
+            vm.begin(SessionType.CORE, 20)
+            vm.core.start()
+            val steps = vm.core.ui.value.session!!.steps
+            val idx = steps.indices.filter { steps[it].kind == kind }[skipSteps]
+            val into = if (intoMs < 0) steps[idx].seconds * 1000L + intoMs else intoMs
+            var run = com.calum.traininglog.core.CoreRun(steps, index = idx, elapsedMs = into, totalElapsedMs = steps.take(idx).sumOf { it.seconds } * 1000L + into)
+            if (pausedAway) run = run.pause(away = true)
+            force(vm.core, "_ui", vm.core.ui.value.copy(run = run, changes = 0))
+        }
+
+        /** Signed in through the GitHub App (needs the Keystore; falls back to a pasted-token look). */
+        fun githubConnected() {
+            ctx.getSharedPreferences("github_sync", Context.MODE_PRIVATE).edit()
+                .putString("owner", "calum").putString("repo", "training-log").putString("branch", "data")
+                .putString("clientId", "Iv23liExampleClientId").putLong("lastSyncAt", System.currentTimeMillis() - 3_600_000).apply()
+            TokenVault.save(ctx, TokenSet("ghu_example", "ghr_example", System.currentTimeMillis() + 3_600_000, System.currentTimeMillis() + 86_400_000).encode())
+        }
+
+        fun driveConnected(found: Backup? = null) {
+            DriveBackup.javaClass.getDeclaredField("initialised").apply { isAccessible = true }.setBoolean(DriveBackup, true)
+            force(DriveBackup, "_state", DriveState.Idle(java.time.OffsetDateTime.now().minusHours(5).toString()))
+            force(DriveBackup, "_found", found)
+        }
+
         fun treadmillPlayer(style: TreadmillStyle, minutes: Int, tickToMs: List<Long>) {
             vm.setInputs { it.copy(minutes = minutes) }
             vm.begin(SessionType.TREADMILL, minutes, style)
@@ -52,6 +92,12 @@ class ScreenshotTest(private val shot: Shot) {
         val name: String,
         val pip: Boolean = false,
         val seed: (() -> Pair<List<com.calum.traininglog.core.SessionRecord>, Profile>)? = null,
+        /** Taller viewport (dp) to see a whole long screen in one PNG. */
+        val tallDp: Int? = null,
+        /** Replaces [AppRoot] with custom content (for stateless galleries). */
+        val content: (@androidx.compose.runtime.Composable (AppViewModel) -> Unit)? = null,
+        /** Runs after the first composition (clicks etc.). */
+        val act: (androidx.compose.ui.test.junit4.ComposeContentTestRule.() -> Unit)? = null,
         val setup: Env.() -> Unit = {},
     ) {
         override fun toString() = name
@@ -63,19 +109,30 @@ class ScreenshotTest(private val shot: Shot) {
     @Test
     fun capture() {
         TreadmillEngine.stop()
+        shot.tallDp?.let { org.robolectric.RuntimeEnvironment.setQualifiers("w411dp-h${it}dp-xxhdpi") }
         val ctx = ApplicationProvider.getApplicationContext<Context>()
         val (records, profile) = (shot.seed ?: ::busy)()
         Fixtures.seed(ctx, records, profile)
         val vm = AppViewModel(ctx as android.app.Application)
-        Env(vm, ctx).apply(shot.setup)
+        val env = Env(vm, ctx)
+        env.force(UpdateManager, "_state", UpdateState.Idle)
+        env.force(GithubSync, "_state", SyncState.NotConfigured)
+        env.force(GithubSync, "_device", GithubSync.DeviceState.Idle)
+        env.force(GithubSync, "_restore", GithubSync.RestoreState.Idle)
+        env.force(GithubSync, "_test", GithubSync.TestState.Idle)
+        env.force(DriveBackup, "_state", DriveState.NotSetUp)
+        env.force(DriveBackup, "_found", null)
+        env.apply(shot.setup)
         rule.setContent {
-            if (shot.pip) Box(Modifier.size(320.dp, 180.dp).testTag("shot")) { AppRoot(vm, inPip = true) }
+            if (shot.content != null) shot.content.invoke(vm)
+            else if (shot.pip) Box(Modifier.size(320.dp, 180.dp).testTag("shot")) { AppRoot(vm, inPip = true) }
             else AppRoot(vm, inPip = false)
         }
         rule.waitForIdle()
+        shot.act?.let { rule.it(); rule.waitForIdle() }
         val file = File(outputDir(), "${shot.name}.png")
         if (shot.pip) rule.onNodeWithTag("shot").captureRoboImage(file.path)
-        else rule.onRoot().captureRoboImage(file.path)
+        else rule.onAllNodes(androidx.compose.ui.test.isRoot()).let { it[it.fetchSemanticsNodes().size - 1] }.captureRoboImage(file.path)
         TreadmillEngine.stop()
     }
 
@@ -124,6 +181,58 @@ class ScreenshotTest(private val shot: Shot) {
             Shot("backup-sync") { vm.go(Screen.Backup) },
             Shot("settings") { vm.go(Screen.Settings) },
             Shot("blocks") { vm.go(Screen.Blocks) },
+            // ---- Second pass: guided core, blocks, backup, update banner ----
+            Shot("core-setup") { vm.begin(SessionType.CORE, 20) },
+            Shot("core-setup-full", tallDp = 2300) { vm.begin(SessionType.CORE, 20) },
+            Shot("core-player-work") { corePlayer(com.calum.traininglog.core.CoreKind.WORK, 14_000) },
+            Shot("core-player-warn") { corePlayer(com.calum.traininglog.core.CoreKind.WORK, -2_000, skipSteps = 1) },
+            Shot("core-player-rest") { corePlayer(com.calum.traininglog.core.CoreKind.REST, 6_000) },
+            Shot("core-player-warmup") { corePlayer(com.calum.traininglog.core.CoreKind.WARMUP, 20_000) },
+            Shot("core-player-away") { corePlayer(com.calum.traininglog.core.CoreKind.WORK, 9_000, pausedAway = true) },
+            Shot("core-done") {
+                corePlayer(com.calum.traininglog.core.CoreKind.WORK, 0, skipSteps = 3)
+                vm.core.end()
+            },
+            Shot("blocks-active", seed = { Fixtures.busyRecords() to Fixtures.blockProfile() }, tallDp = 2300) { vm.go(Screen.Blocks) },
+            Shot("blocks-active-top", seed = { Fixtures.busyRecords() to Fixtures.blockProfile() }) { vm.go(Screen.Blocks) },
+            Shot("blocks-only-finished", seed = { Fixtures.busyRecords() to Fixtures.blockProfile(withCurrent = false) }, tallDp = 1700) { vm.go(Screen.Blocks) },
+            Shot("blocks-empty-full", tallDp = 2300) { vm.go(Screen.Blocks) },
+            Shot("blocks-new-form", seed = { Fixtures.busyRecords() to Fixtures.blockProfile() }, tallDp = 3300,
+                act = { onNodeWithText("Start a new block instead").performScrollTo().performClick() }) { vm.go(Screen.Blocks) },
+            Shot("blocks-review", seed = { Fixtures.busyRecords() to Fixtures.blockProfile() },
+                act = { onNodeWithText("Block review").performScrollTo().performClick() }) { vm.go(Screen.Blocks) },
+            Shot("home-block", seed = { Fixtures.busyRecords() to Fixtures.blockProfile(withFinished = false) }, tallDp = 1700),
+            Shot("home-block-done", seed = { Fixtures.busyRecords() to Fixtures.blockProfile(withCurrent = false) }, tallDp = 1700),
+            Shot("manual-log-full", tallDp = 1700) { vm.go(Screen.Manual) },
+            Shot("light-hike-full", tallDp = 1100) { vm.begin(SessionType.HIKE, 120) },
+            Shot("export-full", tallDp = 1700) { vm.go(Screen.Export) },
+            Shot("backup-sync-full", tallDp = 3000) { vm.go(Screen.Backup) },
+            Shot("backup-github", tallDp = 3000) { githubConnected(); driveConnected(); vm.go(Screen.Backup) },
+            Shot("backup-device-code", tallDp = 1700) {
+                force(GithubSync, "_device", GithubSync.DeviceState.Waiting("WDJB-MJHT", "https://github.com/login/device"))
+                vm.go(Screen.Backup)
+            },
+            Shot("backup-restore-preview", seed = ::empty, tallDp = 3000) {
+                githubConnected()
+                val recs = Fixtures.busyRecords()
+                force(GithubSync, "_restore", GithubSync.RestoreState.Preview(recs, recs.size))
+                driveConnected(Backup(1, java.time.OffsetDateTime.now().minusDays(2).toString(), AppData(recs, Profile())))
+                vm.go(Screen.Backup)
+            },
+            Shot("update-banners", content = { _ ->
+                com.calum.traininglog.ui.TrainingTheme {
+                    androidx.compose.foundation.layout.Column(
+                        Modifier.fillMaxSize().background(com.calum.traininglog.ui.AppColors.background).statusBarsPadding().padding(16.dp),
+                        verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(12.dp),
+                    ) {
+                        listOf(
+                            UpdateState.Checking, UpdateState.UpToDate, UpdateState.Available("0.6.0", "u", 9_000_000),
+                            UpdateState.Downloading("0.6.0", 42), UpdateState.NeedsPermission("0.6.0"), UpdateState.Installing("0.6.0"),
+                            UpdateState.Failed("Couldn't reach GitHub. Check your connection and try again."),
+                        ).forEach { UpdateBannerContent(it) }
+                    }
+                }
+            }),
         )
 
         @JvmStatic

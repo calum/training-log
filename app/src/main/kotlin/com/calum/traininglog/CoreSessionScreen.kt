@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -66,6 +67,7 @@ import com.calum.traininglog.ui.Pill
 import com.calum.traininglog.ui.SecondaryButton
 import com.calum.traininglog.ui.SectionCard
 import com.calum.traininglog.ui.SelectChip
+import com.calum.traininglog.ui.StatTile
 import com.calum.traininglog.ui.Spacing
 import com.calum.traininglog.ui.TrainingTheme
 import kotlinx.coroutines.delay
@@ -262,30 +264,37 @@ private fun CorePlayerBody(run: CoreRun, flash: Boolean, onTogglePause: () -> Un
     val stepFraction = (run.elapsedMs / (step.seconds * 1000f)).coerceIn(0f, 1f)
 
     Column(
-        Modifier.fillMaxSize().background(AppColors.background).verticalScroll(rememberScrollState())
-            .statusBarsPadding().padding(Spacing.screen),
+        Modifier.fillMaxSize().background(AppColors.background).statusBarsPadding().padding(Spacing.screen),
         horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(Spacing.md),
     ) {
-        Text(
-            if (run.paused) "PAUSED" else step.kind.title(),
-            style = AppType.eyebrow, color = if (run.paused) AppColors.energy else AppColors.textMuted,
-        )
+        if (run.paused) Pill("PAUSED", color = AppColors.energy, filled = true)
+        else Pill(step.kind.title(), color = accent)
         Text(step.name, style = MaterialTheme.typography.displaySmall, color = AppColors.textPrimary, textAlign = TextAlign.Center)
         sideText(step.side)?.let { Pill(it, color = AppColors.info, filled = true) }
 
-        CountdownRing(stepFraction, accent, Modifier.size(220.dp)) {
-            Text(mmss(run.secondsLeft), style = AppType.numberXL, color = if (warn) AppColors.energy else AppColors.textPrimary)
+        // Ring and coaching text take the free space and stay centred; they scroll on very small screens.
+        Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+            Column(
+                Modifier.verticalScroll(rememberScrollState()),
+                horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(Spacing.lg),
+            ) {
+                CountdownRing(stepFraction, accent, Modifier.size(272.dp)) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(mmss(run.secondsLeft), style = AppType.numberXL, color = if (warn) AppColors.energy else AppColors.textPrimary)
+                        Text("of ${mmss(step.seconds)}", style = MaterialTheme.typography.labelLarge, color = AppColors.textMuted)
+                    }
+                }
+                if (run.pausedAway) {
+                    Text(
+                        "Paused while you were away. The session only runs while the app is open.",
+                        style = MaterialTheme.typography.bodyMedium, color = AppColors.energy, textAlign = TextAlign.Center,
+                        modifier = Modifier.fillMaxWidth().clip(AppShapes.medium).background(AppColors.energy.copy(alpha = 0.12f)).padding(Spacing.md),
+                    )
+                }
+                Text(step.cue, style = MaterialTheme.typography.bodyLarge, color = AppColors.textPrimary, textAlign = TextAlign.Center)
+                step.reps?.let { Pill("Aim for about $it slow reps", color = AppColors.textMuted) }
+            }
         }
-
-        if (run.pausedAway) {
-            Text(
-                "Paused while you were away. The session only runs while the app is open.",
-                style = MaterialTheme.typography.bodyMedium, color = AppColors.energy, textAlign = TextAlign.Center,
-            )
-        }
-
-        Text(step.cue, style = MaterialTheme.typography.bodyLarge, color = AppColors.textPrimary, textAlign = TextAlign.Center)
-        step.reps?.let { Text("Aim for about $it slow reps", style = MaterialTheme.typography.labelLarge, color = AppColors.textMuted) }
 
         Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(Spacing.xs)) {
             LinearBar(run.fraction, Modifier.fillMaxWidth().height(16.dp))
@@ -376,11 +385,34 @@ private fun CoreSetupContent(
             )
         }
         if (s != null) {
+            val moves = s.blocks.sumOf { it.exercises.size }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+                StatTile("Time", "${ui.minutes}", Modifier.weight(1f), unit = "min", accent = AppColors.primary, compact = true)
+                StatTile("Blocks", "${s.blocks.size}", Modifier.weight(1f), accent = AppColors.reward, compact = true)
+                StatTile("Moves", "$moves", Modifier.weight(1f), accent = AppColors.info, compact = true)
+            }
+        }
+        BigActionButton("Start", onStart, enabled = s != null)
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Spacing.md)) {
+            SecondaryButton("Different mix", onShuffle, Modifier.weight(1f))
+            SecondaryButton("Back", onBack, Modifier.weight(1f), accent = AppColors.textMuted)
+        }
+        Text(
+            "You get a short beep 3 seconds before each work interval ends and a double beep at the switch. " +
+                "The timer runs inside the app: if you leave it, the session pauses and waits for you.",
+            style = MaterialTheme.typography.bodyMedium, color = AppColors.textMuted,
+        )
+        if (s != null) {
+            Text("WHAT'S IN IT", style = AppType.eyebrow, color = AppColors.textMuted)
             SectionCard(title = "Warm-up") {
                 s.warmup.forEach { StepLine("${it.seconds}s", it.name, null) }
             }
             s.blocks.forEachIndexed { i, b ->
-                SectionCard(title = "Block ${i + 1}: ${b.rounds} ${if (b.rounds == 1) "round" else "rounds"}, ${b.workSec}s on / ${b.restSec}s off") {
+                SectionCard(title = "Block ${i + 1}") {
+                    Text(
+                        "${b.rounds} ${if (b.rounds == 1) "round" else "rounds"}, ${b.workSec}s work / ${b.restSec}s rest",
+                        style = MaterialTheme.typography.labelLarge, color = AppColors.textMuted,
+                    )
                     b.exercises.forEach { e ->
                         StepLine(
                             if (e.reps != null) "${e.reps}" else "hold", e.name,
@@ -393,14 +425,7 @@ private fun CoreSetupContent(
                 s.cooldown.filter { it.side == CoreSide.LEFT }.forEach { StepLine("${it.seconds}s", it.name, "each side") }
             }
         }
-        Text(
-            "You get a short beep 3 seconds before each work interval ends and a double beep at the switch. " +
-                "The timer runs inside the app: if you leave it, the session pauses and waits for you.",
-            style = MaterialTheme.typography.bodyMedium, color = AppColors.textMuted,
-        )
-        BigActionButton("Start", onStart, Modifier.heightIn(min = 96.dp), enabled = s != null)
-        SecondaryButton("Different mix", onShuffle, Modifier.fillMaxWidth())
-        SecondaryButton("Back", onBack, Modifier.fillMaxWidth(), accent = AppColors.textMuted)
+        Spacer(Modifier.height(Spacing.lg))
     }
 }
 
@@ -420,10 +445,11 @@ private fun CoreDoneScreen(ui: CoreUi, onSave: (Effort?) -> Unit) {
     var burst by remember { mutableIntStateOf(0) }
     LaunchedEffect(Unit) { burst = 1 }
     val minutes = (ui.run?.completedSec ?: 0) / 60
-    Box(Modifier.fillMaxSize().background(AppColors.background)) {
+    androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxSize().background(AppColors.background)) {
+        val minH = maxHeight
         Column(
-            Modifier.fillMaxSize().verticalScroll(rememberScrollState()).statusBarsPadding().padding(Spacing.screen),
-            verticalArrangement = Arrangement.spacedBy(Spacing.lg),
+            Modifier.fillMaxSize().verticalScroll(rememberScrollState()).statusBarsPadding().padding(Spacing.screen).heightIn(min = minH - 56.dp),
+            verticalArrangement = Arrangement.spacedBy(Spacing.lg, Alignment.CenterVertically),
         ) {
             Text("Nice work", style = MaterialTheme.typography.displaySmall, color = AppColors.textPrimary)
             Text(
@@ -431,6 +457,10 @@ private fun CoreDoneScreen(ui: CoreUi, onSave: (Effort?) -> Unit) {
                 style = MaterialTheme.typography.titleMedium, color = AppColors.textMuted,
             )
             if (minutes >= 1) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+                    StatTile("Time", "$minutes", Modifier.weight(1f), unit = "min", compact = true)
+                    StatTile("Moves", "${ui.run?.doneWorkNames()?.size ?: 0}", Modifier.weight(1f), accent = AppColors.reward, compact = true)
+                }
                 Text("How did that feel? (optional)", style = MaterialTheme.typography.headlineSmall, color = AppColors.textPrimary)
                 DoneTile("Too easy", "Next time push harder", AppColors.energy) { onSave(Effort.TOO_EASY) }
                 DoneTile("Just right", "Keep it like this", AppColors.primary) { onSave(Effort.JUST_RIGHT) }

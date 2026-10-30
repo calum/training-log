@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -23,8 +24,14 @@ import androidx.compose.ui.unit.sp
 /** Shows update state from [UpdateManager]; draws nothing when there's nothing to say. Drop it anywhere. */
 @Composable
 fun UpdateBanner(modifier: Modifier = Modifier) {
-    val ctx = LocalContext.current
     val state by UpdateManager.state.collectAsState()
+    UpdateBannerContent(state, modifier)
+}
+
+/** Stateless banner body (also used by the screenshot harness). */
+@Composable
+internal fun UpdateBannerContent(state: UpdateState, modifier: Modifier = Modifier) {
+    val ctx = LocalContext.current
     when (val s = state) {
         UpdateState.Idle -> Unit
         UpdateState.Checking -> BannerCard(modifier) { Text("Checking for updates…") }
@@ -38,8 +45,8 @@ fun UpdateBanner(modifier: Modifier = Modifier) {
             Text("Update available: v${s.version}", fontWeight = FontWeight.Bold, fontSize = 18.sp)
             Text("Your data stays on the phone. Android will ask you to confirm.", fontSize = 13.sp)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = { UpdateManager.install(ctx) }) { Text("Update now") }
-                TextButton(onClick = { UpdateManager.dismiss() }) { Text("Later") }
+                Button(onClick = { UpdateManager.install(ctx) }, modifier = Modifier.heightIn(min = 48.dp)) { Text("Update now") }
+                TextButton(onClick = { UpdateManager.dismiss() }, modifier = Modifier.heightIn(min = 48.dp)) { Text("Later") }
             }
         }
         is UpdateState.Downloading -> BannerCard(modifier) {
@@ -48,7 +55,7 @@ fun UpdateBanner(modifier: Modifier = Modifier) {
         }
         is UpdateState.NeedsPermission -> BannerCard(modifier) {
             Text("Allow Training Log to install updates in the settings screen that just opened, then come back and tap Update again.")
-            Row { Button(onClick = { UpdateManager.check(ctx, quiet = false) }) { Text("Check again") } }
+            Row { Button(onClick = { UpdateManager.check(ctx, quiet = false) }, modifier = Modifier.heightIn(min = 48.dp)) { Text("Check again") } }
         }
         is UpdateState.Installing -> BannerCard(modifier) { Text("Installing v${s.version}… confirm if Android asks.") }
         is UpdateState.Failed -> BannerCard(modifier) {
@@ -60,7 +67,12 @@ fun UpdateBanner(modifier: Modifier = Modifier) {
 
 @Composable
 private fun BannerCard(modifier: Modifier, content: @Composable () -> Unit) {
-    Card(modifier.fillMaxWidth()) {
-        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) { content() }
+    Card(
+        modifier.fillMaxWidth(), shape = com.calum.traininglog.ui.AppShapes.large,
+        colors = androidx.compose.material3.CardDefaults.cardColors(
+            containerColor = com.calum.traininglog.ui.AppColors.surfaceRaised, contentColor = com.calum.traininglog.ui.AppColors.textPrimary,
+        ),
+    ) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) { content() }
     }
 }

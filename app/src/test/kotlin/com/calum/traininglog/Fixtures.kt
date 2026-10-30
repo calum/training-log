@@ -84,6 +84,26 @@ object Fixtures {
         restWeekdays = setOf(java.time.DayOfWeek.SUNDAY),
     )
 
+    /** Busy profile plus one running block (week 4 of 6, squat 85 -> 100 kg) and one finished block. */
+    fun blockProfile(today: LocalDate = LocalDate.now(), withFinished: Boolean = true, withCurrent: Boolean = true): Profile {
+        val finished = com.calum.traininglog.core.TrainingBlock(
+            id = "fx-b1", name = "Rebuild block", startDate = today.minusWeeks(11), weeks = 6,
+            headline = com.calum.traininglog.core.BlockTarget("squat", 90.0, 80.0),
+            extras = listOf(com.calum.traininglog.core.ExtraGoal(com.calum.traininglog.core.ExtraKind.TOTAL_SESSIONS, 10)),
+        )
+        val current = com.calum.traininglog.core.TrainingBlock(
+            id = "fx-b2", name = "Squat 100", startDate = today.minusWeeks(3), weeks = 6,
+            headline = com.calum.traininglog.core.BlockTarget("squat", 100.0, 85.0),
+            extras = listOf(
+                com.calum.traininglog.core.ExtraGoal(com.calum.traininglog.core.ExtraKind.SESSIONS_PER_WEEK, 3),
+                com.calum.traininglog.core.ExtraGoal(com.calum.traininglog.core.ExtraKind.TREADMILL_MINUTES, 240),
+            ),
+        )
+        return busyProfile(today).copy(
+            blocks = com.calum.traininglog.core.BlockState(listOfNotNull(finished.takeIf { withFinished }, current.takeIf { withCurrent })),
+        )
+    }
+
     /** Write [records]/[profile] where [Store] reads them; call BEFORE constructing the ViewModel. */
     fun seed(ctx: Context, records: List<SessionRecord>, profile: Profile = Profile()) {
         File(ctx.filesDir, "training-data.json")

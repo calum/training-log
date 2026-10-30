@@ -28,6 +28,17 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.sp
 import com.calum.traininglog.core.PublicImport
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.padding
+import androidx.compose.ui.unit.dp
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.text.style.TextAlign
+import com.calum.traininglog.ui.AppShapes
+import com.calum.traininglog.ui.AppType
+import com.calum.traininglog.ui.Pill
 import com.calum.traininglog.ui.AppColors
 import com.calum.traininglog.ui.SecondaryButton
 import com.calum.traininglog.ui.SectionCard
@@ -80,12 +91,38 @@ fun BackupScreen(vm: AppViewModel) {
     Page {
         Title("Backup & sync")
         SectionCard(title = "What goes where") {
-            Text(
-                "What goes on GitHub: weights, reps, effort, treadmill sessions.\n" +
-                    "What never leaves your phone: how you felt, knee scores, notes, travel time.",
-                color = AppColors.textPrimary, fontSize = 15.sp,
-            )
-            Muted("The GitHub repo is public, so only that short list is ever sent. It uploads on its own after each finished session.")
+            Row(verticalAlignment = androidx.compose.ui.Alignment.Top, horizontalArrangement = Arrangement.spacedBy(Spacing.md)) {
+                Pill("On GitHub", color = AppColors.primary, filled = true)
+                Text("Weights, reps, effort, treadmill sessions.", color = AppColors.textPrimary, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
+            }
+            Row(verticalAlignment = androidx.compose.ui.Alignment.Top, horizontalArrangement = Arrangement.spacedBy(Spacing.md)) {
+                Pill("Phone only", color = AppColors.reward, filled = true)
+                Text("How you felt, knee scores, notes, travel time.", color = AppColors.textPrimary, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
+            }
+            Muted("The GitHub repo is public, so only the first list is ever sent. It uploads on its own after each finished session.")
+        }
+
+        SectionCard(title = "Status") {
+            Text(status, style = MaterialTheme.typography.bodyLarge, color = if (state is SyncState.Failed || state == SyncState.NeedsSignIn) AppColors.energy else AppColors.textPrimary)
+            Row(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+                SecondaryButton(
+                    "Sync now", onClick = { GithubSync.syncNow(ctx) },
+                    enabled = GithubSync.isConfigured(ctx) && state != SyncState.Syncing && state != SyncState.NotConfigured,
+                    modifier = Modifier.weight(1f),
+                )
+                if (confirmDisconnect) {
+                    SecondaryButton("Really disconnect?", onClick = {
+                        GithubSync.disconnect(ctx)
+                        hasToken = false; signedIn = false; token = ""; replacing = false; confirmDisconnect = false
+                    }, modifier = Modifier.weight(1f), accent = AppColors.energy)
+                } else {
+                    SecondaryButton(
+                        "Disconnect", onClick = { confirmDisconnect = true },
+                        enabled = hasToken || state != SyncState.NotConfigured, modifier = Modifier.weight(1f),
+                    )
+                }
+            }
+            if (confirmDisconnect) Muted("This deletes the stored token from this phone. Data already on GitHub stays there; revoke the token on GitHub too.")
         }
 
         SectionCard(title = "GitHub data repo") {
@@ -125,22 +162,28 @@ fun BackupScreen(vm: AppViewModel) {
                     )
                     GithubSync.DeviceState.Starting -> Muted("Asking GitHub for a code...")
                     is GithubSync.DeviceState.Waiting -> {
-                        Muted("1. Open GitHub and type this code. 2. Approve the app. This screen finishes by itself.")
-                        Text(
-                            d.userCode, color = AppColors.textPrimary, fontSize = 34.sp, fontWeight = FontWeight.Bold,
-                            fontFamily = FontFamily.Monospace, modifier = Modifier.fillMaxWidth(),
-                        )
-                        Row(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
-                            SecondaryButton("Copy code", onClick = {
-                                val cm = ctx.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                cm.setPrimaryClip(ClipData.newPlainText("GitHub code", d.userCode))
-                            }, modifier = Modifier.weight(1f))
-                            SecondaryButton("Open github.com/login/device", onClick = {
-                                runCatching {
-                                    ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(d.verificationUri)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-                                }
-                            }, modifier = Modifier.weight(1f), accent = AppColors.primary)
+                        Column(
+                            Modifier.fillMaxWidth().clip(AppShapes.large).background(AppColors.reward.copy(alpha = 0.14f))
+                                .border(1.5.dp, AppColors.reward.copy(alpha = 0.6f), AppShapes.large).padding(Spacing.lg),
+                            horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(Spacing.sm),
+                        ) {
+                            Text("YOUR CODE", style = AppType.eyebrow, color = AppColors.reward)
+                            Text(
+                                d.userCode, color = AppColors.textPrimary, style = AppType.numberL,
+                                fontFamily = FontFamily.Monospace, textAlign = TextAlign.Center,
+                            )
+                            Muted("1. Open GitHub and type this code. 2. Approve the app. This screen finishes by itself.")
                         }
+                        SecondaryButton("Copy code", onClick = {
+                            val cm = ctx.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                            cm.setPrimaryClip(ClipData.newPlainText("GitHub code", d.userCode))
+                        }, modifier = Modifier.fillMaxWidth())
+                        SecondaryButton("Open github.com/login/device", onClick = {
+                            runCatching {
+                                ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(d.verificationUri)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                            }
+                        }, modifier = Modifier.fillMaxWidth(), accent = AppColors.primary)
                         SecondaryButton("Cancel", onClick = { GithubSync.cancelDeviceSignIn() }, modifier = Modifier.fillMaxWidth())
                     }
                     is GithubSync.DeviceState.Failed -> {
@@ -199,29 +242,6 @@ fun BackupScreen(vm: AppViewModel) {
             }
         }
 
-        SectionCard(title = "Status") {
-            Text(status, color = if (state is SyncState.Failed || state == SyncState.NeedsSignIn) AppColors.energy else AppColors.textPrimary)
-            Row(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
-                SecondaryButton(
-                    "Sync now", onClick = { GithubSync.syncNow(ctx) },
-                    enabled = GithubSync.isConfigured(ctx) && state != SyncState.Syncing && state != SyncState.NotConfigured,
-                    modifier = Modifier.weight(1f),
-                )
-                if (confirmDisconnect) {
-                    SecondaryButton("Really disconnect?", onClick = {
-                        GithubSync.disconnect(ctx)
-                        hasToken = false; signedIn = false; token = ""; replacing = false; confirmDisconnect = false
-                    }, modifier = Modifier.weight(1f), accent = AppColors.energy)
-                } else {
-                    SecondaryButton(
-                        "Disconnect", onClick = { confirmDisconnect = true },
-                        enabled = hasToken || state != SyncState.NotConfigured, modifier = Modifier.weight(1f),
-                    )
-                }
-            }
-            if (confirmDisconnect) Muted("This deletes the stored token from this phone. Data already on GitHub stays there; revoke the token on GitHub too.")
-        }
-
         SectionCard(title = "Restore numbers from GitHub") {
             Muted("Brings back weights, reps and treadmill sessions from your GitHub repo, e.g. on a new phone. Feelings and knee scores come from Drive. Sessions you already have are never changed; only missing days are added.")
             if (appData.records.isEmpty() && GithubSync.isConfigured(ctx) && restore == GithubSync.RestoreState.Idle) {
@@ -232,15 +252,13 @@ fun BackupScreen(vm: AppViewModel) {
                 GithubSync.RestoreState.Loading -> Muted("Reading your GitHub repo...")
                 is GithubSync.RestoreState.Preview -> {
                     val fresh = PublicImport.newOnly(appData.records, r.imported).size
-                    Text("Found ${r.imported.size} sessions ($fresh new)", color = AppColors.textPrimary, fontSize = 16.sp)
-                    Row(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
-                        SecondaryButton("Add $fresh sessions", onClick = {
-                            val add = GithubSync.restoreToAdd(vm.data.value.records)
-                            if (add.isNotEmpty()) vm.replaceData(vm.data.value.copy(records = vm.data.value.records + add))
-                            GithubSync.restoreFinished(add.size)
-                        }, enabled = fresh > 0, modifier = Modifier.weight(1f), accent = AppColors.primary)
-                        SecondaryButton("Cancel", onClick = { GithubSync.restoreReset() }, modifier = Modifier.weight(1f))
-                    }
+                    Text("Found ${r.imported.size} sessions ($fresh new)", color = AppColors.textPrimary, style = MaterialTheme.typography.titleMedium)
+                    SecondaryButton("Add $fresh sessions", onClick = {
+                        val add = GithubSync.restoreToAdd(vm.data.value.records)
+                        if (add.isNotEmpty()) vm.replaceData(vm.data.value.copy(records = vm.data.value.records + add))
+                        GithubSync.restoreFinished(add.size)
+                    }, enabled = fresh > 0, modifier = Modifier.fillMaxWidth(), accent = AppColors.primary)
+                    SecondaryButton("Cancel", onClick = { GithubSync.restoreReset() }, modifier = Modifier.fillMaxWidth(), accent = AppColors.textMuted)
                 }
                 is GithubSync.RestoreState.Failed -> Text(r.message, color = AppColors.energy)
                 is GithubSync.RestoreState.Done -> Text("Added ${r.added} sessions.", color = AppColors.primary)
