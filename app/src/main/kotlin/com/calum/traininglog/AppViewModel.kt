@@ -16,7 +16,9 @@ import com.calum.traininglog.core.GymPlan
 import com.calum.traininglog.core.LoggedSet
 import com.calum.traininglog.core.MissReason
 import com.calum.traininglog.core.PlannedExercise
+import com.calum.traininglog.core.Profile
 import com.calum.traininglog.core.Progression
+import com.calum.traininglog.core.Rewards
 import com.calum.traininglog.core.Recommendation
 import com.calum.traininglog.core.RecommendationInput
 import com.calum.traininglog.core.Recommender
@@ -43,6 +45,8 @@ sealed interface Screen {
     data object TreadmillDone : Screen
     data class Light(val type: SessionType) : Screen
     data object Manual : Screen
+    data object Plan : Screen
+    data object Trophies : Screen
     data object Export : Screen
 }
 
@@ -65,6 +69,9 @@ data class LiveExercise(
 
 data class Rest(val endsAt: Long, val totalSec: Int)
 
+/** Fired when a session is saved; the Home screen shows it once, then calls [AppViewModel.dismissCelebration]. */
+data class Celebration(val record: SessionRecord, val messages: List<String>)
+
 data class GymLive(val plan: GymPlan, val exercises: List<LiveExercise>, val rest: Rest? = null)
 
 class AppViewModel(app: Application) : AndroidViewModel(app) {
@@ -75,6 +82,9 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     private val _screen = MutableStateFlow<Screen>(Screen.Home)
     val screen: StateFlow<Screen> = _screen.asStateFlow()
+
+    private val _celebration = MutableStateFlow<Celebration?>(null)
+    val celebration: StateFlow<Celebration?> = _celebration.asStateFlow()
 
     private val _inputs = MutableStateFlow(Inputs())
     val inputs: StateFlow<Inputs> = _inputs.asStateFlow()
@@ -318,9 +328,17 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         return Export.summary(_data.value.records, from, to)
     }
 
+    /** Rest days, headline targets and other profile settings. */
+    fun updateProfile(f: (Profile) -> Profile) = persist { it.copy(profile = f(it.profile)) }
+
+    fun dismissCelebration() { _celebration.value = null }
+
     private fun persist(f: (AppData) -> AppData) {
-        val next = f(_data.value)
+        val before = _data.value
+        val next = f(before)
         _data.value = next
         store.save(next)
+        val added = next.records.lastOrNull { r -> before.records.none { it.id == r.id } }
+        if (added != null) _celebration.value = Celebration(added, Rewards.celebration(added, before.records))
     }
 }
