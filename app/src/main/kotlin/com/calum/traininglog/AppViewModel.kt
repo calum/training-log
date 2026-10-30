@@ -42,6 +42,7 @@ sealed interface Screen {
     data object TreadmillPlayer : Screen
     data object TreadmillDone : Screen
     data class Light(val type: SessionType) : Screen
+    data object Manual : Screen
     data object Export : Screen
 }
 
@@ -287,6 +288,21 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             id = UUID.randomUUID().toString(), date = today, type = type,
             minutesAvailable = _inputs.value.minutes, minutesActual = minutes, feeling = _inputs.value.feeling,
             kneePain = _inputs.value.knee, note = note.ifBlank { null },
+        )
+        persist { it.copy(records = it.records + record) }
+        home()
+    }
+
+    /** Add a session that already happened, without running a live activity. */
+    fun saveManual(type: SessionType, daysAgo: Int, minutes: Int, style: TreadmillStyle?, note: String) {
+        val date = today.minusDays(daysAgo.toLong())
+        val record = SessionRecord(
+            id = UUID.randomUUID().toString(), date = date, type = type,
+            minutesAvailable = minutes, minutesActual = minutes, feeling = Feeling.GOOD,
+            treadmill = if (type == SessionType.TREADMILL) {
+                TreadmillLog(style ?: TreadmillStyle.STEADY, minutes * 60, minutes * 60, null)
+            } else null,
+            note = note.ifBlank { null },
         )
         persist { it.copy(records = it.records + record) }
         home()

@@ -92,6 +92,7 @@ fun AppRoot(vm: AppViewModel, inPip: Boolean) {
                     Screen.TreadmillPlayer -> PlayerContent(vm, compact = false)
                     Screen.TreadmillDone -> TreadmillDoneScreen(vm)
                     is Screen.Light -> LightScreen(vm, s.type)
+                    Screen.Manual -> ManualLogScreen(vm)
                     Screen.Export -> ExportScreen(vm)
                 }
             }
@@ -140,6 +141,7 @@ fun HomeScreen(vm: AppViewModel) {
                 }
             }
             Button(onClick = { vm.go(Screen.Start) }, Modifier.fillMaxWidth().height(64.dp)) { Text("Start a session", fontSize = 20.sp) }
+            OutlinedButton(onClick = { vm.go(Screen.Manual) }, Modifier.fillMaxWidth()) { Text("Log a session I already did") }
             OutlinedButton(onClick = { vm.go(Screen.Export) }, Modifier.fillMaxWidth()) { Text("Export for Claude") }
             Spacer(Modifier.height(4.dp))
             Text("History", fontWeight = FontWeight.SemiBold)
@@ -486,6 +488,35 @@ fun ExportScreen(vm: AppViewModel) {
             }) { Text("Share") }
         }
         Card(Modifier.fillMaxWidth()) { Text(text, Modifier.padding(12.dp), fontSize = 13.sp, fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace) }
+        TextButton(onClick = { vm.home() }) { Text("Back") }
+    }
+}
+
+// ---------------- Manual log ----------------
+
+@Composable
+fun ManualLogScreen(vm: AppViewModel) {
+    var type by remember { mutableStateOf(SessionType.TREADMILL) }
+    var daysAgo by remember { mutableIntStateOf(0) }
+    var minutes by remember { mutableIntStateOf(30) }
+    var style by remember { mutableStateOf(com.calum.traininglog.core.TreadmillStyle.STEADY) }
+    var note by remember { mutableStateOf("") }
+    Page {
+        Title("Log a session")
+        Muted("Already done it? Add it here without starting an activity.")
+        Text("What was it?", fontWeight = FontWeight.SemiBold)
+        ChipRow(listOf(SessionType.TREADMILL, SessionType.CORE, SessionType.HIKE), type, ::typeName) { type = it }
+        Text("When?", fontWeight = FontWeight.SemiBold)
+        ChipRow(listOf(0, 1, 2, 3, 4, 5), daysAgo, { when (it) { 0 -> "Today"; 1 -> "Yesterday"; else -> "$it days ago" } }) { daysAgo = it }
+        Text("How long?", fontWeight = FontWeight.SemiBold)
+        ChipRow(listOf(10, 15, 20, 30, 45, 60, 90, 120, 180), minutes, { "$it min" }) { minutes = it }
+        if (type == SessionType.TREADMILL) {
+            Text("Style", fontWeight = FontWeight.SemiBold)
+            ChipRow(com.calum.traininglog.core.TreadmillStyle.entries, style, { it.label }) { style = it }
+        }
+        OutlinedTextField(note, { note = it }, label = { Text("Note (optional)") }, modifier = Modifier.fillMaxWidth())
+        Button(onClick = { vm.saveManual(type, daysAgo, minutes, style, note) }, Modifier.fillMaxWidth().height(56.dp)) { Text("Add to log", fontSize = 18.sp) }
+        Muted("Gym sessions are logged live so each set's weight and effort feed your progression.")
         TextButton(onClick = { vm.home() }) { Text("Back") }
     }
 }
