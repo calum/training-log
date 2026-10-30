@@ -30,6 +30,11 @@ import com.calum.traininglog.ui.Spacing
 import com.calum.traininglog.ui.StatTile
 import com.calum.traininglog.ui.XpBar
 import java.time.LocalDate
+import java.time.format.DateTimeFormatter
+import java.util.Locale
+
+private val shortDateFmt = DateTimeFormatter.ofPattern("d MMM", Locale.ENGLISH)
+internal fun shortDate(d: LocalDate): String = d.format(shortDateFmt)
 
 @Composable
 fun TrophyScreen(vm: AppViewModel) {
@@ -47,7 +52,7 @@ fun TrophyScreen(vm: AppViewModel) {
                 Text("LEVEL ${r.level}", style = AppType.eyebrow, color = AppColors.onHero.copy(alpha = 0.8f))
                 Text(r.levelName, style = MaterialTheme.typography.headlineLarge, color = AppColors.onHero)
                 Spacer(Modifier.height(Spacing.md))
-                XpBar(r.xpIntoLevel, r.xpForNextLevel, r.level, r.levelName)
+                XpBar(r.xpIntoLevel, r.xpForNextLevel, r.level, r.levelName, showName = false)
             }
         }
         item {
@@ -65,7 +70,11 @@ fun TrophyScreen(vm: AppViewModel) {
         items(r.badges.chunked(2), key = { it.first().id }) { row ->
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
                 row.forEach { b ->
-                    BadgeTile(b.title, b.unlocked, Modifier.weight(1f), subtitle = if (b.unlocked) "Earned ${b.unlockedOn}" else b.description)
+                    BadgeTile(
+                        b.title, b.unlocked, Modifier.weight(1f),
+                        subtitle = if (b.unlockedOn != null) "Earned ${shortDate(b.unlockedOn!!)}" else b.description,
+                        glyph = b.id,
+                    )
                 }
                 if (row.size == 1) Spacer(Modifier.weight(1f))
             }
@@ -78,7 +87,7 @@ fun TrophyScreen(vm: AppViewModel) {
             SectionCard {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
                     Text(p.text, style = MaterialTheme.typography.titleSmall, color = AppColors.textPrimary, modifier = Modifier.weight(1f))
-                    Pill("${p.date}", color = AppColors.energy)
+                    Pill(shortDate(p.date), color = AppColors.energy)
                 }
             }
         }

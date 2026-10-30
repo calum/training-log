@@ -5,11 +5,11 @@ home-empty, start-default, treadmill-player-flashing (they rendered without erro
 so anything below the fold is unreviewed.
 
 ## Real problems
-1. **Plan, lift forecast chart y-axis**: labels read `30517578`, `35058594`, `64941406`, `94824219`, and are clipped at the left edge. Looks like
+1. **FIXED** **Plan, lift forecast chart y-axis**: labels read `30517578`, `35058594`, `64941406`, `94824219`, and are clipped at the left edge. Looks like
    raw float/bit values rather than kg (the stat tiles say 102/115/125 kg). Fix the `yFormat` (round to whole kg) and give the axis a left gutter.
-2. **Plan, week tiles**: "WEEK 4" value shows `102.` and is cut off while WEEK 8/12 fit; the three tiles are too narrow for 5 characters + unit. Put
+2. **FIXED** (tiles shrink-to-fit, compact padding; lower plan now shot in plan-2..5.png) **Plan, week tiles**: "WEEK 4" value shows `102.` and is cut off while WEEK 8/12 fit; the three tiles are too narrow for 5 characters + unit. Put
    the unit on its own line or shrink `numberM`, and use `maxLines=1` with autosize.
-3. **Trophies, badges**: every badge uses the identical white star, so unlocked badges are indistinguishable; dates are raw ISO
+3. **FIXED** (per-badge glyphs, lock on locked, "4 Sep" dates, no duplicate level name; see trophies-2..4.png) **Trophies, badges**: every badge uses the identical white star, so unlocked badges are indistinguishable; dates are raw ISO
    ("Earned 2026-09-04"). Give badges distinct icons and format dates ("4 Sep"). The level card repeats "Trail Blazer" twice (title and XP bar).
 4. **Gym, set cards**: each set card is ~350 dp tall (weight stepper plus reps stepper plus RIR row), so one exercise with 3 sets fills about
    three screens; the progress is hard to scan. Collapse completed sets to one line (set, kg x reps, RIR) and keep only the active set expanded.
@@ -44,3 +44,6 @@ so anything below the fold is unreviewed.
 - Emoji on the Start feeling chips render via Robolectric's bundled font and may differ on devices.
 - Dates are relative to the run day, so "Earned" dates and weekday dots vary between runs.
 - Animations (confetti, count-ups) are captured at their settled/first frame.
+
+## Update (plan/trophies pass)
+Chart now has rounded y ticks, left gutter sized to labels, grid lines, end-of-line labels and "Wk n" x labels. Also fixed: truncated what-if chips (shorter labels), milestone pill alignment.

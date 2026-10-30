@@ -59,13 +59,16 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.PathMeasure
+import androidx.compose.ui.graphics.PathOperation
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
@@ -278,22 +281,30 @@ fun StatTile(
     modifier: Modifier = Modifier,
     unit: String = "",
     accent: Color = AppColors.primary,
+    compact: Boolean = false,
 ) {
+    // The value shrinks (never wraps or truncates) until it fits the tile.
+    val base = AppType.numberM
+    var scale by remember(value, unit, compact) { mutableStateOf(1f) }
     Column(
         modifier
             .clip(AppShapes.medium)
             .background(AppColors.surfaceRaised)
-            .padding(Spacing.lg),
+            .padding(if (compact) Spacing.md else Spacing.lg),
         verticalArrangement = Arrangement.spacedBy(Spacing.xs),
     ) {
         Box(Modifier.width(22.dp).height(5.dp).clip(CircleShape).background(accent))
         Spacer(Modifier.height(Spacing.xs))
         Text(label.uppercase(), style = AppType.eyebrow, color = AppColors.textMuted, maxLines = 1, overflow = TextOverflow.Ellipsis)
         Row(verticalAlignment = Alignment.Bottom) {
-            Text(value, style = AppType.numberM, color = AppColors.textPrimary, maxLines = 1)
+            Text(
+                value, style = base.copy(fontSize = base.fontSize * scale), color = AppColors.textPrimary,
+                maxLines = 1, softWrap = false, modifier = Modifier.weight(1f, fill = false),
+                onTextLayout = { if (it.hasVisualOverflow && scale > 0.5f) scale *= 0.9f },
+            )
             if (unit.isNotEmpty()) {
                 Spacer(Modifier.width(4.dp))
-                Text(unit, style = MaterialTheme.typography.titleSmall, color = AppColors.textMuted, modifier = Modifier.padding(bottom = 4.dp))
+                Text(unit, style = MaterialTheme.typography.titleSmall, color = AppColors.textMuted, maxLines = 1, softWrap = false, modifier = Modifier.padding(bottom = 4.dp))
             }
         }
     }
@@ -310,6 +321,7 @@ fun Pill(text: String, modifier: Modifier = Modifier, color: Color = AppColors.p
         style = MaterialTheme.typography.labelMedium,
         color = fg,
         maxLines = 1,
+        textAlign = TextAlign.Center,
     )
 }
 
@@ -415,8 +427,9 @@ fun DayDot(label: String, state: DayState, modifier: Modifier = Modifier) {
 }
 
 /**
- * Achievement tile. Unlocked = violet gradient with a star; locked = muted outline (no padlock, no
- * shame: it just looks "not yet").
+ * Achievement tile. Unlocked = violet gradient with a white glyph; locked = muted dashed outline with
+ * a small lock (no shame: it just looks "not yet"). Pass [glyph] (a badge id such as `first_gym`) for a
+ * distinct Canvas-drawn icon; without it the tile shows a star.
  */
 @Composable
 fun BadgeTile(
@@ -424,12 +437,14 @@ fun BadgeTile(
     unlocked: Boolean,
     modifier: Modifier = Modifier,
     subtitle: String? = null,
+    glyph: String? = null,
 ) {
     val u by animateFloatAsState(if (unlocked) 1f else 0f, tween(600), label = "badge")
     val violet = AppColors.reward
     val violetDeep = AppColors.rewardDeep
     val muted = AppColors.textMuted
     val outline = AppColors.outline
+    val raised = AppColors.surfaceRaised
     Column(
         modifier
             .clip(AppShapes.medium)
@@ -442,7 +457,17 @@ fun BadgeTile(
             val c = center
             if (unlocked) {
                 drawCircle(Brush.linearGradient(listOf(violet, violetDeep)), size.minDimension / 2)
-                drawPath(starPath(c, size.minDimension * 0.30f, size.minDimension * 0.13f), Color.White.copy(alpha = 0.95f), style = Fill)
+                if (glyph == null) drawPath(starPath(c, size.minDimension * 0.30f, size.minDimension * 0.13f), Color.White.copy(alpha = 0.95f), style = Fill)
+                else drawBadgeGlyph(glyph, c, size.minDimension * 0.30f, Color.White.copy(alpha = 0.95f))
+            } else if (glyph != null) {
+                drawCircle(
+                    outline, size.minDimension / 2 - 1.5.dp.toPx(),
+                    style = Stroke(2.dp.toPx(), pathEffect = PathEffect.dashPathEffect(floatArrayOf(6.dp.toPx(), 6.dp.toPx()))),
+                )
+                drawBadgeGlyph(glyph, c, size.minDimension * 0.27f, muted.copy(alpha = 0.40f))
+                val lc = Offset(size.width * 0.80f, size.height * 0.80f)
+                drawCircle(raised, 11.dp.toPx(), lc)
+                drawLock(lc, 7.dp.toPx(), muted.copy(alpha = 0.85f))
             } else {
                 drawCircle(
                     outline, size.minDimension / 2 - 1.5.dp.toPx(),
@@ -457,6 +482,95 @@ fun BadgeTile(
             modifier = Modifier.alpha(0.55f + 0.45f * u),
         )
         if (subtitle != null) Text(subtitle, style = MaterialTheme.typography.bodySmall, color = AppColors.textMuted, textAlign = TextAlign.Center, maxLines = 2)
+    }
+}
+
+private fun DrawScope.drawLock(c: Offset, r: Float, color: Color) {
+    val w = r * 1.5f
+    val h = r * 1.1f
+    drawRoundRect(color, Offset(c.x - w / 2, c.y - h / 2 + r * 0.25f), Size(w, h), CornerRadius(r * 0.25f))
+    drawArc(
+        color, 180f, 180f, false, Offset(c.x - w * 0.3f, c.y - h / 2 - r * 0.3f), Size(w * 0.6f, r * 1.1f),
+        style = Stroke(r * 0.28f, cap = StrokeCap.Round),
+    )
+}
+
+/** Simple badge glyphs for [id], centred on [c] and roughly [r] in radius. Pure Canvas, no icon library. */
+private fun DrawScope.drawBadgeGlyph(id: String, c: Offset, r: Float, color: Color) {
+    val sw = r * 0.22f
+    val line = Stroke(sw, cap = StrokeCap.Round, join = StrokeJoin.Round)
+    fun p(x: Float, y: Float) = Offset(c.x + x * r, c.y + y * r)
+    fun seg(x1: Float, y1: Float, x2: Float, y2: Float) = drawLine(color, p(x1, y1), p(x2, y2), sw, StrokeCap.Round)
+    fun Path.m(x: Float, y: Float) = moveTo(p(x, y).x, p(x, y).y)
+    fun Path.l(x: Float, y: Float) = lineTo(p(x, y).x, p(x, y).y)
+    fun Path.cu(a: Float, b: Float, c2: Float, d: Float, e: Float, f: Float) =
+        cubicTo(p(a, b).x, p(a, b).y, p(c2, d).x, p(c2, d).y, p(e, f).x, p(e, f).y)
+    when (id) {
+        "first_gym" -> { // dumbbell
+            seg(-0.55f, 0f, 0.55f, 0f)
+            seg(-0.55f, -0.5f, -0.55f, 0.5f); seg(0.55f, -0.5f, 0.55f, 0.5f)
+            seg(-0.95f, -0.25f, -0.95f, 0.25f); seg(0.95f, -0.25f, 0.95f, 0.25f)
+        }
+        "streak_4" -> drawPath(Path().apply { // flame
+            m(0f, -1f)
+            cu(0.2f, -0.5f, 0.8f, -0.2f, 0.65f, 0.35f)
+            cu(0.55f, 0.85f, 0.2f, 1f, 0f, 1f)
+            cu(-0.4f, 1f, -0.75f, 0.7f, -0.65f, 0.2f)
+            cu(-0.55f, -0.1f, -0.35f, -0.2f, -0.3f, -0.55f)
+            cu(-0.1f, -0.45f, 0f, -0.7f, 0f, -1f)
+            close()
+        }, color, style = Fill)
+        "sessions_50", "long_walker" -> drawPath(Path().apply { // mountain
+            m(-1f, 0.7f); l(-0.3f, -0.5f); l(0.1f, 0.1f); l(0.4f, -0.2f); l(1f, 0.7f); close()
+        }, color, style = Fill)
+        "early_week", "first_session" -> { // sunrise
+            drawArc(color, 180f, 180f, true, p(-0.5f, -0.1f), Size(r, r))
+            seg(-1f, 0.4f, 1f, 0.4f)
+            seg(0f, -0.65f, 0f, -0.95f); seg(-0.7f, -0.35f, -0.9f, -0.55f); seg(0.7f, -0.35f, 0.9f, -0.55f)
+        }
+        "comeback" -> drawPath(Path().apply { // heart
+            m(0f, 0.85f)
+            cu(-1.2f, 0f, -0.8f, -0.9f, 0f, -0.35f)
+            cu(0.8f, -0.9f, 1.2f, 0f, 0f, 0.85f)
+            close()
+        }, color, style = Fill)
+        "first_pr" -> { // trophy
+            drawPath(Path().apply {
+                m(-0.6f, -0.8f); l(0.6f, -0.8f)
+                cu(0.6f, -0.1f, 0.35f, 0.25f, 0f, 0.25f)
+                cu(-0.35f, 0.25f, -0.6f, -0.1f, -0.6f, -0.8f)
+                close()
+            }, color, style = Fill)
+            drawArc(color, 90f, 180f, false, p(-1f, -0.7f), Size(0.8f * r, 0.8f * r), style = line)
+            drawArc(color, -90f, 180f, false, p(0.2f, -0.7f), Size(0.8f * r, 0.8f * r), style = line)
+            seg(0f, 0.25f, 0f, 0.65f); seg(-0.45f, 0.85f, 0.45f, 0.85f)
+        }
+        "first_treadmill" -> { // forward chevrons
+            drawPath(Path().apply { m(-0.8f, -0.8f); l(-0.1f, 0f); l(-0.8f, 0.8f) }, color, style = Stroke(sw * 1.3f, cap = StrokeCap.Round, join = StrokeJoin.Round))
+            drawPath(Path().apply { m(0.1f, -0.8f); l(0.8f, 0f); l(0.1f, 0.8f) }, color, style = Stroke(sw * 1.3f, cap = StrokeCap.Round, join = StrokeJoin.Round))
+        }
+        "sessions_5" -> drawPath(Path().apply { // check
+            m(-0.8f, 0.05f); l(-0.25f, 0.6f); l(0.85f, -0.6f)
+        }, color, style = Stroke(sw * 1.3f, cap = StrokeCap.Round, join = StrokeJoin.Round))
+        "sessions_10" -> drawPath(Path().apply { // bolt
+            m(0.2f, -1f); l(-0.6f, 0.15f); l(-0.05f, 0.15f); l(-0.25f, 1f); l(0.65f, -0.2f); l(0.05f, -0.2f); close()
+        }, color, style = Fill)
+        "sessions_25" -> { // medal
+            drawCircle(color, r * 0.55f, p(0f, 0.3f))
+            seg(-0.35f, -0.95f, -0.1f, -0.3f); seg(0.35f, -0.95f, 0.1f, -0.3f)
+        }
+        "squat_100" -> { // weight plate
+            drawCircle(color, r * 0.85f, c, style = Stroke(sw * 1.4f))
+            drawCircle(color, r * 0.2f, c)
+        }
+        "all_styles" -> listOf(-0.45f to -0.45f, 0.45f to -0.45f, -0.45f to 0.45f, 0.45f to 0.45f)
+            .forEach { (x, y) -> drawCircle(color, r * 0.33f, p(x, y)) }
+        "quiet_hero" -> { // moon (crescent)
+            val a = Path().apply { addOval(Rect(p(-0.85f, -0.85f), Size(1.7f * r, 1.7f * r))) }
+            val b = Path().apply { addOval(Rect(p(-0.25f, -1.0f), Size(1.6f * r, 1.6f * r))) }
+            drawPath(Path.combine(PathOperation.Difference, a, b), color, style = Fill)
+        }
+        else -> drawPath(starPath(c, r, r * 0.43f), color, style = Fill)
     }
 }
 
@@ -903,6 +1017,7 @@ fun XpBar(
     level: Int,
     levelName: String,
     modifier: Modifier = Modifier,
+    showName: Boolean = true,
 ) {
     val target = if (xpForNext <= 0) 1f else (xpInto.toFloat() / xpForNext).coerceIn(0f, 1f)
     val frac by animateFloatAsState(target, tween(900, easing = FastOutSlowInEasing), label = "xp")
@@ -917,7 +1032,7 @@ fun XpBar(
         ) { Text("$level", style = AppType.numberM, color = Color.White) }
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Row(verticalAlignment = Alignment.Bottom) {
-                Text(levelName, style = MaterialTheme.typography.titleMedium, color = AppColors.textPrimary, modifier = Modifier.weight(1f), maxLines = 1)
+                Text(if (showName) levelName else "To level ${level + 1}", style = MaterialTheme.typography.titleMedium, color = AppColors.textPrimary, modifier = Modifier.weight(1f), maxLines = 1)
                 Text("$xpInto / $xpForNext XP", style = MaterialTheme.typography.labelMedium, color = AppColors.reward)
             }
             Box(Modifier.fillMaxWidth().height(12.dp).clip(CircleShape).background(AppColors.track)) {
@@ -969,10 +1084,21 @@ private fun Path.smoothTo(points: List<Offset>, startNew: Boolean) {
     }
 }
 
+/** A "nice" tick step (1, 2, 2.5, 5 x 10^n) giving roughly [target] steps across [range]. */
+private fun niceStep(range: Float, target: Int): Float {
+    val raw = (range / target).coerceAtLeast(1e-6f)
+    val mag = Math.pow(10.0, Math.floor(Math.log10(raw.toDouble()))).toFloat()
+    val f = raw / mag
+    val m = when { f <= 1f -> 1f; f <= 2f -> 2f; f <= 2.5f -> 2.5f; f <= 5f -> 5f; else -> 10f }
+    return m * mag
+}
+
 /**
  * Simple animated line chart (reveals left to right). Supports several [series] (e.g.
- * conservative/expected/best scenarios), an optional min/max band per series, y gridlines with
- * [yFormat] labels and thinned x labels. A legend is rendered below.
+ * conservative/expected/best scenarios), an optional min/max band per series, rounded "nice" y ticks
+ * formatted with [yFormat] (the left gutter is sized to the widest label, so nothing clips), subtle
+ * horizontal grid lines, thinned x labels and, when [endLabels] is on, a coloured value label at the
+ * end of each line (formatted with [endFormat], default [yFormat]). A legend is rendered below.
  */
 @Composable
 fun LineChart(
@@ -982,47 +1108,59 @@ fun LineChart(
     height: Dp = 220.dp,
     yFormat: (Float) -> String = { it.roundToInt().toString() },
     showLegend: Boolean = true,
+    endLabels: Boolean = true,
+    endFormat: ((Float) -> String)? = null,
 ) {
     val reveal = remember { Animatable(0f) }
     LaunchedEffect(series) { reveal.snapTo(0f); reveal.animateTo(1f, tween(1100, easing = FastOutSlowInEasing)) }
     val measurer = rememberTextMeasurer()
     val muted = AppColors.textMuted
-    val grid = AppColors.outline.copy(alpha = 0.6f)
+    val grid = AppColors.outline.copy(alpha = 0.45f)
     val labelStyle = TextStyle(fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = muted)
+    val hasData = series.any { it.values.isNotEmpty() }
     Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
-        Canvas(Modifier.fillMaxWidth().height(height)) {
+        if (!hasData) {
+            Box(Modifier.fillMaxWidth().height(height / 2), contentAlignment = Alignment.Center) {
+                Text("Nothing to chart yet", style = MaterialTheme.typography.bodyMedium, color = muted)
+            }
+        } else Canvas(Modifier.fillMaxWidth().height(height)) {
             val all = series.flatMap { it.values + (it.min ?: emptyList()) + (it.max ?: emptyList()) }
-            if (all.isEmpty()) return@Canvas
             var lo = all.min()
             var hi = all.max()
             if (hi - lo < 1e-3f) { hi += 1f; lo -= 1f }
             val pad = (hi - lo) * 0.08f
             lo -= pad; hi += pad
+            val step = niceStep(hi - lo, 3)
+            val firstTick = ceil(lo / step) * step
+            val ticks = generateSequence(firstTick) { it + step }.takeWhile { it <= hi + 1e-4f }.toList()
+            val tickLabels = ticks.map { measurer.measure(yFormat(it), labelStyle) }
+            val endText = series.map { s ->
+                s.values.lastOrNull()?.let { measurer.measure((endFormat ?: yFormat)(it), labelStyle.copy(color = s.color)) }
+            }
             val n = series.maxOf { it.values.size }.coerceAtLeast(2)
-            val left = 40.dp.toPx()
-            val bottom = 22.dp.toPx()
-            val top = 8.dp.toPx()
-            val right = 8.dp.toPx()
+            val left = (tickLabels.maxOfOrNull { it.size.width } ?: 0) + 10.dp.toPx()
+            val right = if (endLabels) (endText.maxOfOrNull { it?.size?.width ?: 0 } ?: 0) + 12.dp.toPx() else 8.dp.toPx()
+            val bottom = 24.dp.toPx()
+            val top = 10.dp.toPx()
             val plotW = size.width - left - right
             val plotH = size.height - top - bottom
             fun px(i: Int) = left + plotW * i / (n - 1)
             fun py(v: Float) = top + plotH * (1f - (v - lo) / (hi - lo))
 
             // grid + y labels
-            for (g in 0..3) {
-                val v = lo + (hi - lo) * g / 3f
+            ticks.forEachIndexed { k, v ->
                 val y = py(v)
                 drawLine(grid, Offset(left, y), Offset(size.width - right, y), 1.dp.toPx())
-                val tl = measurer.measure(yFormat(v), labelStyle)
-                drawText(tl, topLeft = Offset(left - 6.dp.toPx() - tl.size.width, y - tl.size.height / 2f))
+                val tl = tickLabels[k]
+                drawText(tl, topLeft = Offset(left - 8.dp.toPx() - tl.size.width, y - tl.size.height / 2f))
             }
             // x labels
-            val stride = ceil(xLabels.size / 6f).toInt().coerceAtLeast(1)
+            val stride = ceil(xLabels.size / 5f).toInt().coerceAtLeast(1)
             xLabels.forEachIndexed { i, s ->
                 if (i % stride == 0 || i == xLabels.lastIndex && (xLabels.size - 1) % stride == 0) {
                     val tl = measurer.measure(s, labelStyle)
                     val x = (px(i) - tl.size.width / 2f).coerceIn(0f, size.width - tl.size.width)
-                    drawText(tl, topLeft = Offset(x, size.height - bottom + 5.dp.toPx()))
+                    drawText(tl, topLeft = Offset(x, size.height - bottom + 6.dp.toPx()))
                 }
             }
             clipRect(right = left + plotW * reveal.value + right) {
@@ -1042,11 +1180,25 @@ fun LineChart(
                     drawPath(
                         line, s.color,
                         style = Stroke(
-                            3.5.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round,
-                            pathEffect = if (s.dashed) PathEffect.dashPathEffect(floatArrayOf(14.dp.toPx(), 10.dp.toPx())) else null,
+                            3.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round,
+                            pathEffect = if (s.dashed) PathEffect.dashPathEffect(floatArrayOf(12.dp.toPx(), 9.dp.toPx())) else null,
                         ),
                     )
                     pts.lastOrNull()?.let { drawCircle(s.color, 5.dp.toPx(), it) }
+                }
+            }
+            if (endLabels) {
+                // end-of-line labels, nudged apart so close lines stay readable
+                val items = series.mapIndexedNotNull { i, s ->
+                    val t = endText[i] ?: return@mapIndexedNotNull null
+                    Triple(t, py(s.values.last()), px(s.values.size - 1))
+                }.sortedBy { it.second }
+                var prev = -1e9f
+                val alpha = ((reveal.value - 0.8f) / 0.2f).coerceIn(0f, 1f)
+                items.forEach { (t, y0, x0) ->
+                    val y = maxOf(y0, prev + t.size.height + 1.dp.toPx())
+                    prev = y
+                    drawText(t, topLeft = Offset(x0 + 9.dp.toPx(), y - t.size.height / 2f), alpha = alpha)
                 }
             }
         }

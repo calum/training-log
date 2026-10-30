@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -46,9 +47,13 @@ import com.calum.traininglog.ui.Spacing
 import com.calum.traininglog.ui.StatTile
 import com.calum.traininglog.ui.TrainingTheme
 import java.time.LocalDate
+import kotlin.math.roundToInt
 
 private val liftChoices = listOf("squat" to "Squat", "deadlift" to "Deadlift", "rdl" to "RDL", "calf" to "Calf")
 private const val HORIZON = 12
+
+private fun weekLabel(offset: Int) = if (offset == 0) "Now" else "Wk $offset"
+private fun kgHalf(v: Float) = Math.round(v * 2f) / 2.0
 
 @Composable
 fun PlanScreen(vm: AppViewModel) {
@@ -140,11 +145,12 @@ private fun LiftCard(f: Forecast, selected: String, onPick: (String) -> Unit) {
                 Series("Expected", exp.map { it.weightKg.toFloat() }, AppColors.primary),
                 Series("Best", best.map { it.weightKg.toFloat() }, AppColors.reward, dashed = true),
             ),
-            xLabels = exp.map { if (it.deload) "${it.weekOffset}*" else "${it.weekOffset}" },
-            yFormat = { fmt(it.toDouble()) },
+            xLabels = exp.map { weekLabel(it.weekOffset) + if (it.deload) "*" else "" },
+            yFormat = { it.roundToInt().toString() },
+            endFormat = { "${fmt(kgHalf(it))} kg" },
         )
         Text(
-            "Weeks from now; * is a planned lighter week. Conservative assumes about half of sessions earn an increase, expected about 70%, best every one.",
+            "Weight in kg by week from now; * is a planned lighter week. Conservative assumes about half of sessions earn an increase, expected about 70%, best every one.",
             style = MaterialTheme.typography.bodySmall, color = AppColors.textMuted,
         )
         if (lf.restartApplied) {
@@ -159,7 +165,7 @@ private fun LiftCard(f: Forecast, selected: String, onPick: (String) -> Unit) {
                 val lo = cons.first { it.weekOffset == w }.weightKg
                 val hi = best.first { it.weekOffset == w }.weightKg
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(Spacing.xs)) {
-                    StatTile("Week $w", fmt(e.weightKg), Modifier.fillMaxWidth(), unit = "kg")
+                    StatTile("Week $w", fmt(e.weightKg), Modifier.fillMaxWidth(), unit = "kg", compact = true)
                     Text(
                         "${fmt(lo)} to ${fmt(hi)} kg",
                         style = MaterialTheme.typography.labelMedium, color = AppColors.textMuted,
@@ -224,8 +230,9 @@ private fun TreadmillCard(f: Forecast) {
         }
         LineChart(
             series = listOf(Series("Total minutes", listOf(0f) + t.weeks.map { it.cumulativeMinutes.toFloat() }, AppColors.energy)),
-            xLabels = listOf("0") + t.weeks.map { "${it.weekOffset}" },
-            height = 160.dp,
+            xLabels = listOf("Now") + t.weeks.map { weekLabel(it.weekOffset) },
+            height = 170.dp,
+            endFormat = { "${it.roundToInt()} min" },
         )
         Text(
             "${t.sessionsPerWeek} sessions of about ${t.minutesPerSession} min" +
@@ -244,7 +251,7 @@ private fun MilestonesCard(f: Forecast) {
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(Spacing.md),
             ) {
-                Pill("Wk ${m.weekOffset}", color = AppColors.reward, filled = true)
+                Pill("Wk ${m.weekOffset}", Modifier.width(68.dp), color = AppColors.reward, filled = true)
                 Text(
                     m.text.substringAfter(": ").replaceFirstChar { it.uppercase() },
                     Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium, color = AppColors.textPrimary,
@@ -259,11 +266,11 @@ private fun WhatIfCard(gym: Int, tread: Int, onGym: (Int) -> Unit, onTread: (Int
     SectionCard(title = "What if...") {
         Text("GYM PACE", style = AppType.eyebrow, color = AppColors.textMuted)
         Row(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
-            (listOf(1, 2, 3) + gym).distinct().sorted().forEach { n -> SelectChip("$n gym a week", gym == n, { onGym(n) }) }
+            (listOf(1, 2, 3) + gym).distinct().sorted().forEach { n -> SelectChip("$n a week", gym == n, { onGym(n) }) }
         }
         Text("TREADMILL PACE", style = AppType.eyebrow, color = AppColors.textMuted)
         Row(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
-            (listOf(2, 3, 4) + tread).distinct().sorted().forEach { n -> SelectChip("$n treadmill", tread == n, { onTread(n) }, accent = AppColors.energy) }
+            (listOf(2, 3, 4) + tread).distinct().sorted().forEach { n -> SelectChip("$n a week", tread == n, { onTread(n) }, accent = AppColors.energy) }
         }
         Text(
             "Everything above updates as you switch. 2 gym and 3 treadmill is the default good week.",
