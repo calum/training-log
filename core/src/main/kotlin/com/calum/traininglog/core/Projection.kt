@@ -53,7 +53,7 @@ data class Milestone(val weekOffset: Int, val text: String)
 
 data class LiftOutlook(val exerciseId: String, val name: String, val fromKg: Double, val toKg: Double)
 
-data class WeekOutlook(
+data class ForecastOutlook(
     val weekStart: LocalDate,
     val gymDone: Int,
     val gymTarget: Int,
@@ -77,7 +77,7 @@ data class Forecast(
     val treadmill: TreadmillForecast,
     val headline: HeadlineForecast?,
     val milestones: List<Milestone>,
-    val weekOutlook: WeekOutlook,
+    val weekOutlook: ForecastOutlook,
 ) {
     fun lift(id: String): LiftForecast? = lifts.firstOrNull { it.exerciseId == id }
 }
@@ -283,7 +283,7 @@ object Projection {
         tmDone: Int,
         tmN: Int,
         lifts: List<LiftForecast>,
-    ): WeekOutlook {
+    ): ForecastOutlook {
         val gymStretch = gymN + 1
         val tmStretch = tmN + 1
         val met = gymDone >= gymN && tmDone >= tmN
@@ -305,6 +305,6 @@ object Projection {
                 "$prefix ${o.name.lowercase()} stays about ${fmt(o.fromKg)} kg (consolidating)"
             }
         }
-        return WeekOutlook(weekStart, gymDone, gymN, gymStretch, tmDone, tmN, tmStretch, met, liftOutlooks, summary, lines)
+        return ForecastOutlook(weekStart, gymDone, gymN, gymStretch, tmDone, tmN, tmStretch, met, liftOutlooks, summary, lines)
     }
 }
