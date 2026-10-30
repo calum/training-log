@@ -55,10 +55,12 @@ data class WeekView(
     val treadmillStretchLeft: Int,
     val openDaysLeft: Int,
     val outlook: WeekOutlook,
+    val gymTarget: Int = Recommender.GYM_TARGET,
+    val treadmillTarget: Int = Recommender.TREADMILL_TARGET,
 ) {
-    val goodWeekTotal: Int get() = Recommender.GYM_TARGET + Recommender.TREADMILL_TARGET
+    val goodWeekTotal: Int get() = gymTarget + treadmillTarget
     val goodWeekDone: Int
-        get() = minOf(gymDone, Recommender.GYM_TARGET) + minOf(treadmillDone, Recommender.TREADMILL_TARGET)
+        get() = minOf(gymDone, gymTarget) + minOf(treadmillDone, treadmillTarget)
 
     val outlookLabel: String
         get() = when (outlook) {
@@ -83,7 +85,7 @@ object WeekPlanner {
     const val STRETCH_GYM = 3
     const val STRETCH_TREADMILL = 4
 
-    fun plan(records: List<SessionRecord>, profile: Profile, today: LocalDate): WeekView {
+    fun plan(records: List<SessionRecord>, profile: Profile, today: LocalDate, settings: UserSettings = profile.settings): WeekView {
         val range = Stats.weekOf(today)
         val start = range.start
         val byDate = records.filter { it.date in range }.groupBy { it.date }
@@ -91,8 +93,8 @@ object WeekPlanner {
 
         val gymDone = records.count { it.date in range && it.type == SessionType.GYM }
         val treadDone = records.count { it.date in range && it.type == SessionType.TREADMILL }
-        val gymLeft = maxOf(0, Recommender.GYM_TARGET - gymDone)
-        val treadLeft = maxOf(0, Recommender.TREADMILL_TARGET - treadDone)
+        val gymLeft = maxOf(0, settings.gymTarget - gymDone)
+        val treadLeft = maxOf(0, settings.treadmillTarget - treadDone)
 
         // Days that can still take a session: today onwards, not resting, nothing logged yet.
         val open = dates.filter { it >= today && !RestDays.isRestDay(profile, it) && byDate[it].isNullOrEmpty() }
@@ -135,8 +137,8 @@ object WeekPlanner {
         }
         return WeekView(
             plans, gymDone, treadDone, gymLeft, treadLeft,
-            maxOf(0, STRETCH_GYM - gymDone), maxOf(0, STRETCH_TREADMILL - treadDone),
-            open.size, outlook,
+            maxOf(0, settings.effectiveGymStretch - gymDone), maxOf(0, settings.effectiveTreadmillStretch - treadDone),
+            open.size, outlook, settings.gymTarget, settings.treadmillTarget,
         )
     }
 }

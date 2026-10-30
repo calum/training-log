@@ -120,22 +120,23 @@ object Projection {
         records: List<SessionRecord>,
         today: LocalDate,
         weeks: Int = 12,
-        gymPerWeek: Int = 2,
-        treadmillPerWeek: Int = 3,
+        gymPerWeek: Int? = null,
+        treadmillPerWeek: Int? = null,
         headlineTarget: HeadlineTarget? = null,
+        settings: UserSettings = UserSettings(),
     ): Forecast {
         val horizon = weeks.coerceAtLeast(1)
-        val gymN = gymPerWeek.coerceAtLeast(0)
-        val tmN = treadmillPerWeek.coerceAtLeast(0)
+        val gymN = (gymPerWeek ?: settings.gymTarget).coerceAtLeast(0)
+        val tmN = (treadmillPerWeek ?: settings.treadmillTarget).coerceAtLeast(0)
         val weekStart = today.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY))
         val inWeek = records.filter { !it.date.isBefore(weekStart) && !it.date.isAfter(weekStart.plusDays(6)) }
         val gymDone = inWeek.count { it.type == SessionType.GYM }
         val tmDone = inWeek.count { it.type == SessionType.TREADMILL }
 
-        val schedule = buildSchedule(records, horizon, gymN, gymDone)
+        val schedule = buildSchedule(records, horizon, gymN, gymDone, settings.deloadWeeks)
 
         val lifts = mainLifts.map { id ->
-            liftForecast(ExerciseLibrary.get(id), records, today, weekStart, schedule, headlineTarget)
+            liftForecast(ExerciseLibrary.get(id), records, today, weekStart, schedule, headlineTarget, settings)
         }
         val treadmill = treadmillForecast(records, today, horizon, tmN)
         val headline = headlineTarget?.let { t ->
@@ -144,19 +145,19 @@ object Projection {
             }
         }
         val outlook = weekOutlook(weekStart, gymDone, gymN, tmDone, tmN, lifts)
-        return Forecast(today, horizon, lifts, treadmill, headline, milestones(lifts, headline, horizon), outlook)
+        return Forecast(today, horizon, lifts, treadmill, headline, milestones(lifts, headline, horizon, settings.deloadWeeks), outlook)
     }
 
     // ---- schedule ----
 
     private class ScheduledWeek(val offset: Int, val days: List<String>, val deload: Boolean)
 
-    private fun buildSchedule(records: List<SessionRecord>, horizon: Int, gymN: Int, gymDone: Int): List<ScheduledWeek> {
+    private fun buildSchedule(records: List<SessionRecord>, horizon: Int, gymN: Int, gymDone: Int, deloadEvery: Int = DELOAD_EVERY_WEEKS): List<ScheduledWeek> {
         var label = if (GymBuilder.nextHinge(records).id == "deadlift") "B" else "A"
         return (1..horizon).map { w ->
             val count = if (w == 1) (gymN - gymDone).coerceAtLeast(0) else gymN
             val days = List(count) { label.also { label = if (label == "A") "B" else "A" } }
-            ScheduledWeek(w, days, isDeloadWeek(w))
+            ScheduledWeek(w, days, w % deloadEvery == 0)
         }
     }
 
@@ -176,16 +177,17 @@ object Projection {
         weekStart: LocalDate,
         schedule: List<ScheduledWeek>,
         headline: HeadlineTarget?,
+        settings: UserSettings = UserSettings(),
     ): LiftForecast {
         val history = GymBuilder.history(ex.id, records)
-        val baseline = Progression.next(ex, history, today).weightKg
+        val baseline = Progression.next(ex, history, today, settings = settings).weightKg
         val last = history.firstOrNull()
         val lastKg = last?.log?.sets?.maxOf { it.weightKg }
-        val restart = last != null && ChronoUnit.DAYS.between(last.date, today) >= 21
+        val restart = last != null && ChronoUnit.DAYS.between(last.date, today) >= settings.restartAfterDays
         val target = headline?.takeIf { it.exerciseId == ex.id }?.targetKg
 
         val scenarios = Scenario.values().associateWith { s ->
-            val pts = simulate(ex, baseline, schedule, today, weekStart, hitPercent.getValue(s))
+            val pts = simulate(ex, baseline, schedule, today, weekStart, hitPercent.getValue(s), settings)
             val eta = target?.let { t -> pts.firstOrNull { it.weightKg >= t }?.weekOffset }
             ScenarioForecast(s, pts, eta)
         }
@@ -203,6 +205,7 @@ object Projection {
         today: LocalDate,
         weekStart: LocalDate,
         percent: Int,
+        settings: UserSettings = UserSettings(),
     ): List<WeekPoint> {
         var weight = baseline
         var hist = emptyList<HistoryEntry>() // synthetic, newest first
@@ -217,7 +220,7 @@ object Projection {
                     val date = maxOf(today, weekStart.plusDays((week.offset - 1) * 7L + i * 3L))
                     val set = LoggedSet(weight, ex.repsLow, ex.repsLow, rir = if (progress) 2 else 1)
                     hist = listOf(HistoryEntry(date, ExerciseLog(ex.id, List(ex.sets) { set }))) + hist
-                    weight = Progression.next(ex, hist, date.plusDays(1)).weightKg
+                    weight = Progression.next(ex, hist, date.plusDays(1), settings = settings).weightKg
                 }
             }
             val sets = if (week.deload) Progression.deloadSets(ex.sets) else ex.sets
@@ -247,7 +250,7 @@ object Projection {
 
     private fun fmt(kg: Double) = if (kg % 1.0 == 0.0) kg.toInt().toString() else kg.toString()
 
-    private fun milestones(lifts: List<LiftForecast>, headline: HeadlineForecast?, horizon: Int): List<Milestone> {
+    private fun milestones(lifts: List<LiftForecast>, headline: HeadlineForecast?, horizon: Int, deloadEvery: Int = DELOAD_EVERY_WEEKS): List<Milestone> {
         val out = mutableListOf<Milestone>()
         fun expected(id: String, w: Int) =
             lifts.first { it.exerciseId == id }.scenarios.getValue(Scenario.EXPECTED).weeks.first { it.weekOffset == w }
@@ -261,8 +264,8 @@ object Projection {
         if (horizon >= 8) {
             out += Milestone(8, "Week 8: deadlift about ${fmt(expected("deadlift", 8).weightKg)} kg (expected)")
         }
-        if (horizon >= DELOAD_EVERY_WEEKS) {
-            out += Milestone(DELOAD_EVERY_WEEKS, "Week $DELOAD_EVERY_WEEKS: a planned lighter week, same loads with fewer sets")
+        if (horizon >= deloadEvery) {
+            out += Milestone(deloadEvery, "Week $deloadEvery: a planned lighter week, same loads with fewer sets")
         }
         headline?.let { h ->
             val name = ExerciseLibrary.nameOf(h.target.exerciseId).lowercase()

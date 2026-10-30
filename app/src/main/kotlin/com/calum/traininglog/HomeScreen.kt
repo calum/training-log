@@ -69,8 +69,8 @@ fun HomeScreen(vm: AppViewModel) {
     val ctx = LocalContext.current
     val today = LocalDate.now()
     val profile = data.profile
-    val rewards = Rewards.summary(data.records, today)
-    val view = WeekPlanner.plan(data.records, profile, today)
+    val rewards = Rewards.summary(data.records, today, profile.settings)
+    val view = WeekPlanner.plan(data.records, profile, today, profile.settings)
     val restToday = RestDays.isRestDay(profile, today)
     val sorted = data.records.sortedByDescending { it.date }.take(30)
     var toDelete by remember { mutableStateOf<SessionRecord?>(null) }

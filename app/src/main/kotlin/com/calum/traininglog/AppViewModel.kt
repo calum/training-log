@@ -129,6 +129,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 daysSinceGym = Stats.daysSince(SessionType.GYM, records, today),
                 lastTreadmillStyle = lastTreadmillStyle(),
                 restDay = com.calum.traininglog.core.RestDays.isRestDay(_data.value.profile, today),
+                settings = _data.value.profile.settings,
             ),
             seed = System.currentTimeMillis() / 60000,
         )
@@ -150,10 +151,10 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     private fun startGym(minutes: Int) {
         val records = _data.value.records
-        val lifting = if (_inputs.value.atGym) minutes else maxOf(25, GymBuilder.liftingMinutes(minutes))
+        val lifting = if (_inputs.value.atGym) minutes else maxOf(25, GymBuilder.liftingMinutes(minutes, _data.value.profile.settings))
         val gymDates = records.filter { it.type == SessionType.GYM }.map { it.date }
-        val deload = Progression.deloadDue(gymDates, _data.value.profile.lastDeload, today)
-        val plan = GymBuilder.build(lifting, records, today, deload)
+        val deload = Progression.deloadDue(gymDates, _data.value.profile.lastDeload, today, settings = _data.value.profile.settings)
+        val plan = GymBuilder.build(lifting, records, today, deload, settings = _data.value.profile.settings)
         gymStartedAt = SystemClock.elapsedRealtime()
         _gym.value = GymLive(plan, plan.exercises.map { live(it) })
         go(Screen.Gym)
@@ -208,7 +209,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     fun swap(ei: Int, newId: String) {
         val g = _gym.value ?: return
         if (ei !in g.exercises.indices) return
-        val planned = GymBuilder.planFor(newId, _data.value.records, today, g.plan.deload)
+        val planned = GymBuilder.planFor(newId, _data.value.records, today, g.plan.deload, settings = _data.value.profile.settings)
         editExercise(ei) { live(planned) }
     }
 
@@ -227,7 +228,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     /** Append a library exercise (or one of your earlier custom ones) to today's session. */
     fun addExercise(id: String) {
         val g = _gym.value ?: return
-        val planned = GymBuilder.planFor(id, _data.value.records, today, g.plan.deload)
+        val planned = GymBuilder.planFor(id, _data.value.records, today, g.plan.deload, settings = _data.value.profile.settings)
         editGym { it.copy(exercises = it.exercises + live(planned)) }
     }
 
@@ -238,7 +239,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         val g = _gym.value ?: return
         val ex = ExerciseLibrary.custom(clean, movement)
         // Reuse the logged name/weights if this id was used before.
-        val planned = GymBuilder.plan(ex, _data.value.records, today, g.plan.deload)
+        val planned = GymBuilder.plan(ex, _data.value.records, today, g.plan.deload, settings = _data.value.profile.settings)
         editGym { it.copy(exercises = it.exercises + live(planned)) }
     }
 
@@ -279,7 +280,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     private fun prepareTreadmill(minutes: Int, forced: TreadmillStyle?) {
         val mins = minutes.coerceIn(20, 120)
         val style = forced ?: TreadmillPlanner.chooseStyle(mins, lastTreadmillStyle(), exciting = mins >= 60, seed = styleSeed)
-        _pendingTreadmill.value = TreadmillPlanner.build(style, mins, _data.value.profile.treadmill)
+        _pendingTreadmill.value = TreadmillPlanner.build(style, mins, _data.value.profile.treadmill, _data.value.profile.settings)
         go(Screen.TreadmillSetup)
     }
 
@@ -289,7 +290,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         val mins = plan.totalSec / 60
         val pool = TreadmillStyle.entries.filter { it != plan.style }
         val style = TreadmillPlanner.chooseStyle(mins, plan.style, exciting = false, seed = styleSeed).takeIf { it != plan.style } ?: pool.first()
-        _pendingTreadmill.value = TreadmillPlanner.build(style, mins, _data.value.profile.treadmill)
+        _pendingTreadmill.value = TreadmillPlanner.build(style, mins, _data.value.profile.treadmill, _data.value.profile.settings)
     }
 
     fun startTreadmill() {

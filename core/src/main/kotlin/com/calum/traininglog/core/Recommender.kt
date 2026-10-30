@@ -10,6 +10,7 @@ data class RecommendationInput(
     val daysSinceGym: Int? = null,
     val lastTreadmillStyle: TreadmillStyle? = null,
     val restDay: Boolean = false,
+    val settings: UserSettings = UserSettings(),
 )
 
 data class SessionOption(
@@ -40,8 +41,8 @@ object Recommender {
             return Recommendation(walk, if (walk === rest) null else rest, "Feeling rough: keep it easy, or skip with no penalty.")
         }
 
-        val gymLifting = GymBuilder.liftingMinutes(i.minutes)
-        val gymOk = i.nearGym && gymLifting >= GymBuilder.MIN_WORTHWHILE_LIFTING_MIN &&
+        val gymLifting = GymBuilder.liftingMinutes(i.minutes, i.settings)
+        val gymOk = i.nearGym && gymLifting >= i.settings.minLiftingMin &&
             (i.daysSinceGym == null || i.daysSinceGym >= 2)
         val kneeHigh = (i.kneePain ?: 0) >= 7
         val treadMins = i.minutes.coerceAtMost(MAX_TREADMILL)
@@ -50,12 +51,12 @@ object Recommender {
 
         val candidates = buildList {
             if (gymOk) {
-                val score = 40 + 25 * maxOf(0, GYM_TARGET - i.gymDoneThisWeek) - (if (i.gymDoneThisWeek >= GYM_TARGET) 30 else 0) +
+                val score = 40 + 25 * maxOf(0, i.settings.gymTarget - i.gymDoneThisWeek) - (if (i.gymDoneThisWeek >= i.settings.gymTarget) 30 else 0) +
                     3 * minOf(i.daysSinceGym ?: 7, 7)
                 add(score to SessionOption(SessionType.GYM, i.minutes, "Gym, about ${minOf(gymLifting, 60)} min of lifting"))
             }
             if (treadMins >= MIN_SESSION) {
-                val score = 30 + 10 * maxOf(0, TREADMILL_TARGET - i.treadmillDoneThisWeek) + (if (i.minutes >= 60) 10 else 0)
+                val score = 30 + 10 * maxOf(0, i.settings.treadmillTarget - i.treadmillDoneThisWeek) + (if (i.minutes >= 60) 10 else 0)
                 add(score to SessionOption(SessionType.TREADMILL, treadMins, "Treadmill ${style.label.lowercase()}, $treadMins min", style))
             }
             if (i.minutes >= 15) {
@@ -73,7 +74,7 @@ object Recommender {
 
     private fun reasonFor(top: SessionOption, i: RecommendationInput, kneeHigh: Boolean): String = when (top.type) {
         SessionType.GYM ->
-            if (i.gymDoneThisWeek < GYM_TARGET) "Gym is behind for the week (${i.gymDoneThisWeek} of $GYM_TARGET) and you have time for it."
+            if (i.gymDoneThisWeek < i.settings.gymTarget) "Gym is behind for the week (${i.gymDoneThisWeek} of ${i.settings.gymTarget}) and you have time for it."
             else "Plenty of time and legs are rested."
         SessionType.TREADMILL ->
             when {
