@@ -35,6 +35,13 @@ Personal progressive training app for Android (Pixel 6a). Asks how much time and
 - **Treadmill reliability**: audible beeps over YouTube (audio focus ducking), catch-up after stalls, notification and picture-in-picture buttons for pause and +/-30 s. On-phone checklist in `docs/treadmill-testing.md`.
 - **Custom exercises** remember their movement group.
 
+## Added in v0.5
+
+- **Guided core routine**: 10-30 minute knee-friendly mat sessions with timed work/rest, form cues and beeps; varies every time.
+- **Optional gentle reminder** (off by default, never guilt-based) and badges that follow your Settings targets.
+- **GitHub device sign-in** (setup: `docs/github-app-setup.md`), restore of raw numbers from GitHub, and deletions now synced.
+- **Design pass** from rendered screenshots: compact gym sets, readable forecast chart, distinct badges, tidier Settings and treadmill setup. Regenerate screenshots with `gradle :app:recordRoborazziDebug` (see `docs/screenshots/README.md`).
+
 Not yet built: training blocks, in-app settings for increments and starting weights.
 
 ## Starting weights are placeholders
