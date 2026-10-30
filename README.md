@@ -11,6 +11,14 @@ Personal progressive training app for Android (Pixel 6a). Asks how much time and
 - **Core / hike**: lightweight log.
 - **History and export**: everything stored on the phone; one-tap text export (last week, last 4 weeks, everything) to paste into Claude.
 
+## Added since v0.1
+
+- **Redesign**: new dark design system (`docs/design-system.md`), Home dashboard with weekly ring, XP and level, no-guilt streak with rest tokens, trophies and personal records, confetti on finish.
+- **Rest days**: tap a day in the week strip to mark it as rest (long-press to repeat weekly). On a rest day you can still tap "I've got time" to build a session.
+- **Plan**: 12-week forecast per lift (conservative / expected / best), headline target (default squat 100 kg), treadmill totals, milestones, "what if" pace.
+- **Manual log**: add a session you already did without starting an activity.
+- **In-app updater**: checks the latest GitHub release and installs it (Android asks you to confirm).
+
 Not yet built: training blocks, GitHub sync and README chart (section 15), Google Drive backup (17), in-app settings for increments and starting weights.
 
 ## Starting weights are placeholders
