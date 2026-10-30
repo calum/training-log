@@ -30,6 +30,10 @@
             android:name=".InstallReceiver"
             android:exported="false" />
 
+        <receiver
+            android:name=".TreadmillActionReceiver"
+            android:exported="false" />
+
         <service
             android:name=".TreadmillService"
             android:exported="false"
