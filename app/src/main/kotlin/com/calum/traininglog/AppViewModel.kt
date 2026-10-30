@@ -371,6 +371,12 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     fun dismissCelebration() { _celebration.value = null }
 
+    /** Replace everything, e.g. after restoring a backup. */
+    fun replaceData(d: AppData) {
+        _data.value = d
+        store.save(d)
+    }
+
     private fun persist(f: (AppData) -> AppData) {
         val before = _data.value
         val next = f(before)
