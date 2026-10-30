@@ -43,5 +43,6 @@ dependencies {
     implementation("androidx.compose.ui:ui-tooling-preview")
     debugImplementation("androidx.compose.ui:ui-tooling")
     implementation("androidx.core:core-ktx:1.13.1")
+    implementation("com.google.android.gms:play-services-auth:21.2.0")
     testImplementation(kotlin("test"))
 }
