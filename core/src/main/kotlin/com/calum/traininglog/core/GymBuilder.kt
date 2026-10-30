@@ -18,6 +18,8 @@ data class GymPlan(
     val estimatedMinutes: Int,
     /** Ids of exercises that are optional extras (e.g. the second hinge with lots of time). */
     val optionalIds: Set<String> = emptySet(),
+    /** Set while easing back in after time off (null otherwise). */
+    val rebaseline: RebaselineStatus? = null,
 )
 
 /** A titled list of library (or "Your exercises") entries for the Add exercise sheet. */
@@ -92,8 +94,11 @@ object GymBuilder {
         today: LocalDate,
         deload: Boolean = false,
         easedRestart: Boolean = false,
+        rebaseline: RebaselineStatus? = null,
     ): GymPlan {
-        fun p(ex: Exercise) = plan(ex, records, today, deload, easedRestart)
+        val easing = rebaseline?.takeIf { it.active }
+        @Suppress("NAME_SHADOWING") val deload = deload && easing?.stage != 1
+        fun p(ex: Exercise) = plan(ex, records, today, deload, easedRestart, easing)
         val hinge = nextHinge(records)
         val (u1, u2) = nextUpperMovements(records, 2).map { preferredFor(it, records) }
 
@@ -117,6 +122,7 @@ object GymBuilder {
         return GymPlan(
             label, deload, kept, dropped, kept.sumOf { estimateMinutes(it) }.toInt(),
             optionalIds = if (extra != null && kept.any { it === extra }) setOf(extra.exercise.id) else emptySet(),
+            rebaseline = easing,
         )
     }
 
@@ -124,7 +130,7 @@ object GymBuilder {
      * Plan one exercise. Library exercises use [Progression]; custom (free-text) ones get 3 x 10 at
      * the weight and reps of their last logged session (0 kg if none) and never auto-progress.
      */
-    fun plan(ex: Exercise, records: List<SessionRecord>, today: LocalDate, deload: Boolean, easedRestart: Boolean = false): PlannedExercise {
+    fun plan(ex: Exercise, records: List<SessionRecord>, today: LocalDate, deload: Boolean, easedRestart: Boolean = false, rebaseline: RebaselineStatus? = null): PlannedExercise {
         val history = history(ex.id, records)
         var rx = if (ExerciseLibrary.isCustom(ex.id)) {
             val last = history.firstOrNull()?.log?.sets
@@ -134,6 +140,11 @@ object GymBuilder {
                 Prescription(top.weightKg, ex.sets, top.reps.coerceAtLeast(1), "Your own exercise: repeating last time (no automatic progression).")
             }
         } else Progression.next(ex, history, today, easedRestart)
+        if (rebaseline != null && rebaseline.active) {
+            // Progression already applies its 90% restart after a long gap; only never-done exercises need the factor.
+            val w = if (history.isEmpty() && rebaseline.weightFactor < 1.0 && rx.weightKg > 0) roundTo(rx.weightKg * rebaseline.weightFactor, 2.5) else rx.weightKg
+            rx = rx.copy(weightKg = w, sets = (rx.sets + rebaseline.setsDelta).coerceAtLeast(1), note = rx.note + " " + rebaseline.note)
+        }
         if (deload) {
             rx = rx.copy(sets = Progression.deloadSets(rx.sets), note = "Deload week: fewer sets, same loads.")
         }
@@ -142,26 +153,40 @@ object GymBuilder {
     }
 
     /** Plan any library or custom exercise by id (custom names come from history when logged before). */
-    fun planFor(id: String, records: List<SessionRecord>, today: LocalDate, deload: Boolean, easedRestart: Boolean = false): PlannedExercise {
+    fun planFor(id: String, records: List<SessionRecord>, today: LocalDate, deload: Boolean, easedRestart: Boolean = false, rebaseline: RebaselineStatus? = null): PlannedExercise {
         val ex = ExerciseLibrary.find(id) ?: customFromHistory(records).firstOrNull { it.id == id }
             ?: ExerciseLibrary.custom(ExerciseLibrary.nameOf(id))
-        return plan(ex, records, today, deload, easedRestart)
+        return plan(ex, records, today, deload, easedRestart, rebaseline)
     }
 
     /** Free-text exercises logged before, newest first (no extra storage). */
-    fun customFromHistory(records: List<SessionRecord>): List<Exercise> =
-        gymRecords(records).sortedByDescending { it.date }
+    fun customFromHistory(records: List<SessionRecord>): List<Exercise> {
+        val logs = gymRecords(records).sortedByDescending { it.date }
             .flatMap { it.exercises }
             .filter { ExerciseLibrary.isCustom(it.exerciseId) }
-            .distinctBy { it.exerciseId }
-            .map { Exercise(it.exerciseId, ExerciseLibrary.nameOf(it.exerciseId, it.customName), Role.ACCESSORY, ExerciseLibrary.OTHER_MOVEMENT, 0.0, 0.0, 3, 10, 10, 90) }
+        return logs.distinctBy { it.exerciseId }.map { l ->
+            // Movement comes from the most recent log of this id that recorded one.
+            val movement = logs.firstOrNull { it.exerciseId == l.exerciseId && it.customMovement != null }?.customMovement
+            Exercise(l.exerciseId, ExerciseLibrary.nameOf(l.exerciseId, l.customName), Role.ACCESSORY, movement ?: ExerciseLibrary.OTHER_MOVEMENT, 0.0, 0.0, 3, 10, 10, 90)
+        }
+    }
 
-    /** Everything that could be added, grouped by movement, with "Your exercises" last when any exist. */
+    /** Movement group remembered for a custom id (most recent log that has one), else null. */
+    fun customMovementFor(id: String, records: List<SessionRecord>): String? =
+        customFromHistory(records).firstOrNull { it.id == id }?.movement?.takeIf { it != ExerciseLibrary.OTHER_MOVEMENT }
+
+    /** Swap alternatives: library and your own exercises in the same movement group. */
+    fun swapsFor(ex: Exercise, records: List<SessionRecord>): List<Exercise> =
+        ExerciseLibrary.swapsFor(ex, customFromHistory(records))
+
+    /** Everything that could be added, grouped by movement (your own exercises join their group), with "Your exercises" last for ungrouped ones. */
     fun addOptions(records: List<SessionRecord>): List<ExerciseGroup> {
-        val groups = ExerciseLibrary.all.groupBy { ExerciseLibrary.groupOf(it.movement) }
-            .map { (g, list) -> ExerciseGroup(ExerciseLibrary.groupTitle(g), list) }
         val mine = customFromHistory(records)
-        return if (mine.isEmpty()) groups else groups + ExerciseGroup(YOUR_EXERCISES, mine)
+        val byGroup = mine.groupBy { ExerciseLibrary.groupOf(it.movement) }
+        val groups = ExerciseLibrary.all.groupBy { ExerciseLibrary.groupOf(it.movement) }
+            .map { (g, list) -> ExerciseGroup(ExerciseLibrary.groupTitle(g), list + byGroup[g].orEmpty()) }
+        val ungrouped = mine.filter { ExerciseLibrary.groupOf(it.movement) !in ExerciseLibrary.all.map { l -> ExerciseLibrary.groupOf(l.movement) } }
+        return if (ungrouped.isEmpty()) groups else groups + ExerciseGroup(YOUR_EXERCISES, ungrouped)
     }
 
     fun history(exerciseId: String, records: List<SessionRecord>): List<HistoryEntry> =

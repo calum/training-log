@@ -14,6 +14,7 @@ import com.calum.traininglog.core.ExerciseGroup
 import com.calum.traininglog.core.Feeling
 import com.calum.traininglog.core.GymBuilder
 import com.calum.traininglog.core.GymPlan
+import com.calum.traininglog.core.Rebaseline
 import com.calum.traininglog.core.LoggedSet
 import com.calum.traininglog.core.MissReason
 import com.calum.traininglog.core.PlannedExercise
@@ -153,7 +154,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         val lifting = if (_inputs.value.atGym) minutes else maxOf(25, GymBuilder.liftingMinutes(minutes))
         val gymDates = records.filter { it.type == SessionType.GYM }.map { it.date }
         val deload = Progression.deloadDue(gymDates, _data.value.profile.lastDeload, today)
-        val plan = GymBuilder.build(lifting, records, today, deload)
+        val plan = GymBuilder.build(lifting, records, today, deload, rebaseline = Rebaseline.status(records, today))
         gymStartedAt = SystemClock.elapsedRealtime()
         _gym.value = GymLive(plan, plan.exercises.map { live(it) })
         go(Screen.Gym)
@@ -208,7 +209,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     fun swap(ei: Int, newId: String) {
         val g = _gym.value ?: return
         if (ei !in g.exercises.indices) return
-        val planned = GymBuilder.planFor(newId, _data.value.records, today, g.plan.deload)
+        val planned = GymBuilder.planFor(newId, _data.value.records, today, g.plan.deload, rebaseline = g.plan.rebaseline)
         editExercise(ei) { live(planned) }
     }
 
@@ -227,7 +228,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     /** Append a library exercise (or one of your earlier custom ones) to today's session. */
     fun addExercise(id: String) {
         val g = _gym.value ?: return
-        val planned = GymBuilder.planFor(id, _data.value.records, today, g.plan.deload)
+        val planned = GymBuilder.planFor(id, _data.value.records, today, g.plan.deload, rebaseline = g.plan.rebaseline)
         editGym { it.copy(exercises = it.exercises + live(planned)) }
     }
 
@@ -236,13 +237,13 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         val clean = name.trim()
         if (clean.isEmpty()) return
         val g = _gym.value ?: return
-        val ex = ExerciseLibrary.custom(clean, movement)
+        val ex = ExerciseLibrary.custom(clean, movement ?: GymBuilder.customMovementFor(ExerciseLibrary.customId(clean), _data.value.records))
         // Reuse the logged name/weights if this id was used before.
-        val planned = GymBuilder.plan(ex, _data.value.records, today, g.plan.deload)
+        val planned = GymBuilder.plan(ex, _data.value.records, today, g.plan.deload, rebaseline = g.plan.rebaseline)
         editGym { it.copy(exercises = it.exercises + live(planned)) }
     }
 
-    fun swapOptions(ex: Exercise): List<Exercise> = ExerciseLibrary.swapsFor(ex)
+    fun swapOptions(ex: Exercise): List<Exercise> = GymBuilder.swapsFor(ex, _data.value.records)
 
     fun addOptions(): List<ExerciseGroup> = GymBuilder.addOptions(_data.value.records)
 
@@ -254,6 +255,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             else ExerciseLog(
                 e.planned.exercise.id, done.map { LoggedSet(it.kg, it.reps, it.target, it.rir) }, e.missReason,
                 customName = if (ExerciseLibrary.isCustom(e.planned.exercise.id)) e.planned.exercise.name else null,
+                customMovement = e.planned.exercise.movement.takeIf { ExerciseLibrary.isCustom(e.planned.exercise.id) && it != ExerciseLibrary.OTHER_MOVEMENT },
             )
         }
         val minutes = ((SystemClock.elapsedRealtime() - gymStartedAt) / 60000).toInt().coerceAtLeast(1)

@@ -41,6 +41,8 @@ data class ExerciseLog(
     val missReason: MissReason? = null,
     /** Display name for free-text exercises (ids like `custom:cable_face_pull`); null for library exercises. */
     val customName: String? = null,
+    /** Movement group chosen for a free-text exercise (e.g. "vertical-pull"); null when none/library. */
+    val customMovement: String? = null,
 )
 
 @Serializable

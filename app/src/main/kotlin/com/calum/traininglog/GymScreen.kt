@@ -116,6 +116,7 @@ fun GymScreen(vm: AppViewModel) {
                 verticalArrangement = Arrangement.spacedBy(Spacing.lg),
             ) {
                 GymHeader(live.plan.dayLabel, live.plan.deload, doneSets, totalSets, progress)
+                live.plan.rebaseline?.takeIf { it.active }?.let { Pill(it.headline, color = AppColors.info) }
                 if (live.plan.dropped.isNotEmpty()) {
                     Text(
                         "Trimmed to fit your time: ${live.plan.dropped.joinToString { it.name }}",
@@ -123,7 +124,7 @@ fun GymScreen(vm: AppViewModel) {
                     )
                 }
                 live.exercises.forEachIndexed { ei, e ->
-                    ExerciseCard(vm, ei, e, count = live.exercises.size, optional = e.planned.exercise.id in live.plan.optionalIds)
+                    ExerciseCard(vm, ei, e, count = live.exercises.size, optional = e.planned.exercise.id in live.plan.optionalIds, targetRir = live.plan.rebaseline?.takeIf { it.active && it.stage < 3 }?.targetRir)
                 }
                 SecondaryButton("Add exercise", onClick = { showAdd = true }, Modifier.fillMaxWidth(), accent = AppColors.info)
                 BigActionButton("Finish session", onClick = {
@@ -164,7 +165,7 @@ private fun GymHeader(dayLabel: String, deload: Boolean, done: Int, total: Int, 
 }
 
 @Composable
-private fun ExerciseCard(vm: AppViewModel, ei: Int, e: LiveExercise, count: Int, optional: Boolean) {
+private fun ExerciseCard(vm: AppViewModel, ei: Int, e: LiveExercise, count: Int, optional: Boolean, targetRir: Int? = null) {
     var showSwap by remember { mutableStateOf(false) }
     var menu by remember { mutableStateOf(false) }
     val ex = e.planned.exercise
@@ -191,6 +192,9 @@ private fun ExerciseCard(vm: AppViewModel, ei: Int, e: LiveExercise, count: Int,
         },
     ) {
         Text(e.planned.prescription.note, style = MaterialTheme.typography.bodyMedium, color = AppColors.textMuted)
+        if (targetRir != null) {
+            Text("Stop each set with $targetRir+ reps in reserve.", style = MaterialTheme.typography.bodySmall, color = AppColors.info)
+        }
         if (showSwap) {
             Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
                 SelectChip("Close", selected = true, onClick = { showSwap = false })

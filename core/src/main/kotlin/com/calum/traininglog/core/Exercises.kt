@@ -84,9 +84,10 @@ object ExerciseLibrary {
     /** Other exercises in the same movement group (including deadlift <-> RDL). */
     fun swapsFor(id: String): List<Exercise> = find(id)?.let { swapsFor(it) } ?: emptyList()
 
-    fun swapsFor(ex: Exercise): List<Exercise> =
+    /** [customs] are the user's own exercises (with their movement) offered alongside the library ones. */
+    fun swapsFor(ex: Exercise, customs: List<Exercise> = emptyList()): List<Exercise> =
         if (ex.movement == OTHER_MOVEMENT) emptyList()
-        else all.filter { groupOf(it.movement) == groupOf(ex.movement) && it.id != ex.id }
+        else (all + customs).filter { groupOf(it.movement) == groupOf(ex.movement) && it.id != ex.id }
 
     fun firstFor(movement: String): Exercise = upper.first { it.movement == movement }
 }
