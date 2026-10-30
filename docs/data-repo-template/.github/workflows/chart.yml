@@ -1,0 +1,32 @@
+name: Update progress chart
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "data/**"
+      - "scripts/make_chart.py"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  chart:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install matplotlib
+      - run: python scripts/make_chart.py
+      - name: Commit chart if changed
+        run: |
+          if [ -n "$(git status --porcelain progress.png)" ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add progress.png
+            git commit -m "Update progress chart"
+            git push
+          fi
