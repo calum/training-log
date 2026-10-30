@@ -46,6 +46,8 @@ sealed interface Screen {
     data object TreadmillPlayer : Screen
     data object TreadmillDone : Screen
     data class Light(val type: SessionType) : Screen
+    /** Guided mat / core session: setup, player and finish all live behind this one route (see [CoreController]). */
+    data object Core : Screen
     data object Manual : Screen
     data object Plan : Screen
     data object Settings : Screen
@@ -143,7 +145,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         when (type) {
             SessionType.GYM -> startGym(minutes)
             SessionType.TREADMILL -> prepareTreadmill(minutes, style)
-            SessionType.CORE, SessionType.HIKE -> go(Screen.Light(type))
+            SessionType.CORE -> prepareCore(minutes)
+            SessionType.HIKE -> go(Screen.Light(type))
             null -> home()
         }
     }
@@ -336,7 +339,37 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         home()
     }
 
-    // ---- Core / hike ----
+    // ---- Core (guided mat session) ----
+
+    val core = CoreController()
+
+    private fun lastCoreIds(): List<String> =
+        _data.value.records.filter { it.type == SessionType.CORE }.maxByOrNull { it.date }?.let { com.calum.traininglog.core.CoreLibrary.idsFromNote(it.note) }.orEmpty()
+
+    /** Knee-sensitive by default when today's knee score, or else the last logged one, is 4 or more. */
+    private fun kneeDefault(): Boolean =
+        ((_inputs.value.knee ?: _data.value.records.filter { it.kneePain != null }.maxByOrNull { it.date }?.kneePain) ?: 0) >= 4
+
+    private fun prepareCore(minutes: Int) {
+        core.prepare(minutes, lastCoreIds(), kneeDefault())
+        go(Screen.Core)
+    }
+
+    fun coreSetup(minutes: Int? = null, kneeSensitive: Boolean? = null, reshuffle: Boolean = false) =
+        core.rebuild(lastCoreIds(), minutes, kneeSensitive, reshuffle)
+
+    /** Saves the finished (or ended) core session as a normal record, then goes home. Under a minute logs nothing. */
+    fun saveCore(effort: Effort?) {
+        val run = core.ui.value.run
+        val minutes = (run?.completedSec ?: 0) / 60
+        core.reset()
+        if (run == null || minutes < 1) { home(); return }
+        val names = run.doneWorkNames()
+        val felt = when (effort) { Effort.TOO_EASY -> "too easy"; Effort.JUST_RIGHT -> "just right"; Effort.TOO_HARD -> "too hard"; null -> null }
+        saveLight(SessionType.CORE, minutes, if (names.isEmpty()) "Core: warm-up and stretching" else com.calum.traininglog.core.CoreRoutine.note(names, felt))
+    }
+
+    // ---- Hike (and the old core log) ----
 
     fun saveLight(type: SessionType, minutes: Int, note: String) {
         val record = SessionRecord(
