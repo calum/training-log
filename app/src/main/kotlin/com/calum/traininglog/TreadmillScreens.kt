@@ -40,12 +40,21 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.drawText
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.rememberTextMeasurer
+import androidx.compose.foundation.layout.width
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.calum.traininglog.core.Effort
 import com.calum.traininglog.core.Segment
 import com.calum.traininglog.core.Timeline
@@ -88,18 +97,29 @@ private fun TreadmillSetupContent(p: TreadmillPlan, onStart: () -> Unit, onOther
             Text("${p.totalSec / 60} minutes", style = MaterialTheme.typography.titleMedium, color = AppColors.textMuted)
         }
         SectionCard(title = "Your session") {
-            PlanProfile(p.segments, Modifier.fillMaxWidth().height(150.dp))
+            PlanProfile(p.segments, Modifier.fillMaxWidth().height(200.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(Spacing.lg)) {
-                LegendDot(AppColors.primary, "Speed")
-                LegendDot(AppColors.info, "Incline")
+                LegendDot(AppColors.primary, "Speed (km/h, left)")
+                LegendDot(AppColors.info, "Incline (%, right)")
             }
-            p.segments.forEach { s ->
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Text(mmss(s.seconds), style = AppType.numberS, color = AppColors.textMuted, modifier = Modifier.padding(end = Spacing.md))
-                    Text(s.label, style = MaterialTheme.typography.titleSmall, color = AppColors.textPrimary, modifier = Modifier.weight(1f))
-                    Text("${s.speedKmh}", style = AppType.numberS, color = AppColors.primary)
-                    Text(" km/h  ", style = MaterialTheme.typography.labelMedium, color = AppColors.textMuted)
-                    Text("${s.inclinePct.toInt()}%", style = AppType.numberS, color = AppColors.info)
+            summarize(p.segments).forEach { part -> PartRow(part) }
+            var all by remember { mutableStateOf(false) }
+            Row(
+                Modifier.fillMaxWidth().heightIn(min = Spacing.minTap).clip(AppShapes.small)
+                    .clickable { all = !all }.padding(horizontal = Spacing.xs),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("See every step (${p.segments.size})", style = MaterialTheme.typography.titleSmall, color = AppColors.primary, modifier = Modifier.weight(1f))
+                Text(if (all) "Hide" else "Show", style = MaterialTheme.typography.labelLarge, color = AppColors.textMuted)
+            }
+            if (all) {
+                p.segments.forEach { s ->
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Text(mmss(s.seconds), style = MaterialTheme.typography.titleSmall, color = AppColors.textMuted, modifier = Modifier.width(52.dp))
+                        Text(s.label, style = MaterialTheme.typography.bodyMedium, color = AppColors.textPrimary, modifier = Modifier.weight(1f))
+                        Text("${s.speedKmh} km/h", style = MaterialTheme.typography.titleSmall, color = AppColors.primary)
+                        Text("  ${s.inclinePct.toInt()}%", style = MaterialTheme.typography.titleSmall, color = AppColors.info, modifier = Modifier.width(44.dp), textAlign = TextAlign.End)
+                    }
                 }
             }
         }
@@ -121,9 +141,63 @@ private fun LegendDot(color: Color, text: String) {
     }
 }
 
+private class Part(val seconds: Int, val title: String, val detail: String, val main: Boolean)
+
+private fun setting(s: Segment) = "${s.speedKmh} km/h · ${s.inclinePct.toInt()}%"
+
+/** Collapse a long segment list into a few readable lines: warm-up, the main block, cool-down. */
+private fun summarize(segments: List<Segment>): List<Part> {
+    if (segments.isEmpty()) return emptyList()
+    val parts = mutableListOf<Part>()
+    val head = segments.first().takeIf { it.label == "Warm-up" }
+    val tail = segments.last().takeIf { it.label == "Cool-down" && segments.size > 1 }
+    val main = segments.drop(if (head != null) 1 else 0).dropLast(if (tail != null) 1 else 0)
+    if (head != null) parts += Part(head.seconds, "${head.seconds / 60} min warm-up", setting(head), false)
+    // Runs of identical consecutive segments merge into one line.
+    val runs = mutableListOf<MutableList<Segment>>()
+    main.forEach { s ->
+        val last = runs.lastOrNull()?.last()
+        if (last != null && last.speedKmh == s.speedKmh && last.inclinePct == s.inclinePct) runs.last() += s else runs += mutableListOf(s)
+    }
+    if (runs.size <= 2) {
+        runs.forEach { r ->
+            val sec = r.sumOf { it.seconds }
+            parts += Part(sec, "${mmssShort(sec)} ${r.first().label.lowercase()}", setting(r.first()), false)
+        }
+    } else {
+        val sec = main.sumOf { it.seconds }
+        val typical = main.groupingBy { it.seconds }.eachCount().maxByOrNull { it.value }!!.key
+        val same = main.all { it.seconds == typical }
+        val lo = main.minWith(compareBy({ it.speedKmh }, { it.inclinePct }))
+        val hi = main.maxWith(compareBy({ it.speedKmh }, { it.inclinePct }))
+        parts += Part(
+            sec, "${main.size} x ${if (same) "" else "about "}${mmss(typical)} steps",
+            "between ${lo.speedKmh}/${lo.inclinePct.toInt()}% and ${hi.speedKmh}/${hi.inclinePct.toInt()}%  ·  ${mmssShort(sec)} in all", true,
+        )
+    }
+    if (tail != null) parts += Part(tail.seconds, "${tail.seconds / 60} min cool-down", setting(tail), false)
+    return parts
+}
+
+private fun mmssShort(sec: Int) = if (sec % 60 == 0) "${sec / 60} min" else "${sec / 60}:${"%02d".format(sec % 60)} min"
+
+@Composable
+private fun PartRow(part: Part) {
+    Row(
+        Modifier.fillMaxWidth().clip(AppShapes.medium).background(AppColors.surfaceRaised).padding(Spacing.md),
+        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Spacing.md),
+    ) {
+        Box(Modifier.width(5.dp).height(40.dp).clip(AppShapes.chip).background(if (part.main) AppColors.primary else AppColors.info))
+        Column(Modifier.weight(1f)) {
+            Text(part.title, style = MaterialTheme.typography.titleMedium, color = AppColors.textPrimary)
+            Text(part.detail, style = MaterialTheme.typography.bodyMedium, color = AppColors.textMuted)
+        }
+    }
+}
+
 /**
- * Mini profile chart: incline as soft blue bars, speed as a mint step line, both over time.
- * [progressSec] (optional) draws a playhead.
+ * Profile chart with axes: minutes along the bottom, speed (km/h) on the left in mint as a step line,
+ * incline (%) on the right in blue as soft bars. [progressSec] (optional) draws a playhead.
  */
 @Composable
 private fun PlanProfile(segments: List<Segment>, modifier: Modifier = Modifier, progressSec: Int? = null) {
@@ -131,28 +205,55 @@ private fun PlanProfile(segments: List<Segment>, modifier: Modifier = Modifier, 
     val blue = AppColors.info
     val grid = AppColors.outline.copy(alpha = 0.5f)
     val head = AppColors.energy
+    val muted = AppColors.textMuted
+    val measurer = rememberTextMeasurer()
+    val label = TextStyle(fontSize = 11.sp, fontWeight = FontWeight.Medium)
     Canvas(modifier) {
         val total = segments.sumOf { it.seconds }.coerceAtLeast(1)
-        val maxSpeed = (segments.maxOfOrNull { it.speedKmh } ?: 6.0).toFloat() * 1.15f
-        val maxInc = (segments.maxOfOrNull { it.inclinePct } ?: 10.0).toFloat().coerceAtLeast(4f) * 1.15f
-        val h = size.height
-        val w = size.width
-        for (i in 1..3) drawLine(grid, Offset(0f, h * i / 4f), Offset(w, h * i / 4f), 1.dp.toPx())
-        var x = 0f
+        val minS = segments.minOfOrNull { it.speedKmh } ?: 4.0
+        val maxS = segments.maxOfOrNull { it.speedKmh } ?: 6.0
+        val sLo = Math.floor(minS - 0.3).coerceAtLeast(0.0)
+        val sHi = Math.ceil(maxS + 0.3).coerceAtLeast(sLo + 2.0)
+        val iHi = (Math.ceil(((segments.maxOfOrNull { it.inclinePct } ?: 10.0) + 0.5) / 2.0) * 2.0).coerceAtLeast(4.0)
+        val left = 40.dp.toPx(); val right = 40.dp.toPx(); val top = 18.dp.toPx(); val bottom = 22.dp.toPx()
+        val w = size.width - left - right
+        val h = size.height - top - bottom
+        fun text(t: String, color: Color, x: Float, y: Float, alignRight: Boolean = false, center: Boolean = false) {
+            val m = measurer.measure(t, label.copy(color = color))
+            val px = if (center) x - m.size.width / 2f else if (alignRight) x - m.size.width else x
+            drawText(m, topLeft = Offset(px, y - m.size.height / 2f))
+        }
+        for (i in 0..2) {
+            val y = top + h * (1 - i / 2f)
+            drawLine(grid, Offset(left, y), Offset(left + w, y), 1.dp.toPx())
+            val sv = sLo + (sHi - sLo) * i / 2.0
+            text(if (sv % 1.0 == 0.0) sv.toInt().toString() else "%.1f".format(sv), mint, left - 6.dp.toPx(), y, alignRight = true)
+            text("${(iHi * i / 2.0).toInt()}%", blue, left + w + 6.dp.toPx(), y)
+        }
+        text("km/h", mint, left - 6.dp.toPx(), 6.dp.toPx(), alignRight = true)
+        text("incline", blue, left + w + 6.dp.toPx(), 6.dp.toPx())
+        val stepMin = if (total / 60 <= 25) 5 else 10
+        var mark = 0
+        while (mark * 60 <= total) {
+            val x = left + w * mark * 60f / total
+            text(if (mark == 0) "0" else "$mark min", muted, x, size.height - 8.dp.toPx(), center = true)
+            mark += stepMin
+        }
+        var x = left
         val path = Path()
         segments.forEachIndexed { i, s ->
             val sw = w * s.seconds / total
-            val ih = h * (s.inclinePct.toFloat() / maxInc)
-            drawRect(blue.copy(alpha = 0.28f), Offset(x + 1f, h - ih), Size((sw - 2f).coerceAtLeast(1f), ih))
-            val y = h - h * (s.speedKmh.toFloat() / maxSpeed)
+            val ih = h * (s.inclinePct.toFloat() / iHi.toFloat())
+            drawRect(blue.copy(alpha = 0.28f), Offset(x + 1f, top + h - ih), Size((sw - 2f).coerceAtLeast(1f), ih))
+            val y = top + h - h * ((s.speedKmh - sLo) / (sHi - sLo)).toFloat()
             if (i == 0) path.moveTo(x, y) else path.lineTo(x, y)
             path.lineTo(x + sw, y)
             x += sw
         }
-        drawPath(path, mint, style = Stroke(width = 4.dp.toPx(), cap = androidx.compose.ui.graphics.StrokeCap.Round, join = androidx.compose.ui.graphics.StrokeJoin.Round))
+        drawPath(path, mint, style = Stroke(width = 3.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round))
         if (progressSec != null) {
-            val px = w * progressSec.coerceIn(0, total) / total
-            drawLine(head, Offset(px, 0f), Offset(px, h), 3.dp.toPx())
+            val px = left + w * progressSec.coerceIn(0, total) / total
+            drawLine(head, Offset(px, top), Offset(px, top + h), 3.dp.toPx())
         }
     }
 }

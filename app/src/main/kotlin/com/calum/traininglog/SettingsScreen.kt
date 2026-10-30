@@ -1,6 +1,25 @@
 package com.calum.traininglog
 
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.unit.dp
+import com.calum.traininglog.ui.AppShapes
+import com.calum.traininglog.ui.AppType
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -58,11 +77,14 @@ fun SettingsScreen(vm: AppViewModel) {
     val calibration = data.profile.treadmill
     var resetting by remember { mutableStateOf<Group?>(null) }
     var openLift by remember { mutableStateOf<String?>(null) }
+    var openRow by remember { mutableStateOf<String?>(null) }
+    var openGroups by remember { mutableStateOf(setOf<String>()) }
+    fun toggleGroup(key: String) { openGroups = if (key in openGroups) openGroups - key else openGroups + key; openRow = null }
     val context = LocalContext.current
     val askNotifications = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
     // Keep the evening nudge scheduled (or cancelled) in step with the setting.
     LaunchedEffect(settings.reminderEnabled, settings.reminderHour, settings.reminderMinute) {
-        ReminderManager.schedule(context, settings)
+        runCatching { ReminderManager.schedule(context, settings) }
     }
 
     // Every change is saved straight away and kept inside its allowed range.
@@ -104,7 +126,7 @@ fun SettingsScreen(vm: AppViewModel) {
         Muted("Changes save as you make them. They only affect future plans; your history stays as it is.")
 
         // ---- Lifts ----
-        SectionCard(title = Group.LIFTS.title) {
+        GroupCard(Group.LIFTS.title, "${ExerciseLibrary.all.size} lifts, ${settings.lifts.size} customised", open = "lifts" in openGroups, onToggle = { toggleGroup("lifts") }) {
             Muted("Starting weight is used the first time you do a lift. Increment is how much is added when it goes well. Rest is the timer between sets.")
             ExerciseLibrary.all.forEach { base ->
                 val ex = settings.resolve(base)
@@ -140,25 +162,25 @@ fun SettingsScreen(vm: AppViewModel) {
         }
 
         // ---- Weekly targets ----
-        SectionCard(title = Group.TARGETS.title) {
+        GroupCard(Group.TARGETS.title, "Gym ${settings.gymTarget} · Treadmill ${settings.treadmillTarget} a week", open = "targets" in openGroups, onToggle = { toggleGroup("targets") }) {
             Muted("A good week is the first number. The stretch is a bonus, never a requirement. Use 0 for a session type you don't want counted.")
-            BigNumberStepper(
-                "${settings.gymTarget}", "gym", label = "Good week: gym",
+            SettingRow(
+                "${settings.gymTarget}", "gym", label = "Good week: gym", open = openRow, onOpen = { openRow = it },
                 onMinus = { update { it.copy(gymTarget = it.gymTarget - 1) } },
                 onPlus = { update { it.copy(gymTarget = it.gymTarget + 1, gymStretch = maxOf(it.gymStretch, it.gymTarget + 1)) } },
             )
-            BigNumberStepper(
-                "${settings.treadmillTarget}", "treadmill", label = "Good week: treadmill",
+            SettingRow(
+                "${settings.treadmillTarget}", "treadmill", label = "Good week: treadmill", open = openRow, onOpen = { openRow = it },
                 onMinus = { update { it.copy(treadmillTarget = it.treadmillTarget - 1) } },
                 onPlus = { update { it.copy(treadmillTarget = it.treadmillTarget + 1, treadmillStretch = maxOf(it.treadmillStretch, it.treadmillTarget + 1)) } },
             )
-            BigNumberStepper(
-                "${settings.effectiveGymStretch}", "gym", label = "Stretch: gym",
+            SettingRow(
+                "${settings.effectiveGymStretch}", "gym", label = "Stretch: gym", open = openRow, onOpen = { openRow = it },
                 onMinus = { update { it.copy(gymStretch = maxOf(it.gymTarget, it.effectiveGymStretch - 1)) } },
                 onPlus = { update { it.copy(gymStretch = it.effectiveGymStretch + 1) } },
             )
-            BigNumberStepper(
-                "${settings.effectiveTreadmillStretch}", "treadmill", label = "Stretch: treadmill",
+            SettingRow(
+                "${settings.effectiveTreadmillStretch}", "treadmill", label = "Stretch: treadmill", open = openRow, onOpen = { openRow = it },
                 onMinus = { update { it.copy(treadmillStretch = maxOf(it.treadmillTarget, it.effectiveTreadmillStretch - 1)) } },
                 onPlus = { update { it.copy(treadmillStretch = it.effectiveTreadmillStretch + 1) } },
             )
@@ -166,15 +188,15 @@ fun SettingsScreen(vm: AppViewModel) {
         }
 
         // ---- Travel & time ----
-        SectionCard(title = Group.TRAVEL.title) {
+        GroupCard(Group.TRAVEL.title, "${settings.travelMinEachWay} min each way · ${settings.minLiftingMin} min lifting at least", open = "travel" in openGroups, onToggle = { toggleGroup("travel") }) {
             Muted("Travel time is taken off your free time before planning the lifting. A gym session is only suggested when at least the minimum is left.")
-            BigNumberStepper(
-                "${settings.travelMinEachWay}", "min each way", label = "Travel to the gym",
+            SettingRow(
+                "${settings.travelMinEachWay}", "min each way", label = "Travel to the gym", open = openRow, onOpen = { openRow = it },
                 onMinus = { update { it.copy(travelMinEachWay = it.travelMinEachWay - 1) } },
                 onPlus = { update { it.copy(travelMinEachWay = it.travelMinEachWay + 1) } },
             )
-            BigNumberStepper(
-                "${settings.minLiftingMin}", "min", label = "Shortest worthwhile lifting",
+            SettingRow(
+                "${settings.minLiftingMin}", "min", label = "Shortest worthwhile lifting", open = openRow, onOpen = { openRow = it },
                 onMinus = { update { it.copy(minLiftingMin = it.minLiftingMin - 5) } },
                 onPlus = { update { it.copy(minLiftingMin = it.minLiftingMin + 5) } },
             )
@@ -182,25 +204,25 @@ fun SettingsScreen(vm: AppViewModel) {
         }
 
         // ---- Treadmill ----
-        SectionCard(title = Group.TREADMILL.title) {
+        GroupCard(Group.TREADMILL.title, "Start ${String.format("%.1f", calibration.speedKmh)} km/h · ${fmt(calibration.inclinePct)}%", open = "treadmill" in openGroups, onToggle = { toggleGroup("treadmill") }) {
             Muted("Where your sessions start. Speed and incline for a steady walk also adjust themselves from your \"too easy / too hard\" feedback.")
-            BigNumberStepper(
-                String.format("%.1f", calibration.speedKmh), "km/h", label = "Starting speed",
+            SettingRow(
+                String.format("%.1f", calibration.speedKmh), "km/h", label = "Starting speed", open = openRow, onOpen = { openRow = it },
                 onMinus = { updateCalibration { it.copy(speedKmh = it.speedKmh - 0.1) } },
                 onPlus = { updateCalibration { it.copy(speedKmh = it.speedKmh + 0.1) } },
             )
-            BigNumberStepper(
-                fmt(calibration.inclinePct), "% incline", label = "Starting incline",
+            SettingRow(
+                fmt(calibration.inclinePct), "% incline", label = "Starting incline", open = openRow, onOpen = { openRow = it },
                 onMinus = { updateCalibration { it.copy(inclinePct = it.inclinePct - 1) } },
                 onPlus = { updateCalibration { it.copy(inclinePct = it.inclinePct + 1) } },
             )
-            BigNumberStepper(
-                String.format("%.1f", settings.warmupSpeedKmh), "km/h", label = "Warm-up speed",
+            SettingRow(
+                String.format("%.1f", settings.warmupSpeedKmh), "km/h", label = "Warm-up speed", open = openRow, onOpen = { openRow = it },
                 onMinus = { update { it.copy(warmupSpeedKmh = round1(it.warmupSpeedKmh - 0.1)) } },
                 onPlus = { update { it.copy(warmupSpeedKmh = round1(it.warmupSpeedKmh + 0.1)) } },
             )
-            BigNumberStepper(
-                fmt(settings.warmupInclinePct), "% incline", label = "Warm-up incline",
+            SettingRow(
+                fmt(settings.warmupInclinePct), "% incline", label = "Warm-up incline", open = openRow, onOpen = { openRow = it },
                 onMinus = { update { it.copy(warmupInclinePct = it.warmupInclinePct - 1) } },
                 onPlus = { update { it.copy(warmupInclinePct = it.warmupInclinePct + 1) } },
             )
@@ -208,25 +230,25 @@ fun SettingsScreen(vm: AppViewModel) {
         }
 
         // ---- Progression ----
-        SectionCard(title = Group.PROGRESSION.title) {
+        GroupCard(Group.PROGRESSION.title, "Lighter week every ${settings.deloadWeeks} weeks", open = "progression" in openGroups, onToggle = { toggleGroup("progression") }) {
             Muted("A lighter week is suggested after this many steady weeks. After a longer break, lifts restart a bit lighter so you ease back in.")
-            BigNumberStepper(
-                "${settings.deloadWeeks}", "weeks", label = "Lighter week every",
+            SettingRow(
+                "${settings.deloadWeeks}", "weeks", label = "Lighter week every", open = openRow, onOpen = { openRow = it },
                 onMinus = { update { it.copy(deloadWeeks = it.deloadWeeks - 1) } },
                 onPlus = { update { it.copy(deloadWeeks = it.deloadWeeks + 1) } },
             )
-            BigNumberStepper(
-                "${settings.restartAfterDays / 7}", "weeks off", label = "Counts as a break after",
+            SettingRow(
+                "${settings.restartAfterDays / 7}", "weeks off", label = "Counts as a break after", open = openRow, onOpen = { openRow = it },
                 onMinus = { update { it.copy(restartAfterDays = it.restartAfterDays - 7) } },
                 onPlus = { update { it.copy(restartAfterDays = it.restartAfterDays + 7) } },
             )
-            BigNumberStepper(
-                "${(settings.restartFactor * 100).roundToInt()}", "% of last weight", label = "Restart at",
+            SettingRow(
+                "${(settings.restartFactor * 100).roundToInt()}", "% of last weight", label = "Restart at", open = openRow, onOpen = { openRow = it },
                 onMinus = { update { it.copy(restartFactor = round1(it.restartFactor * 20 - 1) / 20.0) } },
                 onPlus = { update { it.copy(restartFactor = round1(it.restartFactor * 20 + 1) / 20.0) } },
             )
-            BigNumberStepper(
-                fmt(settings.barKg), "kg", label = "Bar weight (warm-ups)",
+            SettingRow(
+                fmt(settings.barKg), "kg", label = "Bar weight (warm-ups)", open = openRow, onOpen = { openRow = it },
                 onMinus = { update { it.copy(barKg = it.barKg - 2.5) } },
                 onPlus = { update { it.copy(barKg = it.barKg + 2.5) } },
             )
@@ -234,7 +256,7 @@ fun SettingsScreen(vm: AppViewModel) {
         }
 
         // ---- Gentle reminder ----
-        SectionCard(title = "Gentle reminder") {
+        GroupCard("Gentle reminder", if (settings.reminderEnabled) "On, around ${String.format("%02d:%02d", settings.reminderHour, settings.reminderMinute)}" else "Off", open = "reminder" in openGroups, onToggle = { toggleGroup("reminder") }) {
             Muted("Totally optional and off by default. One quiet evening nudge on days you haven't trained, never on rest days, and never about missed sessions. Nothing is lost if you ignore it.")
             Row(Modifier.fillMaxWidth().heightIn(min = Spacing.minTap), verticalAlignment = Alignment.CenterVertically) {
                 Text("Evening nudge", color = AppColors.textPrimary, fontSize = 17.sp, modifier = Modifier.weight(1f))
@@ -252,8 +274,8 @@ fun SettingsScreen(vm: AppViewModel) {
                     val t = Math.floorMod(m, 24 * 60)
                     update { it.copy(reminderHour = t / 60, reminderMinute = t % 60) }
                 }
-                BigNumberStepper(
-                    String.format("%02d:%02d", settings.reminderHour, settings.reminderMinute), "time", label = "Remind me around",
+                SettingRow(
+                    String.format("%02d:%02d", settings.reminderHour, settings.reminderMinute), "time", label = "Remind me around", open = openRow, onOpen = { openRow = it },
                     onMinus = { setTime(minutes - 15) },
                     onPlus = { setTime(minutes + 15) },
                 )
@@ -273,8 +295,8 @@ fun SettingsScreen(vm: AppViewModel) {
                 Row(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
                     DayOfWeek.entries.drop(4).forEach { dayChip(it)() }
                 }
-                BigNumberStepper(
-                    "${settings.reminderMaxPerWeek}", "a week", label = "At most",
+                SettingRow(
+                    "${settings.reminderMaxPerWeek}", "a week", label = "At most", open = openRow, onOpen = { openRow = it },
                     onMinus = { update { it.copy(reminderMaxPerWeek = it.reminderMaxPerWeek - 1) } },
                     onPlus = { update { it.copy(reminderMaxPerWeek = it.reminderMaxPerWeek + 1) } },
                 )
@@ -296,6 +318,56 @@ fun SettingsScreen(vm: AppViewModel) {
 }
 
 @Composable
+private fun Chevron(open: Boolean, color: Color = AppColors.textMuted) {
+    val angle by animateFloatAsState(if (open) 180f else 0f, label = "chev")
+    Canvas(Modifier.size(20.dp).rotate(angle)) {
+        val sw = 2.5.dp.toPx()
+        val path = androidx.compose.ui.graphics.Path().apply {
+            moveTo(size.width * 0.15f, size.height * 0.35f); lineTo(size.width * 0.5f, size.height * 0.68f); lineTo(size.width * 0.85f, size.height * 0.35f)
+        }
+        drawPath(path, color, style = Stroke(sw, cap = StrokeCap.Round, join = StrokeJoin.Round))
+    }
+}
+
+/** Collapsible settings group: tappable header with a one-line summary, content only while open. */
+@Composable
+private fun GroupCard(title: String, summary: String, open: Boolean, onToggle: () -> Unit, content: @Composable ColumnScope.() -> Unit) {
+    SectionCard(title = title, action = { Chevron(open) }, onClick = onToggle) {
+        if (!open) Text(summary, style = MaterialTheme.typography.bodyLarge, color = AppColors.textMuted)
+        else content()
+    }
+}
+
+/** A setting: label left, current value in large type right; tap it to open an inline stepper. */
+@Composable
+private fun SettingRow(
+    value: String, unit: String, label: String, open: String?, onOpen: (String?) -> Unit,
+    onMinus: () -> Unit, onPlus: () -> Unit,
+) {
+    val isOpen = open == label
+    Column(
+        Modifier.fillMaxWidth().clip(AppShapes.medium).background(AppColors.surfaceRaised)
+            .border(if (isOpen) 2.dp else 0.dp, if (isOpen) AppColors.primary.copy(alpha = 0.6f) else Color.Transparent, AppShapes.medium),
+    ) {
+        Row(
+            Modifier.fillMaxWidth().heightIn(min = 64.dp).clickable { onOpen(if (isOpen) null else label) }
+                .padding(horizontal = Spacing.lg, vertical = Spacing.sm),
+            verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+        ) {
+            Text(label, style = MaterialTheme.typography.titleSmall, color = AppColors.textPrimary, modifier = Modifier.weight(1f))
+            Text(value, style = AppType.numberS, color = AppColors.primary, maxLines = 1)
+            Text(unit, style = MaterialTheme.typography.labelMedium, color = AppColors.textMuted, modifier = Modifier.widthIn(max = 96.dp))
+            Chevron(isOpen)
+        }
+        if (isOpen) {
+            Box(Modifier.padding(start = Spacing.md, end = Spacing.md, bottom = Spacing.md)) {
+                BigNumberStepper(value, unit, onMinus = onMinus, onPlus = onPlus)
+            }
+        }
+    }
+}
+
+@Composable
 private fun LiftRow(
     ex: Exercise,
     changed: Boolean,
@@ -305,17 +377,18 @@ private fun LiftRow(
 ) {
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
         Row(
-            Modifier.fillMaxWidth().heightIn(min = Spacing.minTap).clickable(onClick = onToggle),
+            Modifier.fillMaxWidth().heightIn(min = 64.dp).clip(AppShapes.medium).background(AppColors.surfaceRaised)
+                .clickable(onClick = onToggle).padding(horizontal = Spacing.lg, vertical = Spacing.sm),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Column(Modifier.weight(1f)) {
-                Text(ex.name, color = if (changed) AppColors.primary else AppColors.textPrimary, fontSize = 17.sp)
+                Text(ex.name, color = if (changed) AppColors.primary else AppColors.textPrimary, style = MaterialTheme.typography.titleSmall)
                 Text(
                     "Start ${fmt(ex.startKg)} kg  |  +${fmt(ex.incrementKg)} kg  |  rest ${ex.restSec} s",
-                    color = AppColors.textMuted, fontSize = 13.sp,
+                    color = AppColors.textMuted, style = MaterialTheme.typography.bodySmall,
                 )
             }
-            Text(if (expanded) "Done" else "Edit", color = AppColors.primary, fontSize = 15.sp)
+            Chevron(expanded)
         }
         if (expanded) {
             body()
