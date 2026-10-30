@@ -11,6 +11,8 @@ private class MemHashes : HashStore {
     val m = mutableMapOf<String, String>()
     override fun get(path: String) = m[path]
     override fun put(path: String, sha: String) { m[path] = sha }
+    override fun paths(): Set<String> = m.keys.toSet()
+    override fun remove(path: String) { m.remove(path) }
 }
 
 /** Fake GitHub: files by path -> content; records every request. */
@@ -26,6 +28,7 @@ private class FakeGithub(
     val log = mutableListOf<String>()
     val puts = mutableListOf<String>()
     val bodies = mutableListOf<String>()
+    val deletes = mutableListOf<String>()
     private val prefix = "https://api.github.com/repos/me/data"
 
     override fun execute(req: HttpReq): HttpResp {
@@ -39,7 +42,24 @@ private class FakeGithub(
             url.startsWith("$prefix/contents/") && req.method == "GET" -> {
                 if (!repoExists || !branchExists) return HttpResp(404, "{}")
                 val path = url.removePrefix("$prefix/contents/").substringBefore("?")
-                files[path]?.let { HttpResp(200, """{"sha":"${GithubPaths.blobSha(it)}"}""") } ?: HttpResp(404, "{}")
+                val dir = files.keys.filter { it.startsWith("$path/") }
+                if (files[path] == null && dir.isNotEmpty()) {
+                    val items = dir.sorted().joinToString(",") { """{"type":"file","path":"$it","name":"${it.substringAfterLast('/')}"}""" }
+                    return HttpResp(200, "[$items]")
+                }
+                files[path]?.let {
+                    HttpResp(200, """{"sha":"${GithubPaths.blobSha(it)}","content":"${java.util.Base64.getEncoder().encodeToString(it.toByteArray())}"}""")
+                } ?: HttpResp(404, "{}")
+            }
+            url.startsWith("$prefix/contents/") && req.method == "DELETE" -> {
+                val path = url.removePrefix("$prefix/contents/")
+                val sha = Regex("\"sha\":\"([^\"]+)\"").find(req.body!!)?.groupValues?.get(1)
+                val have = files[path]
+                if (have == null) return HttpResp(404, "{}")
+                if (sha != GithubPaths.blobSha(have)) return HttpResp(409, "{}")
+                files.remove(path)
+                deletes += path
+                HttpResp(200, "{}")
             }
             url.startsWith("$prefix/contents/") && req.method == "PUT" -> {
                 if (!repoExists || !branchExists) return HttpResp(404, "{}")
@@ -173,5 +193,79 @@ class GithubSyncTest {
         assertFalse(Redact.scrub("x github_pat_11ABC_def123 y").contains("11ABC"))
         assertFalse(cfg.toString().contains("SECRET"))
         assertFalse(HttpReq("GET", "u", t).toString().contains("SECRET"))
+    }
+
+    @Test fun deletedMonthIsRemovedFromGithubButOnlyCsvInTheThreeFolders() {
+        val gh = FakeGithub(files = mutableMapOf("README.md" to "keep", "data/summary.json" to "{}", "data/other.txt" to "x"))
+        val hashes = MemHashes()
+        val files = mapOf(
+            "data/gym/2026-09.csv" to "a\n1\n", "data/gym/2026-10.csv" to "a\n2\n",
+            "data/treadmill/2026-10.csv" to "t\n", "data/other/2026-10.csv" to "o\n", "data/summary.json" to "{}",
+        )
+        SyncEngine(gh, cfg, hashes).sync(files, 3)
+        // Something non-csv and something outside the folders also look "known" but must never be deleted.
+        hashes.put("data/summary.json.old", "x"); gh.files["data/summary.json.old"] = "x"
+        hashes.put("README.md", "x"); hashes.put("data/gym/nested/x.csv", "x"); gh.files["data/gym/nested/x.csv"] = "x"
+
+        val out = SyncEngine(gh, cfg, hashes).sync(files - "data/gym/2026-09.csv" - "data/treadmill/2026-10.csv", 1)
+        assertEquals(SyncOutcome.Success(0, 3, 2), out)
+        assertEquals(listOf("data/gym/2026-09.csv", "data/treadmill/2026-10.csv"), gh.deletes)
+        assertTrue("README.md" in gh.files && "data/summary.json" in gh.files && "data/other.txt" in gh.files)
+        assertTrue("data/summary.json.old" in gh.files && "data/gym/nested/x.csv" in gh.files)
+        assertFalse("data/gym/2026-09.csv" in hashes.m)
+
+        // Next sync: nothing left to delete, no DELETE requests.
+        gh.log.clear()
+        SyncEngine(gh, cfg, hashes).sync(files - "data/gym/2026-09.csv" - "data/treadmill/2026-10.csv", 1)
+        assertTrue(gh.log.none { it.startsWith("DELETE") })
+    }
+
+    @Test fun pruneNeverTouchesFilesThisInstallDidNotPush() {
+        // Fresh install with only new data must not wipe history that lives on GitHub.
+        val gh = FakeGithub(files = mutableMapOf("data/gym/2020-01.csv" to "old"))
+        SyncEngine(gh, cfg, MemHashes()).sync(mapOf("data/gym/2026-10.csv" to "new"), 1)
+        assertTrue(gh.deletes.isEmpty())
+        assertTrue("data/gym/2020-01.csv" in gh.files)
+    }
+
+    @Test fun alreadyGoneRemoteFileJustForgetsTheHash() {
+        val gh = FakeGithub()
+        val hashes = MemHashes().also { it.put("data/gym/2026-01.csv", "x") }
+        assertEquals(SyncOutcome.Success(0, 0, 0), SyncEngine(gh, cfg, hashes).sync(emptyMap(), 0))
+        assertTrue(hashes.m.isEmpty())
+    }
+
+    @Test fun prunablePathRules() {
+        assertTrue(GithubPaths.isPrunable("data/gym/2026-10.csv"))
+        assertTrue(GithubPaths.isPrunable("data/treadmill/2026-10.csv"))
+        assertTrue(GithubPaths.isPrunable("data/other/2026-10.csv"))
+        assertFalse(GithubPaths.isPrunable("data/gym/2026-10.txt"))
+        assertFalse(GithubPaths.isPrunable("data/summary.json"))
+        assertFalse(GithubPaths.isPrunable("data/gym/../x.csv"))
+        assertFalse(GithubPaths.isPrunable("src/data/gym/x.csv"))
+        assertFalse(GithubPaths.isPrunable("data/gym/a/b.csv"))
+        assertFalse(GithubPaths.isPrunable(".github/workflows/x.csv"))
+    }
+
+    @Test fun fetchReadsTheThreeFoldersAndRebuildsRecords() {
+        val records = listOf(
+            com.calum.traininglog.core.SessionRecord(
+                "a", java.time.LocalDate.parse("2026-10-05"), com.calum.traininglog.core.SessionType.GYM, 60, 50,
+                com.calum.traininglog.core.Feeling.OKAY,
+                exercises = listOf(com.calum.traininglog.core.ExerciseLog("squat", listOf(com.calum.traininglog.core.LoggedSet(80.0, 5, 5, 2)))),
+            ),
+        )
+        val pub = com.calum.traininglog.core.PublicExport.files(records)
+        val gh = FakeGithub(files = (pub + ("README.md" to "x")).toMutableMap())
+        val res = SyncEngine(gh, cfg, MemHashes()).fetchPublicFiles()
+        val got = (res as FetchResult.Files).files
+        assertEquals(pub.filterKeys { it.endsWith(".csv") }, got)
+        val back = com.calum.traininglog.core.PublicImport.records(got)
+        assertEquals(1, back.size)
+        assertEquals(80.0, back[0].exercises[0].sets[0].weightKg)
+        // Empty repo: no folders is fine.
+        assertEquals(FetchResult.Files(emptyMap()), SyncEngine(FakeGithub(), cfg, MemHashes()).fetchPublicFiles())
+        assertEquals(FetchResult.Problem(SyncOutcome.NeedsSignIn), SyncEngine(FakeGithub(failAll = 401), cfg, MemHashes()).fetchPublicFiles())
+        assertIs<FetchResult.Problem>(SyncEngine(FakeGithub(branchExists = false), cfg, MemHashes()).fetchPublicFiles())
     }
 }
