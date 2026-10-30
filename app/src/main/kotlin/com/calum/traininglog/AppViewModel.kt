@@ -123,6 +123,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 nearGym = true, gymDoneThisWeek = week.gym, treadmillDoneThisWeek = week.treadmill,
                 daysSinceGym = Stats.daysSince(SessionType.GYM, records, today),
                 lastTreadmillStyle = lastTreadmillStyle(),
+                restDay = com.calum.traininglog.core.RestDays.isRestDay(_data.value.profile, today),
             ),
             seed = System.currentTimeMillis() / 60000,
         )
