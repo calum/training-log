@@ -13,6 +13,10 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -36,6 +40,7 @@ fun UpdateBanner(modifier: Modifier = Modifier) {
         }
         is UpdateState.Available -> BannerCard(modifier) {
             Text("Update available: v${s.version}", fontWeight = FontWeight.Bold, fontSize = 18.sp)
+            WhatsNew(s.whatsNew)
             Text("Your data stays on the phone. Android will ask you to confirm.", fontSize = 13.sp)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(onClick = { UpdateManager.install(ctx) }) { Text("Update now") }
@@ -57,6 +62,23 @@ fun UpdateBanner(modifier: Modifier = Modifier) {
         }
     }
 }
+
+@Composable
+private fun WhatsNew(body: String) {
+    val bullets = remember(body) { UpdateManager.whatsNewBullets(body) }
+    if (bullets.isEmpty()) return
+    var expanded by remember { mutableStateOf(false) }
+    val shown = if (expanded) bullets else bullets.take(WHATS_NEW_SHORT)
+    Column(Modifier.testTag("whats-new"), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Text("What's new", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+        shown.forEach { Text("\u2022 $it", fontSize = 13.sp) }
+        if (bullets.size > WHATS_NEW_SHORT) {
+            TextButton(onClick = { expanded = !expanded }) { Text(if (expanded) "Show less" else "Show all ${bullets.size}") }
+        }
+    }
+}
+
+private const val WHATS_NEW_SHORT = 6
 
 @Composable
 private fun BannerCard(modifier: Modifier, content: @Composable () -> Unit) {

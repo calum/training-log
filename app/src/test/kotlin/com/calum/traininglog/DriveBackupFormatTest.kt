@@ -58,7 +58,7 @@ class DriveBackupFormatTest {
 
     @Test fun appDataHasNoCredentials() {
         val names = AppData.serializer().descriptor.let { d -> (0 until d.elementsCount).map(d::getElementName) }
-        assertEquals(listOf("records", "profile"), names)
+        assertEquals(listOf("records", "profile", "schemaVersion"), names)
         val text = DriveFormat.encode(data, "t").lowercase()
         listOf("token", "password", "secret", "credential", "apikey").forEach { assertFalse(text.contains(it), it) }
     }

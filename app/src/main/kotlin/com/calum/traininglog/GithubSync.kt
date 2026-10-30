@@ -677,9 +677,13 @@ object GithubSync {
             is Resolved.Problem -> r.outcome
             is Resolved.Ready -> {
                 secret = r.cfg.token
-                val data = Store(app).load()
-                val files = PublicExport.files(data.records)
-                SyncEngine(http, r.cfg, PrefsHashStore(app)).sync(files, data.records.size)
+                val store = Store(app)
+                val data = store.load()
+                if (store.blocked) SyncOutcome.Failed("Your data was saved by a newer app version. Update the app first.")
+                else {
+                    val files = PublicExport.files(data.records)
+                    SyncEngine(http, r.cfg, PrefsHashStore(app)).sync(files, data.records.size)
+                }
             }
         }
         val raw: SyncOutcome = try {
