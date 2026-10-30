@@ -47,3 +47,31 @@ so anything below the fold is unreviewed.
 
 ## Update (plan/trophies pass)
 Chart now has rounded y ticks, left gutter sized to labels, grid lines, end-of-line labels and "Wk n" x labels. Also fixed: truncated what-if chips (shorter labels), milestone pill alignment.
+
+## 2026-10-30: guided core, blocks, backup, logging screens, update banner
+
+New shots: `core-setup[-full]`, `core-player-{work,warn,rest,warmup,away}`, `core-done`, `blocks-{active,active-top,only-finished,empty-full,new-form,review}`,
+`home-block`, `home-block-done`, `backup-{sync-full,device-code,restore-preview}`, `*-full` for manual-log / light-hike / export, `update-banners`
+(all seven states in one image). Tall `-full` shots use a taller viewport so nothing is below the fold.
+
+Found, then FIXED:
+1. **Core player**: content stacked at the top with the bottom third empty, 220 dp ring, plain-text phase label, the "paused while away" notice
+   squeezed in as small orange text. Now: kind as a pill, 272 dp ring with "of 0:40" under the count, ring and cue centred in the free space,
+   progress/next-up/buttons pinned to the bottom, away notice in a tinted card, reps hint as a pill.
+2. **Core setup**: a 400 dp list before the Start button, no summary, unlabelled minute chips. Now Time/Blocks/Moves tiles, Start right under them,
+   Different mix + Back side by side, the step list ("What's in it") below, block cards with rounds/work/rest as a sub-line.
+3. **Core done / Treadmill done**: top-aligned with 55% empty screen. Content now centred; core done gets Time/Moves tiles.
+4. **Blocks**: "Optional smaller goals" were three full-line chips with steppers wedged between them; now one wrapped chip row, steppers labelled below.
+   Wins were "+ text" lines (now mint bullets); hero percentage and pace line were tiny; form labels are eyebrows. Lift chips wrap safely.
+   Still deliberate: violet lift chips (reward colour) differ from mint chips elsewhere.
+5. **Backup & sync**: status was buried third from last; now first. "What goes where" is two labelled pills instead of a text wall. Device-code is its
+   own violet card with a large code, full-width Copy/Open buttons (the URL button wrapped to three lines). Restore preview and Drive buttons were
+   half-width and wrapped ("Add 17 sessions", "Connect Google Drive"); now full width.
+6. **Export**: Copy (72 dp) and Share (56 dp) had different heights; now equal, plus a one-line hint about private notes.
+7. **Manual log**: the "When?" card showed six chips AND a stepper for the same value; chips are now Today/Yesterday/2 days ago, stepper covers further back.
+8. **Update banner**: default Material card colours, 40 dp buttons. Now raised-surface card with the large shape and 48 dp buttons (content untouched).
+
+Looked fine: Light (hike) screen, block review sheet, Home block card, Export preview (monospace), Celebration overlay (HomeScreen.kt, outside this pass).
+
+Not captured: **GitHub signed in / pasted-token saved** states. They need the Android Keystore (`TokenVault`), which Robolectric does not provide, and
+the screen re-reads storage on open. A stateless `BackupContent` would be needed; skipped. Block review sheet renders as a dialog, so the PNG shows only the sheet.

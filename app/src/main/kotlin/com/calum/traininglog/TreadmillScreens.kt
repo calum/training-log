@@ -412,10 +412,11 @@ private fun NextChangeCard(n: Segment, secondsLeft: Int, warn: Boolean) {
 fun TreadmillDoneScreen(vm: AppViewModel) {
     var burst by remember { mutableIntStateOf(0) }
     LaunchedEffect(Unit) { burst = 1 }
-    Box(Modifier.fillMaxSize().background(AppColors.background)) {
+    androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxSize().background(AppColors.background)) {
+        val minH = maxHeight
         Column(
-            Modifier.fillMaxSize().verticalScroll(rememberScrollState()).statusBarsPadding().padding(Spacing.screen),
-            verticalArrangement = Arrangement.spacedBy(Spacing.lg),
+            Modifier.fillMaxSize().verticalScroll(rememberScrollState()).statusBarsPadding().padding(Spacing.screen).heightIn(min = minH - 56.dp),
+            verticalArrangement = Arrangement.spacedBy(Spacing.lg, Alignment.CenterVertically),
         ) {
             Text("Nice work", style = MaterialTheme.typography.displaySmall, color = AppColors.textPrimary)
             Column(verticalArrangement = Arrangement.spacedBy(Spacing.xs)) {

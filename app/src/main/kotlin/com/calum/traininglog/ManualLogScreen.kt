@@ -35,12 +35,12 @@ fun ManualLogScreen(vm: AppViewModel) {
             ChipFlow(listOf(SessionType.TREADMILL, SessionType.CORE, SessionType.HIKE), type, ::typeName) { type = it }
         }
         SectionCard(title = "When?") {
-            ChipFlow((0..5).toList(), daysAgo, ::whenLabel) { daysAgo = it }
+            ChipFlow((0..2).toList(), daysAgo, ::whenLabel) { daysAgo = it }
             BigNumberStepper(
                 value = daysAgo.toString(), unit = if (daysAgo == 1) "day ago" else "days ago",
                 onMinus = { daysAgo = maxOf(0, daysAgo - 1) },
                 onPlus = { daysAgo = minOf(14, daysAgo + 1) },
-                label = "Up to 14 days back",
+                label = "Or go further back (up to 14 days)",
             )
         }
         SectionCard(title = "How long?") {

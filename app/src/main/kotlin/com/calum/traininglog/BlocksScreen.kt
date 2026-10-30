@@ -9,6 +9,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -17,7 +19,9 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -58,6 +62,7 @@ import com.calum.traininglog.ui.ProgressRing
 import com.calum.traininglog.ui.SecondaryButton
 import com.calum.traininglog.ui.SectionCard
 import com.calum.traininglog.ui.SelectChip
+import com.calum.traininglog.ui.AppType
 import com.calum.traininglog.ui.Spacing
 import java.time.LocalDate
 import java.util.UUID
@@ -145,7 +150,7 @@ internal fun BlocksContent(
             WeekStrip(p)
             ProgressCard(p)
             SectionCard(title = "So far") {
-                p.wins.forEach { Text("+ $it", color = AppColors.textPrimary, style = MaterialTheme.typography.bodyLarge) }
+                p.wins.forEach { WinLine(it) }
             }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
                 SecondaryButton("Add a week", { onChange { Blocks.extend(it, today) } }, Modifier.weight(1f), enabled = cur.weeks < 12)
@@ -194,7 +199,7 @@ internal fun BlocksContent(
                             "${ExerciseLibrary.nameOf(b.headline.exerciseId)} ${fmt(b.headline.startKg)} to ${fmt(bp.currentKg)} kg. ${bp.sessionsDone} sessions.",
                             color = AppColors.textMuted, style = MaterialTheme.typography.bodyMedium,
                         )
-                        bp.wins.take(2).forEach { Text("+ $it", color = AppColors.textPrimary, style = MaterialTheme.typography.bodySmall) }
+                        bp.wins.take(2).forEach { WinLine(it) }
                         TextRow("Review") { reviewId = b.id }
                     }
                 }
@@ -235,6 +240,14 @@ internal fun BlocksContent(
 }
 
 @Composable
+private fun WinLine(text: String) {
+    Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(Spacing.md)) {
+        Box(Modifier.padding(top = 8.dp).size(8.dp).clip(CircleShape).background(AppColors.primary))
+        Text(text, color = AppColors.textPrimary, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
+    }
+}
+
+@Composable
 private fun TextRow(label: String, onClick: () -> Unit) {
     Text(
         label, color = AppColors.primary, style = MaterialTheme.typography.labelLarge,
@@ -248,7 +261,7 @@ private fun CurrentHero(p: BlockProgress) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Spacing.lg)) {
             ProgressRing(p.headlineFraction.toFloat(), bonusProgress = 0f, size = 140.dp, strokeWidth = 12.dp) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("${(p.headlineFraction * 100).toInt()}%", style = MaterialTheme.typography.titleLarge, color = AppColors.onHero)
+                    Text("${(p.headlineFraction * 100).toInt()}%", style = AppType.numberM, color = AppColors.onHero)
                 }
             }
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(Spacing.xs)) {
@@ -258,7 +271,7 @@ private fun CurrentHero(p: BlockProgress) {
                     "${ExerciseLibrary.nameOf(p.block.headline.exerciseId)} ${fmt(p.currentKg)} of ${fmt(p.targetKg)} kg",
                     style = MaterialTheme.typography.bodyMedium, color = AppColors.onHero,
                 )
-                Text(p.paceText, style = MaterialTheme.typography.bodySmall, color = AppColors.onHero)
+                Text(p.paceText, style = MaterialTheme.typography.bodyMedium, color = AppColors.onHero.copy(alpha = 0.85f))
             }
         }
     }
@@ -301,6 +314,7 @@ private fun ProgressCard(p: BlockProgress) {
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun NewBlockCard(
     f: BlockForm,
@@ -321,8 +335,8 @@ private fun NewBlockCard(
             onMinus = { f.weeks = (f.weeks - 1).coerceAtLeast(Blocks.MIN_WEEKS) },
             onPlus = { f.weeks = (f.weeks + 1).coerceAtMost(Blocks.MAX_WEEKS) },
         )
-        Text("Headline lift", color = AppColors.textMuted, style = MaterialTheme.typography.labelMedium)
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+        Text("HEADLINE LIFT", color = AppColors.textMuted, style = AppType.eyebrow)
+        FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Spacing.sm), verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
             liftChoices.forEach { (id, name) ->
                 SelectChip(name, f.lift == id, {
                     f.lift = id
@@ -335,20 +349,22 @@ private fun NewBlockCard(
             onMinus = { f.target = (f.target - 2.5).coerceAtLeast(2.5) },
             onPlus = { f.target = (f.target + 2.5).coerceAtMost(500.0) },
         )
-        Text("Optional smaller goals", color = AppColors.textMuted, style = MaterialTheme.typography.labelMedium)
-        SelectChip("Sessions a week", f.sessionsOn, { f.sessionsOn = !f.sessionsOn })
+        Text("OPTIONAL SMALLER GOALS", color = AppColors.textMuted, style = AppType.eyebrow)
+        FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Spacing.sm), verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+            SelectChip("Sessions a week", f.sessionsOn, { f.sessionsOn = !f.sessionsOn })
+            SelectChip("Treadmill minutes", f.minutesOn, { f.minutesOn = !f.minutesOn })
+            SelectChip("Total sessions", f.totalOn, { f.totalOn = !f.totalOn })
+        }
         if (f.sessionsOn) BigNumberStepper(
-            "${f.sessions}", "a week", onMinus = { f.sessions = (f.sessions - 1).coerceAtLeast(1) },
+            "${f.sessions}", "a week", label = "Sessions a week", onMinus = { f.sessions = (f.sessions - 1).coerceAtLeast(1) },
             onPlus = { f.sessions = (f.sessions + 1).coerceAtMost(7) },
         )
-        SelectChip("Treadmill minutes (whole block)", f.minutesOn, { f.minutesOn = !f.minutesOn })
         if (f.minutesOn) BigNumberStepper(
-            "${f.minutes}", "min", onMinus = { f.minutes = (f.minutes - 30).coerceAtLeast(30) },
+            "${f.minutes}", "min", label = "Treadmill minutes (whole block)", onMinus = { f.minutes = (f.minutes - 30).coerceAtLeast(30) },
             onPlus = { f.minutes = (f.minutes + 30).coerceAtMost(3000) },
         )
-        SelectChip("Total sessions", f.totalOn, { f.totalOn = !f.totalOn })
         if (f.totalOn) BigNumberStepper(
-            "${f.total}", "sessions", onMinus = { f.total = (f.total - 1).coerceAtLeast(1) },
+            "${f.total}", "sessions", label = "Total sessions", onMinus = { f.total = (f.total - 1).coerceAtLeast(1) },
             onPlus = { f.total = (f.total + 1).coerceAtMost(100) },
         )
         SecondaryButton("Suggest next block", onSuggest, Modifier.fillMaxWidth(), accent = AppColors.reward)

@@ -4,6 +4,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.material3.AlertDialog
@@ -93,13 +94,13 @@ fun DriveBackupCard(vm: AppViewModel) {
             SecondaryButton("Restore", { confirm = f }, Modifier.fillMaxWidth())
         }
 
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             if (!connected) {
-                SecondaryButton("Connect Google Drive", { connect() }, Modifier.weight(1f))
+                SecondaryButton("Connect Google Drive", { connect() }, Modifier.fillMaxWidth(), accent = AppColors.primary)
             } else {
                 SecondaryButton(
                     "Back up now", { DriveBackup.backupNow(ctx, vm.data.value) },
-                    Modifier.weight(1f), enabled = state !is DriveState.Backing,
+                    Modifier.fillMaxWidth(), enabled = state !is DriveState.Backing, accent = AppColors.primary,
                 )
             }
             SecondaryButton(
@@ -113,7 +114,7 @@ fun DriveBackupCard(vm: AppViewModel) {
                         busy = false
                     }
                 },
-                Modifier.weight(1f), enabled = !busy,
+                Modifier.fillMaxWidth(), enabled = !busy,
             )
         }
         Text(
