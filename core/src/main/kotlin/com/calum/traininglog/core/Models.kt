@@ -73,6 +73,9 @@ data class Profile(
     @Serializable(with = DayOfWeekSetSerializer::class) val restWeekdays: Set<DayOfWeek> = emptySet(),
     @Serializable(with = LocalDateSetSerializer::class) val restDates: Set<LocalDate> = emptySet(),
     @Serializable(with = LocalDateSetSerializer::class) val workoutOverrides: Set<LocalDate> = emptySet(),
+    /** Plan screen headline target (lift id and kg). */
+    val headlineExerciseId: String = "squat",
+    val headlineKg: Double = 100.0,
 )
 
 fun roundTo(x: Double, step: Double): Double = Math.round(x / step) * step
