@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
@@ -121,8 +122,10 @@ internal fun PlanContent(
 @Composable
 private fun LiftCard(f: Forecast, selected: String, onPick: (String) -> Unit) {
     SectionCard(title = "Lift forecast (estimates)") {
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
             liftChoices.forEach { (id, name) -> SelectChip(name, selected == id, { onPick(id) }) }
+            f.lifts.filter { lf -> liftChoices.none { it.first == lf.exerciseId } }
+                .forEach { lf -> SelectChip(lf.name, selected == lf.exerciseId, { onPick(lf.exerciseId) }) }
         }
         val lf = f.lift(selected) ?: return@SectionCard
         val cons = lf.scenarios.getValue(Scenario.CONSERVATIVE).weeks
