@@ -85,6 +85,7 @@ fun HomeScreen(vm: AppViewModel) {
             item {
                 Text("Training Log", style = MaterialTheme.typography.headlineMedium, color = AppColors.textPrimary)
                 UpdateBanner(Modifier.padding(top = Spacing.sm))
+                StoreNoteBanner(vm, Modifier.padding(top = Spacing.sm))
             }
             item {
                 HeroCard {

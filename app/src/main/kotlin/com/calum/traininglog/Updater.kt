@@ -26,7 +26,7 @@ sealed interface UpdateState {
     data object Idle : UpdateState
     data object Checking : UpdateState
     data object UpToDate : UpdateState
-    data class Available(val version: String, val apkUrl: String, val sizeBytes: Long) : UpdateState
+    data class Available(val version: String, val apkUrl: String, val sizeBytes: Long, val whatsNew: String = "") : UpdateState
     data class Downloading(val version: String, val percent: Int) : UpdateState
     data class NeedsPermission(val version: String) : UpdateState
     data class Installing(val version: String) : UpdateState
@@ -34,10 +34,10 @@ sealed interface UpdateState {
 }
 
 @Serializable
-private data class GhAsset(val name: String, val size: Long = 0, @SerialName("browser_download_url") val url: String)
+internal data class GhAsset(val name: String, val size: Long = 0, @SerialName("browser_download_url") val url: String)
 
 @Serializable
-private data class GhRelease(@SerialName("tag_name") val tag: String, val assets: List<GhAsset> = emptyList())
+internal data class GhRelease(@SerialName("tag_name") val tag: String, val body: String? = null, val assets: List<GhAsset> = emptyList())
 
 /**
  * In-app updater for the sideloaded app: reads the newest GitHub release of the public repo,
@@ -69,12 +69,24 @@ object UpdateManager {
                 val release = conn.inputStream.bufferedReader().use { json.decodeFromString<GhRelease>(it.readText()) }
                 val apk = release.assets.firstOrNull { it.name.endsWith(".apk") }
                 if (apk != null && isNewer(release.tag, currentVersion(app))) {
-                    UpdateState.Available(release.tag.removePrefix("v"), apk.url, apk.size)
+                    UpdateState.Available(release.tag.removePrefix("v"), apk.url, apk.size, release.body.orEmpty())
                 } else UpdateState.UpToDate
             }.getOrElse { if (quiet) UpdateState.Idle else UpdateState.Failed("Couldn't check for updates. Are you online?") }
             if (quiet && _state.value == UpdateState.UpToDate) _state.value = UpdateState.Idle
         }
     }
+
+    internal fun parseRelease(text: String): GhRelease = json.decodeFromString(text)
+
+    /** Bullet lines of a release body ("- x" / "* x"), markdown stripped, for the "What's new" list. */
+    internal fun whatsNewBullets(body: String): List<String> =
+        body.lines().map { it.trim() }
+            .filter { it.startsWith("- ") || it.startsWith("* ") }
+            .map { it.drop(2).replace("**", "").replace("`", "").trim() }
+            .filter { it.isNotEmpty() }
+
+    /** For tests: show a given state without a network call. */
+    internal fun setStateForTest(s: UpdateState) { _state.value = s }
 
     fun dismiss() { _state.value = UpdateState.Idle }
 

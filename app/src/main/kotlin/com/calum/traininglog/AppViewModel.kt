@@ -82,10 +82,18 @@ data class Celebration(val record: SessionRecord, val messages: List<String>)
 
 data class GymLive(val plan: GymPlan, val exercises: List<LiveExercise>, val rest: Rest? = null)
 
-class AppViewModel(app: Application) : AndroidViewModel(app) {
-    private val store = Store(app)
+class AppViewModel @JvmOverloads constructor(
+    app: Application,
+    /** Today's date; tests inject a fixed one. */
+    private val clock: () -> LocalDate = { LocalDate.now() },
+    private val store: Store = Store(app),
+) : AndroidViewModel(app) {
 
     private val _data = MutableStateFlow(store.load())
+    private val _storeNote = MutableStateFlow(store.lastLoadNote)
+    /** Set when data was restored from a safety copy or could not be opened; Home shows it once. */
+    val storeNote: StateFlow<StoreNote?> = _storeNote.asStateFlow()
+    fun dismissStoreNote() { store.dismissNote(); _storeNote.value = store.lastLoadNote }
     init { SyncManager.onAppStart(app) }
     val data: StateFlow<AppData> = _data.asStateFlow()
 
@@ -118,7 +126,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         _recommendation.value = null
     }
 
-    private val today get() = LocalDate.now()
+    private val today get() = clock()
 
     // ---- Recommendation ----
 
@@ -426,6 +434,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         val added = next.records.lastOrNull { r -> before.records.none { it.id == r.id } }
         if (added != null) {
             _celebration.value = Celebration(added, Rewards.celebration(added, before.records, before.profile.settings))
+            // Never push a partial picture to the cloud while the real data is locked away.
+            if (store.blocked) return
             val app = getApplication<Application>()
             SyncManager.request(app)
             DriveBackup.requestBackup(app, next)

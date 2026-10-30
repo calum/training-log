@@ -26,7 +26,7 @@ jobs:
           distribution: temurin
           java-version: 17
       - uses: gradle/actions/setup-gradle@v4
-      - run: ./gradlew :core:test :app:assembleRelease
+      - run: ./gradlew :core:test :app:testDebugUnitTest :app:assembleRelease
       - name: Sign APK
         env:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
@@ -41,7 +41,24 @@ jobs:
             --ks-pass env:KEYSTORE_PASSWORD --ks-key-alias "$KEY_ALIAS" --key-pass env:KEY_PASSWORD \
             --out "training-log-${TAG}.apk" "$RUNNER_TEMP/aligned.apk"
           rm "$RUNNER_TEMP/release.jks"
+      - name: Release notes from CHANGELOG.md
+        id: notes
+        run: |
+          # The "## vX.Y.Z" section matching the tag, without its heading. An empty file means the section is missing.
+          awk -v tag="## ${TAG}" '
+            $0 == tag { on = 1; next }
+            /^## / { on = 0 }
+            on { print }
+          ' CHANGELOG.md | sed '/./,$!d' > RELEASE_NOTES.md
+          if [ -s RELEASE_NOTES.md ]; then
+            echo "found=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "No CHANGELOG section for ${TAG}; falling back to generated notes."
+            echo "found=false" >> "$GITHUB_OUTPUT"
+          fi
       - uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.TAG }}
           files: training-log-*.apk
+          body_path: ${{ steps.notes.outputs.found == 'true' && 'RELEASE_NOTES.md' || '' }}
+          generate_release_notes: ${{ steps.notes.outputs.found != 'true' }}

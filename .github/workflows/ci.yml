@@ -17,7 +17,7 @@ jobs:
           distribution: temurin
           java-version: 17
       - uses: gradle/actions/setup-gradle@v4
-      - run: ./gradlew :core:test :app:assembleDebug
+      - run: ./gradlew :core:test :app:testDebugUnitTest :app:assembleDebug
       # Screenshots of every screen, for people to look at. Record-only: never compares, never fails the build.
       - name: Record screenshots
         continue-on-error: true
