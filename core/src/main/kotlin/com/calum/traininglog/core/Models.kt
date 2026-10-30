@@ -78,6 +78,10 @@ data class Profile(
     /** Plan screen headline target (lift id and kg). */
     val headlineExerciseId: String = "squat",
     val headlineKg: Double = 100.0,
+    /** User-editable tuning (starting weights, increments, rest times, targets...). */
+    val settings: UserSettings = UserSettings(),
+    /** Training blocks and their history. */
+    val blocks: BlockState = BlockState(),
 )
 
 fun roundTo(x: Double, step: Double): Double = Math.round(x / step) * step

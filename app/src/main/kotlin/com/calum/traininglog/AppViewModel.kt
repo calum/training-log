@@ -47,6 +47,8 @@ sealed interface Screen {
     data class Light(val type: SessionType) : Screen
     data object Manual : Screen
     data object Plan : Screen
+    data object Settings : Screen
+    data object Blocks : Screen
     data object Trophies : Screen
     data object Export : Screen
     data object Backup : Screen

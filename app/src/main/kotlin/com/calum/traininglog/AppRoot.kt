@@ -94,6 +94,8 @@ fun AppRoot(vm: AppViewModel, inPip: Boolean) {
                     is Screen.Light -> LightScreen(vm, s.type)
                     Screen.Manual -> ManualLogScreen(vm)
                     Screen.Plan -> PlanScreen(vm)
+                    Screen.Settings -> SettingsScreen(vm)
+                    Screen.Blocks -> BlocksScreen(vm)
                     Screen.Trophies -> TrophyScreen(vm)
                     Screen.Export -> ExportScreen(vm)
                     Screen.Backup -> BackupScreen(vm)
