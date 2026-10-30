@@ -8,7 +8,16 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import android.Manifest
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Switch
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.platform.LocalContext
+import com.calum.traininglog.ui.SelectChip
+import java.time.DayOfWeek
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -49,6 +58,12 @@ fun SettingsScreen(vm: AppViewModel) {
     val calibration = data.profile.treadmill
     var resetting by remember { mutableStateOf<Group?>(null) }
     var openLift by remember { mutableStateOf<String?>(null) }
+    val context = LocalContext.current
+    val askNotifications = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
+    // Keep the evening nudge scheduled (or cancelled) in step with the setting.
+    LaunchedEffect(settings.reminderEnabled, settings.reminderHour, settings.reminderMinute) {
+        ReminderManager.schedule(context, settings)
+    }
 
     // Every change is saved straight away and kept inside its allowed range.
     fun update(f: (UserSettings) -> UserSettings) = vm.updateProfile { it.copy(settings = f(it.settings).sanitized()) }
@@ -216,6 +231,54 @@ fun SettingsScreen(vm: AppViewModel) {
                 onPlus = { update { it.copy(barKg = it.barKg + 2.5) } },
             )
             ResetButton(Group.PROGRESSION)
+        }
+
+        // ---- Gentle reminder ----
+        SectionCard(title = "Gentle reminder") {
+            Muted("Totally optional and off by default. One quiet evening nudge on days you haven't trained, never on rest days, and never about missed sessions. Nothing is lost if you ignore it.")
+            Row(Modifier.fillMaxWidth().heightIn(min = Spacing.minTap), verticalAlignment = Alignment.CenterVertically) {
+                Text("Evening nudge", color = AppColors.textPrimary, fontSize = 17.sp, modifier = Modifier.weight(1f))
+                Switch(
+                    checked = settings.reminderEnabled,
+                    onCheckedChange = { on ->
+                        update { it.copy(reminderEnabled = on) }
+                        if (on && Build.VERSION.SDK_INT >= 33) askNotifications.launch(Manifest.permission.POST_NOTIFICATIONS)
+                    },
+                )
+            }
+            if (settings.reminderEnabled) {
+                val minutes = settings.reminderHour * 60 + settings.reminderMinute
+                fun setTime(m: Int) {
+                    val t = Math.floorMod(m, 24 * 60)
+                    update { it.copy(reminderHour = t / 60, reminderMinute = t % 60) }
+                }
+                BigNumberStepper(
+                    String.format("%02d:%02d", settings.reminderHour, settings.reminderMinute), "time", label = "Remind me around",
+                    onMinus = { setTime(minutes - 15) },
+                    onPlus = { setTime(minutes + 15) },
+                )
+                Muted("On these days")
+                fun dayChip(d: DayOfWeek): @Composable () -> Unit = {
+                    SelectChip(
+                        d.getDisplayName(java.time.format.TextStyle.SHORT, java.util.Locale.getDefault()),
+                        selected = d in settings.reminderDays,
+                        onClick = {
+                            update { it.copy(reminderDays = if (d in it.reminderDays) it.reminderDays - d else it.reminderDays + d) }
+                        },
+                    )
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+                    DayOfWeek.entries.take(4).forEach { dayChip(it)() }
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+                    DayOfWeek.entries.drop(4).forEach { dayChip(it)() }
+                }
+                BigNumberStepper(
+                    "${settings.reminderMaxPerWeek}", "a week", label = "At most",
+                    onMinus = { update { it.copy(reminderMaxPerWeek = it.reminderMaxPerWeek - 1) } },
+                    onPlus = { update { it.copy(reminderMaxPerWeek = it.reminderMaxPerWeek + 1) } },
+                )
+            }
         }
 
         SecondaryButton("Back", onClick = { vm.home() }, modifier = Modifier.fillMaxWidth())

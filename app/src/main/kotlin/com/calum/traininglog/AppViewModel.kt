@@ -391,7 +391,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         store.save(next)
         val added = next.records.lastOrNull { r -> before.records.none { it.id == r.id } }
         if (added != null) {
-            _celebration.value = Celebration(added, Rewards.celebration(added, before.records))
+            _celebration.value = Celebration(added, Rewards.celebration(added, before.records, before.profile.settings))
             val app = getApplication<Application>()
             SyncManager.request(app)
             DriveBackup.requestBackup(app, next)

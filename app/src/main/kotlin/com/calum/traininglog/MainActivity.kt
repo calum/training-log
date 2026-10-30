@@ -34,6 +34,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         if (Build.VERSION.SDK_INT >= 33) notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
         UpdateManager.check(this)
+        ReminderManager.onAppStart(this)
         setContent { AppRoot(vm, inPip) }
         // Keep PiP params (auto-enter flag and Pause/Resume button) in step with the session, on any thread of
         // events: start, pause, resume, finish, end.

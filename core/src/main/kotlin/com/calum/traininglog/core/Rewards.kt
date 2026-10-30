@@ -43,9 +43,9 @@ data class Badge(val id: String, val title: String, val description: String, val
 }
 
 /**
- * Progress toward the "good week" (2 gym + 3 treadmill) for the current Mon-Sun week.
+ * Progress toward the "good week" (the targets in [UserSettings]; default 2 gym + 3 treadmill) for the current Mon-Sun week.
  * [progress] is 0..1 toward the target. [bonus] is 0..1 past the target up to the stretch ceiling
- * (3 gym + 4 treadmill). Both are clamped; there is no negative value.
+ * (the stretch targets in [UserSettings]). Both are clamped; there is no negative value.
  */
 data class WeeklyRing(
     val gym: Int,
@@ -99,11 +99,6 @@ object Rewards {
     const val PR_BONUS = 25
     const val VARIETY_WINDOW = 3
 
-    const val GYM_TARGET = 2
-    const val TREADMILL_TARGET = 3
-    const val GYM_STRETCH = 3
-    const val TREADMILL_STRETCH = 4
-
     const val TOKEN_EVERY_ACTIVE_WEEKS = 4
     const val MAX_TOKENS = 2
     const val COMEBACK_GAP_DAYS = 14L
@@ -151,7 +146,7 @@ object Rewards {
             activeWeekStreak = streak.streak,
             longestStreak = streak.longest,
             restTokens = streak.tokens,
-            badges = badges(sorted, a, streak),
+            badges = badges(sorted, a, streak, settings),
             sessionXp = a.xp,
             totalSessions = sorted.size,
         )
@@ -309,7 +304,7 @@ object Rewards {
 
     // ---------------------------------------------------------------- badges
 
-    private fun badges(sorted: List<SessionRecord>, a: Analysis, streak: StreakResult): List<Badge> {
+    private fun badges(sorted: List<SessionRecord>, a: Analysis, streak: StreakResult, settings: UserSettings): List<Badge> {
         fun nth(n: Int) = sorted.getOrNull(n - 1)?.date
         fun first(pred: (SessionRecord) -> Boolean) = sorted.firstOrNull(pred)?.date
 
@@ -322,14 +317,19 @@ object Rewards {
             if (allStyles == null && seen.size == TreadmillStyle.entries.size) allStyles = r.date
         }
 
-        val earlyWeek = sorted.groupBy { weekStart(it.date) }.toSortedMap().firstNotNullOfOrNull { (start, list) ->
+        val goodWeekText = buildList {
+            if (settings.gymTarget > 0) add("${settings.gymTarget} gym")
+            if (settings.treadmillTarget > 0) add("${settings.treadmillTarget} treadmill")
+        }.joinToString(" + ")
+        // With both targets at 0 there is no good week to be early for.
+        val earlyWeek = if (goodWeekText.isEmpty()) null else sorted.groupBy { weekStart(it.date) }.toSortedMap().firstNotNullOfOrNull { (start, list) ->
             val friday = start.with(DayOfWeek.FRIDAY)
             var gym = 0
             var tm = 0
             list.filter { it.date <= friday }.sortedBy { it.date }.firstOrNull { r ->
                 if (r.type == SessionType.GYM) gym++
                 if (r.type == SessionType.TREADMILL) tm++
-                gym >= GYM_TARGET && tm >= TREADMILL_TARGET
+                gym >= settings.gymTarget && tm >= settings.treadmillTarget
             }?.date
         }
 
@@ -350,7 +350,7 @@ object Rewards {
             Badge("long_walker", "Long walker", "Walk for 90 minutes or more in one treadmill session", first { r ->
                 r.type == SessionType.TREADMILL && (r.treadmill?.completedSec?.div(60) ?: r.minutesActual) >= 90
             }),
-            Badge("early_week", "Early bird week", "Hit the good-week target (2 gym + 3 treadmill) by Friday", earlyWeek),
+            Badge("early_week", "Early bird week", if (goodWeekText.isEmpty()) "Hit your good-week target by Friday" else "Hit the good-week target ($goodWeekText) by Friday", earlyWeek),
             Badge("quiet_hero", "Quiet hero", "Felt rough, still showed up for 30 minutes or less", first { it.feeling == Feeling.ROUGH && it.minutesActual in 1..30 }),
             Badge("streak_4", "Month of momentum", "Be active 4 weeks in a row", streak.fourWeekOn),
         )
@@ -399,11 +399,11 @@ object Rewards {
      * then at most two of: level up, badge unlocked, personal record (in that priority).
      * Wording varies but is fully determined by the record id.
      */
-    fun celebration(record: SessionRecord, before: List<SessionRecord>): List<String> {
+    fun celebration(record: SessionRecord, before: List<SessionRecord>, settings: UserSettings = UserSettings()): List<String> {
         val prior = before.filter { it.id != record.id && it.date <= record.date }
         val withIt = prior + record
-        val beforeSummary = summary(prior, record.date)
-        val after = summary(withIt, record.date)
+        val beforeSummary = summary(prior, record.date, settings)
+        val after = summary(withIt, record.date, settings)
         val xp = after.sessionXp.getValue(record.id)
 
         val special = mutableListOf<String>()

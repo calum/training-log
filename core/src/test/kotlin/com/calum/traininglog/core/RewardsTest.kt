@@ -387,3 +387,29 @@ class RewardsCelebrationTest {
         assertEquals(Rewards.celebration(r, emptyList()), Rewards.celebration(r, listOf(r)))
     }
 }
+
+class RewardsSettingsTest {
+    private val fri = mon.plusDays(4)
+
+    @Test fun earlyWeekBadgeFollowsTargets() {
+        val recs = listOf(gym(mon), tm(mon.plusDays(1)), tm(mon.plusDays(2)), tm(mon.plusDays(3)), gym(mon.plusDays(3)))
+        fun early(s: UserSettings) = Rewards.summary(recs, fri, s).badges.first { it.id == "early_week" }
+        assertTrue(early(UserSettings()).unlocked)
+        assertFalse(early(UserSettings(gymTarget = 3)).unlocked)
+        val light = UserSettings(gymTarget = 1, treadmillTarget = 1)
+        assertEquals(mon.plusDays(1), early(light).unlockedOn)
+        assertTrue(early(light).description.contains("1 gym + 1 treadmill"))
+        assertTrue(early(UserSettings()).description.contains("2 gym + 3 treadmill"))
+    }
+
+    @Test fun ringFollowsTargets() {
+        val recs = listOf(gym(mon), tm(mon.plusDays(1)))
+        assertFalse(Rewards.summary(recs, fri).ring.goodWeek)
+        assertTrue(Rewards.summary(recs, fri, UserSettings(gymTarget = 1, treadmillTarget = 1)).ring.goodWeek)
+    }
+
+    @Test fun celebrationAcceptsSettings() {
+        val msgs = Rewards.celebration(gym(mon.plusDays(1)), listOf(tm(mon)), UserSettings(gymTarget = 1, treadmillTarget = 1))
+        assertTrue(msgs.isNotEmpty())
+    }
+}

@@ -1,6 +1,7 @@
 package com.calum.traininglog.core
 
 import kotlinx.serialization.Serializable
+import java.time.DayOfWeek
 import kotlin.math.max
 
 /** Per-exercise overrides; null means "use the library default". */
@@ -37,6 +38,12 @@ data class UserSettings(
     val restartAfterDays: Int = 21,
     val restartFactor: Double = 0.9,
     val barKg: Double = 20.0,
+    // Gentle evening reminder (opt-in, off by default)
+    val reminderEnabled: Boolean = false,
+    val reminderHour: Int = 20,
+    val reminderMinute: Int = 0,
+    @Serializable(with = DayOfWeekSetSerializer::class) val reminderDays: Set<DayOfWeek> = DayOfWeek.entries.toSet(),
+    val reminderMaxPerWeek: Int = 3,
 ) {
     /** The library [exercise] with this user's starting weight, increment and rest applied. */
     fun resolve(exercise: Exercise): Exercise {
@@ -90,6 +97,9 @@ data class UserSettings(
         restartAfterDays = restartAfterDays.coerceIn(RESTART_DAYS_RANGE),
         restartFactor = restartFactor.coerceIn(RESTART_FACTOR_RANGE),
         barKg = barKg.coerceIn(BAR_RANGE),
+        reminderHour = reminderHour.coerceIn(0, 23),
+        reminderMinute = reminderMinute.coerceIn(0, 59),
+        reminderMaxPerWeek = reminderMaxPerWeek.coerceIn(REMINDER_MAX_RANGE),
     )
 
     companion object {
@@ -104,5 +114,6 @@ data class UserSettings(
         val RESTART_DAYS_RANGE = 7..90
         val RESTART_FACTOR_RANGE = 0.5..1.0
         val BAR_RANGE = 5.0..30.0
+        val REMINDER_MAX_RANGE = 1..7
     }
 }
