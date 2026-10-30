@@ -20,8 +20,8 @@ object GymBuilder {
     const val TRAVEL_MIN_EACH_WAY = 10
     const val MIN_WORTHWHILE_LIFTING_MIN = 30
 
-    private val dayA = listOf("squat", "rdl", "calf", "vertical-pull", "horizontal-push")
-    private val dayB = listOf("deadlift", "squat", "calf", "horizontal-pull", "vertical-push")
+    internal val dayA = listOf("squat", "rdl", "calf", "vertical-pull", "horizontal-push")
+    internal val dayB = listOf("deadlift", "squat", "calf", "horizontal-pull", "vertical-push")
 
     fun liftingMinutes(minutesAvailable: Int) = minutesAvailable - 2 * TRAVEL_MIN_EACH_WAY
 
