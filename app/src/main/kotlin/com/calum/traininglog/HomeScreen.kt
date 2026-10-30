@@ -151,7 +151,7 @@ fun HomeScreen(vm: AppViewModel) {
                     BigActionButton("Start a session", onClick = { vm.go(Screen.Start) })
                 }
             }
-            nextUp(view, today)?.let { text -> item { NextUpCard(text) } }
+            nextUp(data.records, view, today)?.let { text -> item { NextUpCard(text) } }
             item { BlockHomeCard(vm) }
             item {
                 Column(verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
@@ -221,14 +221,8 @@ private fun dayState(s: DayStatus) = when (s) {
     DayStatus.PAST_EMPTY -> DayState.PastEmpty
 }
 
-private fun nextUp(view: WeekView, today: LocalDate): String? {
-    val t = view.days.firstOrNull { it.date == today }?.suggested ?: return null
-    return when (t) {
-        SessionType.GYM -> "Gym day. Strength builds the base."
-        SessionType.TREADMILL -> "Treadmill day. Easy miles, big smiles."
-        else -> typeName(t)
-    }
-}
+private fun nextUp(records: List<SessionRecord>, view: WeekView, today: LocalDate): String? =
+    com.calum.traininglog.core.NextUp.describe(records, view, today)
 
 @Composable
 private fun NextUpCard(text: String) {

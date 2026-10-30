@@ -97,7 +97,13 @@ data class Forecast(
  *   is N-1 weeks later. Week 0 is "now".
  * - Gym sessions alternate the hinge (continuing from whichever of deadlift or RDL was logged
  *   last, RDL first), each with squat and calf, so squat gets about twice the exposures of
- *   rdl or deadlift. Upper-body slots are not forecast.
+ *   rdl or deadlift.
+ * - Upper-body accessories use the builder's own rule: each gym session takes the 2 of the 4
+ *   movement groups trained least recently (so each group appears about every second session),
+ *   using the exercise last logged in that group, else the library default. Their weight is an
+ *   estimate of double progression (reps 8 to 12, then add weight): an "earned" session moves one
+ *   rep up, a held one repeats; the scenario hit-rates are the same shares as for the main lifts.
+ *   Bodyweight-only exercises (0 kg) are not forecast.
  * - Every 6th week (6, 12, ...) is a deload in every scenario: loads stay the same, sets
  *   drop to [Progression.deloadSets], and no increase is earned.
  * - Weights are rounded to the nearest 2.5 kg with [roundTo]. No injuries, illness, or missed
@@ -136,7 +142,7 @@ object Projection {
 
         val lifts = mainLifts.map { id ->
             liftForecast(ExerciseLibrary.get(id), records, today, weekStart, schedule, headlineTarget)
-        }
+        } + GymBuilder.upperRotation.mapNotNull { m -> upperForecast(m, records, today, schedule) }
         val treadmill = treadmillForecast(records, today, horizon, tmN)
         val headline = headlineTarget?.let { t ->
             lifts.firstOrNull { it.exerciseId == t.exerciseId }?.let { lf ->
@@ -149,14 +155,17 @@ object Projection {
 
     // ---- schedule ----
 
-    private class ScheduledWeek(val offset: Int, val days: List<String>, val deload: Boolean)
+    private class ScheduledWeek(val offset: Int, val days: List<String>, val deload: Boolean, val upper: List<List<String>> = emptyList())
 
     private fun buildSchedule(records: List<SessionRecord>, horizon: Int, gymN: Int, gymDone: Int): List<ScheduledWeek> {
         var label = if (GymBuilder.nextHinge(records).id == "deadlift") "B" else "A"
+        // Same rotation as GymBuilder.nextUpperMovements: take the 2 stalest, then they go to the back.
+        val queue = ArrayDeque(GymBuilder.nextUpperMovements(records, GymBuilder.upperRotation.size))
         return (1..horizon).map { w ->
             val count = if (w == 1) (gymN - gymDone).coerceAtLeast(0) else gymN
             val days = List(count) { label.also { label = if (label == "A") "B" else "A" } }
-            ScheduledWeek(w, days, isDeloadWeek(w))
+            val upper = List(count) { List(minOf(2, queue.size)) { queue.removeFirst() }.also { queue.addAll(it) } }
+            ScheduledWeek(w, days, isDeloadWeek(w), upper)
         }
     }
 
@@ -193,6 +202,54 @@ object Projection {
             if (ws.isEmpty()) 0.0 else ws.sumOf { exposures(ex, it.days) }.toDouble() / ws.size
         }
         return LiftForecast(ex.id, ex.name, lastKg, roundTo(baseline, 2.5), restart, avgExposures, scenarios)
+    }
+
+    /** Upper-body accessory in movement group [movement]; null for bodyweight-only exercises. */
+    private fun upperForecast(movement: String, records: List<SessionRecord>, today: LocalDate, schedule: List<ScheduledWeek>): LiftForecast? {
+        val ex = GymBuilder.preferredFor(movement, records)
+        val history = GymBuilder.history(ex.id, records)
+        val start = Progression.next(ex, history, today)
+        if (start.weightKg <= 0.0) return null
+        val last = history.firstOrNull()
+        val restart = last != null && ChronoUnit.DAYS.between(last.date, today) >= 21
+        val scenarios = Scenario.values().associateWith { s ->
+            ScenarioForecast(s, simulateAccessory(ex, start, movement, schedule, today, hitPercent.getValue(s)), null)
+        }
+        val avg = schedule.drop(1).ifEmpty { schedule }.let { ws ->
+            if (ws.isEmpty()) 0.0 else ws.sumOf { w -> w.upper.count { movement in it } }.toDouble() / ws.size
+        }
+        return LiftForecast(ex.id, ex.name, last?.log?.sets?.maxOf { it.weightKg }, roundTo(start.weightKg, 2.5), restart, avg, scenarios)
+    }
+
+    private fun simulateAccessory(
+        ex: Exercise,
+        start: Prescription,
+        movement: String,
+        schedule: List<ScheduledWeek>,
+        today: LocalDate,
+        percent: Int,
+    ): List<WeekPoint> {
+        var rx = start
+        var hist = emptyList<HistoryEntry>()
+        var k = 0
+        var day = 0L // synthetic consecutive days: only the order matters, so no restart rule fires
+        val points = mutableListOf(WeekPoint(0, roundTo(rx.weightKg, 2.5), ex.sets, false))
+        for (week in schedule) {
+            if (!week.deload) {
+                repeat(week.upper.count { movement in it }) {
+                    val progress = (k + 1) * percent / 100 > k * percent / 100
+                    k++
+                    val reps = if (progress) rx.reps else rx.reps - 1 // a held session falls one rep short
+                    val date = today.plusDays(day++)
+                    val set = LoggedSet(rx.weightKg, reps, rx.reps, rir = 2)
+                    hist = listOf(HistoryEntry(date, ExerciseLog(ex.id, List(ex.sets) { set }))) + hist
+                    rx = Progression.next(ex, hist, date.plusDays(1))
+                }
+            }
+            val sets = if (week.deload) Progression.deloadSets(ex.sets) else ex.sets
+            points += WeekPoint(week.offset, roundTo(rx.weightKg, 2.5), sets, week.deload)
+        }
+        return points
     }
 
     /** Simulates sessions through [Progression.next]; returns week 0 plus one point per week. */
@@ -260,6 +317,12 @@ object Projection {
         }
         if (horizon >= 8) {
             out += Milestone(8, "Week 8: deadlift about ${fmt(expected("deadlift", 8).weightKg)} kg (expected)")
+        }
+        val gains = lifts.filter { it.exerciseId !in mainLifts }.map { lf ->
+            lf.scenarios.getValue(Scenario.EXPECTED).weeks.let { it.last().weightKg - it.first().weightKg }
+        }
+        if (gains.isNotEmpty() && gains.max() > 0.0) {
+            out += Milestone(horizon, "Week $horizon: upper-body lifts up about ${fmt(gains.filter { it > 0 }.min())} to ${fmt(gains.max())} kg each (expected)")
         }
         if (horizon >= DELOAD_EVERY_WEEKS) {
             out += Milestone(DELOAD_EVERY_WEEKS, "Week $DELOAD_EVERY_WEEKS: a planned lighter week, same loads with fewer sets")
