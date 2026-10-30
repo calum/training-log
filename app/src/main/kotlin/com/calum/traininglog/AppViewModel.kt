@@ -49,6 +49,7 @@ sealed interface Screen {
     data object Plan : Screen
     data object Trophies : Screen
     data object Export : Screen
+    data object Backup : Screen
 }
 
 data class Inputs(
@@ -79,6 +80,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     private val store = Store(app)
 
     private val _data = MutableStateFlow(store.load())
+    init { SyncManager.onAppStart(app) }
     val data: StateFlow<AppData> = _data.asStateFlow()
 
     private val _screen = MutableStateFlow<Screen>(Screen.Home)
@@ -383,6 +385,11 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         _data.value = next
         store.save(next)
         val added = next.records.lastOrNull { r -> before.records.none { it.id == r.id } }
-        if (added != null) _celebration.value = Celebration(added, Rewards.celebration(added, before.records))
+        if (added != null) {
+            _celebration.value = Celebration(added, Rewards.celebration(added, before.records))
+            val app = getApplication<Application>()
+            SyncManager.request(app)
+            DriveBackup.requestBackup(app, next)
+        }
     }
 }

@@ -19,7 +19,13 @@ Personal progressive training app for Android (Pixel 6a). Asks how much time and
 - **Manual log**: add a session you already did without starting an activity.
 - **In-app updater**: checks the latest GitHub release and installs it (Android asks you to confirm).
 
-Not yet built: training blocks, GitHub sync and README chart (section 15), Google Drive backup (17), in-app settings for increments and starting weights.
+## Backup and sync (v0.3)
+
+- **GitHub**: after each session the app pushes only the public numbers (weights, reps, effort, treadmill sessions) to the `data` branch of this repo; an Action on that branch redraws the progress chart (![chart](https://raw.githubusercontent.com/calum/training-log/data/progress.png)). Never sent: feelings, knee scores, notes, travel time, custom exercise names. Setup: `docs/data-repo-template/SETUP.md` (use branch `data`).
+- **Google Drive**: your full private data is backed up to the hidden app folder in your own Drive. Setup: `docs/google-drive-setup.md`.
+- **Safety**: the release workflow only runs when dispatched by hand (no tag trigger), and `main` should be protected so a leaked sync token cannot change code.
+
+Not yet built: training blocks, in-app settings for increments and starting weights.
 
 ## Starting weights are placeholders
 

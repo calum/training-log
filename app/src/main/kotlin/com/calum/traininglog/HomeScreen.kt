@@ -160,6 +160,7 @@ fun HomeScreen(vm: AppViewModel) {
                         SecondaryButton("Trophies", onClick = { vm.go(Screen.Trophies) }, accent = AppColors.reward, modifier = Modifier.weight(1f))
                     }
                     SecondaryButton("Export for Claude", onClick = { vm.go(Screen.Export) }, modifier = Modifier.fillMaxWidth())
+                    SecondaryButton("Backup & sync", onClick = { vm.go(Screen.Backup) }, modifier = Modifier.fillMaxWidth())
                     TextButton(onClick = { UpdateManager.check(ctx, quiet = false) }, Modifier.align(Alignment.CenterHorizontally)) {
                         Text("Check for updates (v${UpdateManager.currentVersion(ctx)})", color = AppColors.textMuted)
                     }
