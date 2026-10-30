@@ -76,7 +76,7 @@ private val colors = darkColorScheme(
 
 @Composable
 fun AppRoot(vm: AppViewModel, inPip: Boolean) {
-    M3(colorScheme = colors) {
+    com.calum.traininglog.ui.TrainingTheme {
         Surface(Modifier.fillMaxSize(), color = M3.colorScheme.background) {
             val screen by vm.screen.collectAsState()
             if (inPip) {
