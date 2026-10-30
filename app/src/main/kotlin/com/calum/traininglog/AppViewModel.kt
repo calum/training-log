@@ -53,6 +53,7 @@ sealed interface Screen {
     data object Settings : Screen
     data object Blocks : Screen
     data object Trophies : Screen
+    data object Progress : Screen
     data object Export : Screen
     data object Backup : Screen
 }

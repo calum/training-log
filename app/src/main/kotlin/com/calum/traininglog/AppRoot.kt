@@ -98,6 +98,7 @@ fun AppRoot(vm: AppViewModel, inPip: Boolean) {
                     Screen.Settings -> SettingsScreen(vm)
                     Screen.Blocks -> BlocksScreen(vm)
                     Screen.Trophies -> TrophyScreen(vm)
+                    Screen.Progress -> ProgressScreen(vm)
                     Screen.Export -> ExportScreen(vm)
                     Screen.Backup -> BackupScreen(vm)
                 }

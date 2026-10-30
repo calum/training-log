@@ -158,6 +158,7 @@ fun HomeScreen(vm: AppViewModel) {
                     SecondaryButton("Log a session I already did", onClick = { vm.go(Screen.Manual) }, modifier = Modifier.fillMaxWidth())
                     Row(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
                         SecondaryButton("Plan", onClick = { vm.go(Screen.Plan) }, modifier = Modifier.weight(1f))
+                        SecondaryButton("Progress", onClick = { vm.go(Screen.Progress) }, accent = AppColors.info, modifier = Modifier.weight(1f))
                         SecondaryButton("Trophies", onClick = { vm.go(Screen.Trophies) }, accent = AppColors.reward, modifier = Modifier.weight(1f))
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
