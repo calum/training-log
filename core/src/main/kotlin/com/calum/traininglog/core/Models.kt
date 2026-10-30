@@ -6,6 +6,8 @@ import kotlinx.serialization.descriptors.PrimitiveKind
 import kotlinx.serialization.descriptors.PrimitiveSerialDescriptor
 import kotlinx.serialization.encoding.Decoder
 import kotlinx.serialization.encoding.Encoder
+import kotlinx.serialization.builtins.SetSerializer
+import java.time.DayOfWeek
 import java.time.LocalDate
 
 object LocalDateSerializer : KSerializer<LocalDate> {
@@ -13,6 +15,16 @@ object LocalDateSerializer : KSerializer<LocalDate> {
     override fun serialize(encoder: Encoder, value: LocalDate) = encoder.encodeString(value.toString())
     override fun deserialize(decoder: Decoder): LocalDate = LocalDate.parse(decoder.decodeString())
 }
+
+object DayOfWeekSerializer : KSerializer<DayOfWeek> {
+    override val descriptor = PrimitiveSerialDescriptor("DayOfWeek", PrimitiveKind.STRING)
+    override fun serialize(encoder: Encoder, value: DayOfWeek) = encoder.encodeString(value.name)
+    override fun deserialize(decoder: Decoder): DayOfWeek = DayOfWeek.valueOf(decoder.decodeString())
+}
+
+object DayOfWeekSetSerializer : KSerializer<Set<DayOfWeek>> by SetSerializer(DayOfWeekSerializer)
+
+object LocalDateSetSerializer : KSerializer<Set<LocalDate>> by SetSerializer(LocalDateSerializer)
 
 enum class Feeling { GOOD, OKAY, ROUGH, ILL }
 enum class SessionType { GYM, TREADMILL, CORE, HIKE }
@@ -58,6 +70,9 @@ data class SessionRecord(
 data class Profile(
     val treadmill: Calibration = Calibration(),
     @Serializable(with = LocalDateSerializer::class) val lastDeload: LocalDate? = null,
+    @Serializable(with = DayOfWeekSetSerializer::class) val restWeekdays: Set<DayOfWeek> = emptySet(),
+    @Serializable(with = LocalDateSetSerializer::class) val restDates: Set<LocalDate> = emptySet(),
+    @Serializable(with = LocalDateSetSerializer::class) val workoutOverrides: Set<LocalDate> = emptySet(),
 )
 
 fun roundTo(x: Double, step: Double): Double = Math.round(x / step) * step

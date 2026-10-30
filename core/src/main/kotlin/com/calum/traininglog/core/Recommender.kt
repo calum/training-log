@@ -9,6 +9,7 @@ data class RecommendationInput(
     val treadmillDoneThisWeek: Int = 0,
     val daysSinceGym: Int? = null,
     val lastTreadmillStyle: TreadmillStyle? = null,
+    val restDay: Boolean = false,
 )
 
 data class SessionOption(
@@ -66,7 +67,8 @@ object Recommender {
 
         val top = candidates.first().second
         val alt = candidates.getOrNull(1)?.second
-        return Recommendation(top, alt, reasonFor(top, i, kneeHigh))
+        val reason = reasonFor(top, i, kneeHigh)
+        return Recommendation(top, alt, if (i.restDay) "Rest day, but if you have time: $reason" else reason)
     }
 
     private fun reasonFor(top: SessionOption, i: RecommendationInput, kneeHigh: Boolean): String = when (top.type) {
