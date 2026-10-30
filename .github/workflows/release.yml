@@ -1,13 +1,21 @@
-# Builds and signs the release APK when you push a version tag (e.g. v0.1.0).
+# Builds and signs the release APK when you push a version tag (e.g. v0.1.0), or run it manually with a version.
 # Needs these repository secrets: KEYSTORE_BASE64, KEYSTORE_PASSWORD, KEY_ALIAS, KEY_PASSWORD.
 # Secrets are only used here, on tags pushed by the owner; never in pull-request workflows.
 name: Release
 on:
   push:
     tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release tag to create, e.g. v0.1.0"
+        required: true
 
 permissions:
   contents: write
+
+env:
+  TAG: ${{ github.ref_type == 'tag' && github.ref_name || inputs.version }}
 
 jobs:
   release:
@@ -32,8 +40,9 @@ jobs:
           "$ANDROID_HOME/build-tools/$BT/zipalign" -f -p 4 app/build/outputs/apk/release/app-release-unsigned.apk "$RUNNER_TEMP/aligned.apk"
           "$ANDROID_HOME/build-tools/$BT/apksigner" sign --ks "$RUNNER_TEMP/release.jks" \
             --ks-pass env:KEYSTORE_PASSWORD --ks-key-alias "$KEY_ALIAS" --key-pass env:KEY_PASSWORD \
-            --out "training-log-${GITHUB_REF_NAME}.apk" "$RUNNER_TEMP/aligned.apk"
+            --out "training-log-${TAG}.apk" "$RUNNER_TEMP/aligned.apk"
           rm "$RUNNER_TEMP/release.jks"
       - uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ env.TAG }}
           files: training-log-*.apk
