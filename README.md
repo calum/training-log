@@ -42,11 +42,15 @@ Personal progressive training app for Android (Pixel 6a). Asks how much time and
 - **GitHub device sign-in** (setup: `docs/github-app-setup.md`), restore of raw numbers from GitHub, and deletions now synced.
 - **Design pass** from rendered screenshots: compact gym sets, readable forecast chart, distinct badges, tidier Settings and treadmill setup. Regenerate screenshots with `gradle :app:recordRoborazziDebug` (see `docs/screenshots/README.md`).
 
+## Added in v0.6
+
+- **Progress** screen with real history charts; **data safety** (schema version, daily safety copies, automatic restore); **What's new** shown before updating; flow tests that run whole sessions on the JVM.
+
 Not yet built: training blocks, in-app settings for increments and starting weights.
 
 ## Starting weights are placeholders
 
-Defaults live in `core/.../Exercises.kt` and are deliberately lighter than the last known numbers (squat 80, deadlift 100, RDL 70, calf 60 kg) because of the break from lifting. Edit them there until a settings screen exists.
+Defaults live in `core/.../Exercises.kt` (squat 80, deadlift 100, RDL 70, calf 60 kg) and are editable in Settings. They are deliberately lighter than the last known numbers because of the break from lifting, and a first-ever session is eased in further (the 'easing back in' rule takes 90% for the first session, so a fresh install starts the squat at 72.5 kg).
 
 ## Layout
 

@@ -2,6 +2,13 @@
 
 What changed in each release, in plain language, newest first. The release workflow copies the matching `## vX.Y.Z` section into the GitHub release, and the app shows it as "What's new" before you tap Update.
 
+## v0.6.0
+
+- A new Progress screen: how your lifts have really moved, sessions done each week, treadmill minutes, totals and personal records. It only ever shows what you did.
+- Your saved data is now protected: the app keeps daily safety copies and restores from one automatically if the main file is ever damaged.
+- Release notes: this "What's new" list now appears before you tap Update.
+- A polish pass on the core session, Blocks, Backup & sync, Manual log, Export and the update banner.
+
 ## v0.5.0
 
 - A guided core routine: 10 to 30 minute knee-friendly mat sessions with timed work and rest, form tips and beeps. It changes every time.
