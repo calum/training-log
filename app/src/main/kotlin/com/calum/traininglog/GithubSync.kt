@@ -2,6 +2,8 @@ package com.calum.traininglog
 
 import android.content.Context
 import com.calum.traininglog.core.PublicExport
+import com.calum.traininglog.core.PublicImport
+import com.calum.traininglog.core.SessionRecord
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -12,6 +14,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.boolean
 import kotlinx.serialization.json.buildJsonObject
@@ -25,6 +28,7 @@ import java.net.URL
 import java.net.URLEncoder
 import java.security.MessageDigest
 import java.util.Base64
+import java.util.concurrent.atomic.AtomicInteger
 
 // ---------------------------------------------------------------------------------------------
 // Pure logic (no Android): unit-tested on the JVM
@@ -44,7 +48,7 @@ sealed interface SyncState {
 }
 
 sealed interface SyncOutcome {
-    data class Success(val pushed: Int, val skipped: Int) : SyncOutcome
+    data class Success(val pushed: Int, val skipped: Int, val deleted: Int = 0) : SyncOutcome
     /** Token revoked, expired or lacking permission. Data stays queued. */
     data object NeedsSignIn : SyncOutcome
     /** Repo or branch missing. Needs the user to fix settings; no automatic retry. */
@@ -107,6 +111,12 @@ object GithubPaths {
         return md.digest().joinToString("") { "%02x".format(it) }
     }
 
+    /** The only folders the sync may ever delete from, and only `.csv` files in them. */
+    val PRUNE_DIRS = listOf("data/gym/", "data/treadmill/", "data/other/")
+
+    fun isPrunable(path: String) =
+        path.endsWith(".csv") && PRUNE_DIRS.any { path.startsWith(it) } && !path.removePrefix(PRUNE_DIRS.first { path.startsWith(it) }).contains('/') && !path.contains("..")
+
     fun commitMessage(sessions: Int) = "Update training data ($sessions session${if (sessions == 1) "" else "s"})"
 
     fun validName(s: String) = s.isNotBlank() && s.all { it.isLetterOrDigit() || it == '-' || it == '_' || it == '.' }
@@ -130,9 +140,20 @@ fun interface GithubHttp {
 interface HashStore {
     fun get(path: String): String?
     fun put(path: String, sha: String)
+    /** Every path this install has pushed (and not since deleted). */
+    fun paths(): Set<String>
+    fun remove(path: String)
+}
+
+/** Files read back from the data branch, or the reason that failed. */
+sealed interface FetchResult {
+    data class Files(val files: Map<String, String>) : FetchResult
+    data class Problem(val outcome: SyncOutcome) : FetchResult
 }
 
 private val json = Json { ignoreUnknownKeys = true }
+
+private const val PRUNE_MESSAGE = "Remove training data file no longer produced"
 
 class SyncEngine(private val http: GithubHttp, private val cfg: GithubConfig, private val hashes: HashStore) {
     private class Abort(val outcome: SyncOutcome) : Exception()
@@ -197,6 +218,81 @@ class SyncEngine(private val http: GithubHttp, private val cfg: GithubConfig, pr
         return send("PUT", GithubPaths.contents(cfg.owner, cfg.repo, path), body)
     }
 
+    private fun deleteFile(path: String, sha: String, message: String): HttpResp {
+        val body = buildJsonObject {
+            put("message", message)
+            put("sha", sha)
+            put("branch", cfg.branch)
+        }.toString()
+        return send("DELETE", GithubPaths.contents(cfg.owner, cfg.repo, path), body)
+    }
+
+    /** Removes remote csv files this install pushed earlier but no longer produces (e.g. a month emptied by deleting a session). */
+    private fun prune(files: Map<String, String>): Int {
+        var deleted = 0
+        val stale = hashes.paths().filter { GithubPaths.isPrunable(it) && it !in files }.sorted()
+        for (path in stale) {
+            var remote = remoteSha(path)
+            if (remote == null) { hashes.remove(path); continue } // already gone
+            var r = deleteFile(path, remote, PRUNE_MESSAGE)
+            if (r.code == 409 || r.code == 422) {
+                remote = remoteSha(path)
+                if (remote == null) { hashes.remove(path); continue }
+                r = deleteFile(path, remote, PRUNE_MESSAGE)
+            }
+            common(r)
+            when (r.code) {
+                200 -> { hashes.remove(path); deleted++ }
+                404 -> hashes.remove(path)
+                409, 422 -> throw Abort(SyncOutcome.Retry("GitHub reported a conflict removing $path."))
+                else -> throw Abort(SyncOutcome.Failed("GitHub replied HTTP ${r.code} while removing $path."))
+            }
+        }
+        return deleted
+    }
+
+    private fun listDir(dir: String): List<String> {
+        val r = send("GET", GithubPaths.contents(cfg.owner, cfg.repo, dir, cfg.branch))
+        common(r)
+        return when (r.code) {
+            200 -> {
+                val arr = runCatching { json.parseToJsonElement(r.body) as? JsonArray }.getOrNull() ?: return emptyList()
+                arr.mapNotNull { (it as? JsonObject) }
+                    .filter { it["type"]?.jsonPrimitive?.contentOrNull == "file" }
+                    .mapNotNull { it["path"]?.jsonPrimitive?.contentOrNull }
+                    .filter { GithubPaths.isPrunable(it) }
+            }
+            404 -> {
+                val br = send("GET", GithubPaths.branch(cfg.owner, cfg.repo, cfg.branch))
+                common(br)
+                if (br.code == 404) notFound()
+                emptyList() // folder simply doesn't exist yet
+            }
+            else -> throw Abort(SyncOutcome.Failed("GitHub replied HTTP ${r.code} for $dir."))
+        }
+    }
+
+    private fun readFile(path: String): String? {
+        val r = send("GET", GithubPaths.contents(cfg.owner, cfg.repo, path, cfg.branch))
+        common(r)
+        if (r.code == 404) return null
+        if (r.code != 200) throw Abort(SyncOutcome.Failed("GitHub replied HTTP ${r.code} for $path."))
+        val b64 = (runCatching { json.parseToJsonElement(r.body) as? JsonObject }.getOrNull())
+            ?.get("content")?.jsonPrimitive?.contentOrNull ?: return null
+        return runCatching { String(Base64.getMimeDecoder().decode(b64), Charsets.UTF_8) }.getOrNull()
+    }
+
+    /** Reads data/gym, data/treadmill and data/other csv files from the data branch. */
+    fun fetchPublicFiles(): FetchResult = try {
+        val out = sortedMapOf<String, String>()
+        for (dir in GithubPaths.PRUNE_DIRS) for (path in listDir(dir.trimEnd('/')).sorted()) {
+            readFile(path)?.let { out[path] = it }
+        }
+        FetchResult.Files(out)
+    } catch (a: Abort) {
+        FetchResult.Problem(a.outcome)
+    }
+
     fun sync(files: Map<String, String>, sessions: Int): SyncOutcome = try {
         val message = GithubPaths.commitMessage(sessions)
         var pushed = 0
@@ -220,7 +316,7 @@ class SyncEngine(private val http: GithubHttp, private val cfg: GithubConfig, pr
                 else -> throw Abort(SyncOutcome.Failed("GitHub replied HTTP ${r.code} while saving $path."))
             }
         }
-        SyncOutcome.Success(pushed, skipped)
+        SyncOutcome.Success(pushed, skipped, prune(files))
     } catch (a: Abort) {
         a.outcome
     }
@@ -287,10 +383,36 @@ private class UrlConnectionHttp : GithubHttp {
     }
 }
 
+private class UrlConnectionForm : FormHttp {
+    override fun post(url: String, form: Map<String, String>): HttpResp {
+        val conn = URL(url).openConnection() as HttpURLConnection
+        try {
+            conn.connectTimeout = 15_000
+            conn.readTimeout = 30_000
+            conn.requestMethod = "POST"
+            conn.doOutput = true
+            conn.setRequestProperty("Accept", "application/json")
+            conn.setRequestProperty("Content-Type", "application/x-www-form-urlencoded")
+            conn.setRequestProperty("User-Agent", "training-log-app")
+            val body = form.entries.joinToString("&") {
+                URLEncoder.encode(it.key, "UTF-8") + "=" + URLEncoder.encode(it.value, "UTF-8")
+            }
+            conn.outputStream.use { it.write(body.toByteArray(Charsets.UTF_8)) }
+            val code = conn.responseCode
+            val stream = if (code >= 400) conn.errorStream else conn.inputStream
+            return HttpResp(code, stream?.bufferedReader()?.use { it.readText() } ?: "")
+        } finally {
+            conn.disconnect()
+        }
+    }
+}
+
 private class PrefsHashStore(private val ctx: Context) : HashStore {
     private val p get() = ctx.getSharedPreferences("github_sync", Context.MODE_PRIVATE)
     override fun get(path: String) = p.getString("h:$path", null)
     override fun put(path: String, sha: String) { p.edit().putString("h:$path", sha).apply() }
+    override fun paths(): Set<String> = p.all.keys.filter { it.startsWith("h:") }.map { it.removePrefix("h:") }.toSet()
+    override fun remove(path: String) { p.edit().remove("h:$path").apply() }
     fun clear() {
         val e = p.edit()
         p.all.keys.filter { it.startsWith("h:") }.forEach { e.remove(it) }
@@ -298,11 +420,13 @@ private class PrefsHashStore(private val ctx: Context) : HashStore {
     }
 }
 
-/** Public GitHub data-repo sync: config in private prefs, token in [TokenVault], status in [state]. */
+/** Public GitHub data-repo sync: config in private prefs, tokens in [TokenVault], status in [state]. */
 object GithubSync {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val mutex = Mutex()
     private val http: GithubHttp = UrlConnectionHttp()
+    private val formHttp: FormHttp = UrlConnectionForm()
+    private val flow = DeviceFlowClient(formHttp)
 
     private val _state = MutableStateFlow<SyncState>(SyncState.NotConfigured)
     val state: StateFlow<SyncState> = _state.asStateFlow()
@@ -315,6 +439,28 @@ object GithubSync {
     private val _test = MutableStateFlow<TestState>(TestState.Idle)
     val test: StateFlow<TestState> = _test.asStateFlow()
 
+    /** Progress of "Sign in with GitHub". */
+    sealed interface DeviceState {
+        data object Idle : DeviceState
+        data object Starting : DeviceState
+        data class Waiting(val userCode: String, val verificationUri: String) : DeviceState
+        data class Failed(val message: String) : DeviceState
+    }
+    private val _device = MutableStateFlow<DeviceState>(DeviceState.Idle)
+    val device: StateFlow<DeviceState> = _device.asStateFlow()
+    private val deviceGen = AtomicInteger(0)
+
+    /** Progress of "Restore numbers from GitHub". */
+    sealed interface RestoreState {
+        data object Idle : RestoreState
+        data object Loading : RestoreState
+        data class Preview(val imported: List<SessionRecord>, val newCount: Int) : RestoreState
+        data class Failed(val message: String) : RestoreState
+        data class Done(val added: Int) : RestoreState
+    }
+    private val _restore = MutableStateFlow<RestoreState>(RestoreState.Idle)
+    val restore: StateFlow<RestoreState> = _restore.asStateFlow()
+
     private fun prefs(ctx: Context) = ctx.applicationContext.getSharedPreferences("github_sync", Context.MODE_PRIVATE)
 
     class Settings(val owner: String, val repo: String, val branch: String)
@@ -326,7 +472,16 @@ object GithubSync {
         return Settings(o, r, p.getString("branch", "data") ?: "data")
     }
 
+    /** The GitHub App's Client ID. Public by design (not a secret), so plain prefs are fine. */
+    fun clientId(ctx: Context): String? = prefs(ctx).getString("clientId", null)
+
     fun hasToken(ctx: Context) = TokenVault.has(ctx)
+
+    private fun loadTokens(ctx: Context): TokenSet? = TokenVault.load(ctx)?.let(TokenSet::decode)
+
+    /** True when signed in through the GitHub App (expiring token with a refresh token), not a pasted token. */
+    fun isDeviceSignedIn(ctx: Context): Boolean = loadTokens(ctx)?.canRefresh == true
+
     fun lastSyncAt(ctx: Context): Long? = prefs(ctx).getLong("lastSyncAt", 0L).takeIf { it > 0 }
     fun isDirty(ctx: Context) = prefs(ctx).getBoolean("dirty", false)
     fun markDirty(ctx: Context) { prefs(ctx).edit().putBoolean("dirty", true).apply() }
@@ -343,57 +498,160 @@ object GithubSync {
         }
     }
 
-    /** Saves owner/repo/branch and, when non-null, a new token. Returns an error message or null. */
-    fun save(ctx: Context, owner: String, repo: String, branch: String, newToken: String?): String? {
-        val app = ctx.applicationContext
-        val o = owner.trim(); val r = repo.trim().removeSuffix(".git"); val b = branch.trim().ifEmpty { "data" }
-        if (!GithubPaths.validName(o)) return "Owner looks wrong. Use just your GitHub username."
-        if (!GithubPaths.validName(r)) return "Repo name looks wrong."
-        if (!GithubPaths.validBranch(b)) return "Branch name looks wrong."
-        val tok = newToken?.trim()?.takeIf { it.isNotEmpty() }
-        if (tok == null && !TokenVault.has(app)) return "Paste your token first."
-        if (tok != null && !TokenVault.save(app, tok)) return "Couldn't store the token securely on this device."
+    private fun validateTarget(o: String, r: String, b: String): String? = when {
+        !GithubPaths.validName(o) -> "Owner looks wrong. Use just your GitHub username."
+        !GithubPaths.validName(r) -> "Repo name looks wrong."
+        !GithubPaths.validBranch(b) -> "Branch name looks wrong."
+        else -> null
+    }
+
+    private fun commitTarget(app: Context, o: String, r: String, b: String) {
         val p = prefs(app)
         val changedTarget = p.getString("owner", null) != o || p.getString("repo", null) != r || p.getString("branch", "data") != b
         if (changedTarget) PrefsHashStore(app).clear()
-        val e = p.edit().putString("owner", o).putString("repo", r).putString("branch", b)
-        if (tok != null) e.putBoolean("needsSignIn", false)
-        e.apply()
+        p.edit().putString("owner", o).putString("repo", r).putString("branch", b).apply()
+    }
+
+    /** Saves owner/repo/branch and, when non-null, a new pasted token. Returns an error message or null. */
+    fun save(ctx: Context, owner: String, repo: String, branch: String, newToken: String?): String? {
+        val app = ctx.applicationContext
+        val o = owner.trim(); val r = repo.trim().removeSuffix(".git"); val b = branch.trim().ifEmpty { "data" }
+        validateTarget(o, r, b)?.let { return it }
+        val tok = newToken?.trim()?.takeIf { it.isNotEmpty() }
+        if (tok == null && !TokenVault.has(app)) return "Paste your token first."
+        if (tok != null && !TokenVault.save(app, TokenSet(tok).encode())) return "Couldn't store the token securely on this device."
+        commitTarget(app, o, r, b)
+        if (tok != null) prefs(app).edit().putBoolean("needsSignIn", false).apply()
         _state.value = SyncState.Idle(lastSyncAt(app))
         _test.value = TestState.Idle
         SyncManager.request(app) // pushes the full history on first connect, and anything queued
         return null
     }
 
-    /** Forgets the token and settings. Data already on GitHub stays there. */
+    /** Forgets the tokens and settings. Data already on GitHub stays there. */
     fun disconnect(ctx: Context) {
         val app = ctx.applicationContext
+        cancelDeviceSignIn()
+        val keepClientId = clientId(app)
         TokenVault.clear(app)
         PrefsHashStore(app).clear()
         prefs(app).edit().clear().apply()
+        if (keepClientId != null) prefs(app).edit().putString("clientId", keepClientId).apply()
         SyncManager.cancel(app)
         _state.value = SyncState.NotConfigured
         _test.value = TestState.Idle
+        _restore.value = RestoreState.Idle
     }
 
-    private fun config(ctx: Context): GithubConfig? {
-        val s = settings(ctx) ?: return null
-        val t = TokenVault.load(ctx) ?: return null
-        return GithubConfig(s.owner, s.repo, s.branch, t)
+    // ----- Device-flow sign-in -----
+
+    /** Starts the sign-in. Returns an error message for bad input, else null (progress is in [device]). */
+    fun startDeviceSignIn(ctx: Context, clientId: String, owner: String, repo: String, branch: String): String? {
+        val app = ctx.applicationContext
+        val cid = clientId.trim()
+        val o = owner.trim(); val r = repo.trim().removeSuffix(".git"); val b = branch.trim().ifEmpty { "data" }
+        if (cid.isEmpty() || !GithubPaths.validName(cid)) return "Paste the Client ID of your GitHub App first (see docs/github-app-setup.md)."
+        validateTarget(o, r, b)?.let { return it }
+        prefs(app).edit().putString("clientId", cid).apply()
+        val gen = deviceGen.incrementAndGet()
+        _device.value = DeviceState.Starting
+        scope.launch {
+            val code = flow.requestCode(cid).getOrElse {
+                if (deviceGen.get() == gen) _device.value = DeviceState.Failed(it.message ?: "Sign-in failed.")
+                return@launch
+            }
+            if (deviceGen.get() != gen) return@launch
+            _device.value = DeviceState.Waiting(code.userCode, code.verificationUri)
+            val result = try {
+                flow.awaitTokens(cid, code, sleep = { Thread.sleep(it) }, cancelled = { deviceGen.get() != gen })
+            } catch (_: Exception) {
+                PollDecision.Fail("Sign-in stopped unexpectedly.")
+            }
+            if (deviceGen.get() != gen) return@launch
+            when (result) {
+                is PollDecision.Done -> {
+                    if (!TokenVault.save(app, result.tokens.encode())) {
+                        _device.value = DeviceState.Failed("Couldn't store the sign-in securely on this device.")
+                        return@launch
+                    }
+                    commitTarget(app, o, r, b)
+                    prefs(app).edit().putBoolean("needsSignIn", false).apply()
+                    _device.value = DeviceState.Idle
+                    _state.value = SyncState.Idle(lastSyncAt(app))
+                    _test.value = TestState.Idle
+                    SyncManager.request(app)
+                }
+                PollDecision.Expired -> _device.value = DeviceState.Failed("The code expired. Start again.")
+                PollDecision.Denied -> _device.value = DeviceState.Failed("Sign-in was denied on GitHub.")
+                is PollDecision.Fail -> _device.value = DeviceState.Failed(result.message)
+                is PollDecision.Wait -> _device.value = DeviceState.Idle
+            }
+        }
+        return null
+    }
+
+    fun cancelDeviceSignIn() {
+        deviceGen.incrementAndGet()
+        _device.value = DeviceState.Idle
+    }
+
+    // ----- Token handling -----
+
+    private sealed interface Resolved {
+        class Ready(val cfg: GithubConfig, val tokens: TokenSet) : Resolved
+        class Problem(val outcome: SyncOutcome) : Resolved
+    }
+
+    /** Settings plus a token that is current: refreshes an expiring one (and stores the rotated pair). */
+    private fun resolve(app: Context, forceRefresh: Boolean = false): Resolved {
+        val s = settings(app) ?: return Resolved.Problem(SyncOutcome.Failed("GitHub sync isn't set up."))
+        val tokens = loadTokens(app)
+        if (tokens == null) {
+            // Token can no longer be decrypted: ask for it again.
+            prefs(app).edit().putBoolean("needsSignIn", true).apply()
+            return Resolved.Problem(SyncOutcome.NeedsSignIn)
+        }
+        return when (val f = flow.ensureFresh(clientId(app), tokens, forceRefresh)) {
+            is RefreshResult.Fresh -> {
+                if (f.changed && !TokenVault.save(app, f.tokens.encode())) TokenVault.save(app, f.tokens.encode())
+                Resolved.Ready(GithubConfig(s.owner, s.repo, s.branch, f.tokens.access), f.tokens)
+            }
+            RefreshResult.NeedsSignIn -> {
+                prefs(app).edit().putBoolean("needsSignIn", true).apply()
+                Resolved.Problem(SyncOutcome.NeedsSignIn)
+            }
+            is RefreshResult.Retry -> Resolved.Problem(SyncOutcome.Retry(f.message))
+        }
     }
 
     fun testConnection(ctx: Context) {
         val app = ctx.applicationContext
-        val cfg = config(app)
-        if (cfg == null) {
+        if (!isConfigured(app)) {
             _test.value = TestState.Done(ConnResult(false, "Save the repo and token first."))
             return
         }
         _test.value = TestState.Testing
         scope.launch {
-            val res = runCatching { SyncEngine(http, cfg, PrefsHashStore(app)).testConnection() }
-                .getOrElse { ConnResult(false, "Test failed (${it.javaClass.simpleName}).") }
-            val safe = res.copy(message = Redact.scrub(res.message, cfg.token))
+            val res = mutex.withLock {
+                when (val r = resolve(app)) {
+                    is Resolved.Problem -> when (val o = r.outcome) {
+                        SyncOutcome.NeedsSignIn -> ConnResult(false, "GitHub rejected the sign-in. It may be expired or revoked.", needsSignIn = true)
+                        is SyncOutcome.Retry -> ConnResult(false, o.message)
+                        else -> ConnResult(false, "Save the repo and token first.")
+                    }
+                    is Resolved.Ready -> {
+                        val first = runCatching { SyncEngine(http, r.cfg, PrefsHashStore(app)).testConnection() }
+                            .getOrElse { ConnResult(false, "Test failed (${it.javaClass.simpleName}).") }
+                        if (first.needsSignIn && r.tokens.canRefresh) {
+                            // The server says the token is bad: renew once and look again.
+                            (resolve(app, forceRefresh = true) as? Resolved.Ready)?.let { r2 ->
+                                runCatching { SyncEngine(http, r2.cfg, PrefsHashStore(app)).testConnection() }.getOrDefault(first)
+                            } ?: first
+                        } else first
+                    }
+                }
+            }
+            val safe = res.copy(message = Redact.scrub(res.message, loadTokens(app)?.access))
             if (safe.needsSignIn) {
                 prefs(app).edit().putBoolean("needsSignIn", true).apply()
                 _state.value = SyncState.NeedsSignIn
@@ -408,31 +666,34 @@ object GithubSync {
     /** Runs one sync with the latest saved data. Used by [SyncWorker]; never throws. */
     suspend fun runSync(ctx: Context): SyncOutcome = mutex.withLock {
         val app = ctx.applicationContext
-        val cfg = config(app)
-        if (cfg == null) {
-            if (hasToken(app) || settings(app) != null) {
-                // Token can no longer be decrypted: ask for it again.
-                if (settings(app) != null) prefs(app).edit().putBoolean("needsSignIn", true).apply()
-            }
+        if (settings(app) == null || !hasToken(app)) {
+            if (settings(app) != null) prefs(app).edit().putBoolean("needsSignIn", true).apply()
             refresh(app)
             return@withLock if (settings(app) != null) SyncOutcome.NeedsSignIn else SyncOutcome.Failed("GitHub sync isn't set up.")
         }
-        if (needsSignIn(app)) {
-            _state.value = SyncState.NeedsSignIn
-            return@withLock SyncOutcome.NeedsSignIn
-        }
         _state.value = SyncState.Syncing
-        val raw = try {
-            val data = Store(app).load()
-            val files = PublicExport.files(data.records)
-            SyncEngine(http, cfg, PrefsHashStore(app)).sync(files, data.records.size)
+        var secret: String? = null
+        fun attempt(force: Boolean): SyncOutcome = when (val r = resolve(app, force)) {
+            is Resolved.Problem -> r.outcome
+            is Resolved.Ready -> {
+                secret = r.cfg.token
+                val data = Store(app).load()
+                val files = PublicExport.files(data.records)
+                SyncEngine(http, r.cfg, PrefsHashStore(app)).sync(files, data.records.size)
+            }
+        }
+        val raw: SyncOutcome = try {
+            var o = attempt(false)
+            // The server rejected a token that looked valid: renew it once and go again.
+            if (o == SyncOutcome.NeedsSignIn && secret != null && loadTokens(app)?.canRefresh == true) o = attempt(true)
+            o
         } catch (e: Exception) {
             SyncOutcome.Retry("Sync hit a snag (${e.javaClass.simpleName}).")
         }
         val outcome = when (raw) {
-            is SyncOutcome.Retry -> raw.copy(message = Redact.scrub(raw.message, cfg.token))
-            is SyncOutcome.Failed -> raw.copy(message = Redact.scrub(raw.message, cfg.token))
-            is SyncOutcome.NotFound -> raw.copy(message = Redact.scrub(raw.message, cfg.token))
+            is SyncOutcome.Retry -> raw.copy(message = Redact.scrub(raw.message, secret))
+            is SyncOutcome.Failed -> raw.copy(message = Redact.scrub(raw.message, secret))
+            is SyncOutcome.NotFound -> raw.copy(message = Redact.scrub(raw.message, secret))
             else -> raw
         }
         val now = System.currentTimeMillis()
@@ -452,4 +713,46 @@ object GithubSync {
         val app = ctx.applicationContext
         scope.launch { runSync(app) }
     }
+
+    // ----- Restore numbers from GitHub -----
+
+    /** Reads the public CSVs and counts how many sessions [local] is missing. Nothing is changed yet. */
+    fun previewRestore(ctx: Context, local: List<SessionRecord>) {
+        val app = ctx.applicationContext
+        if (!isConfigured(app)) { _restore.value = RestoreState.Failed("Connect GitHub first."); return }
+        _restore.value = RestoreState.Loading
+        scope.launch {
+            _restore.value = mutex.withLock {
+                try {
+                    when (val r = resolve(app)) {
+                        is Resolved.Problem -> RestoreState.Failed(restoreMessage(r.outcome))
+                        is Resolved.Ready -> when (val f = SyncEngine(http, r.cfg, PrefsHashStore(app)).fetchPublicFiles()) {
+                            is FetchResult.Problem -> RestoreState.Failed(Redact.scrub(restoreMessage(f.outcome), r.cfg.token))
+                            is FetchResult.Files -> {
+                                val imported = PublicImport.records(f.files)
+                                RestoreState.Preview(imported, PublicImport.newOnly(local, imported).size)
+                            }
+                        }
+                    }
+                } catch (e: Exception) {
+                    RestoreState.Failed("Restore hit a snag (${e.javaClass.simpleName}).")
+                }
+            }
+        }
+    }
+
+    private fun restoreMessage(o: SyncOutcome) = when (o) {
+        SyncOutcome.NeedsSignIn -> "GitHub rejected the sign-in. Sign in again first."
+        is SyncOutcome.Retry -> o.message
+        is SyncOutcome.NotFound -> o.message
+        is SyncOutcome.Failed -> o.message
+        is SyncOutcome.Success -> "Nothing to do."
+    }
+
+    /** The sessions to add now: those in the preview whose (date, type) is still missing locally. Never overwrites. */
+    fun restoreToAdd(local: List<SessionRecord>): List<SessionRecord> =
+        (_restore.value as? RestoreState.Preview)?.let { PublicImport.newOnly(local, it.imported) } ?: emptyList()
+
+    fun restoreFinished(added: Int) { _restore.value = RestoreState.Done(added) }
+    fun restoreReset() { _restore.value = RestoreState.Idle }
 }
