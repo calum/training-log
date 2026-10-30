@@ -96,6 +96,7 @@ fun AppRoot(vm: AppViewModel, inPip: Boolean) {
                     Screen.Plan -> PlanScreen(vm)
                     Screen.Trophies -> TrophyScreen(vm)
                     Screen.Export -> ExportScreen(vm)
+                    Screen.Backup -> BackupScreen(vm)
                 }
             }
         }
