@@ -17,12 +17,12 @@ import com.calum.traininglog.ui.BigNumberStepper
 import com.calum.traininglog.ui.SecondaryButton
 import com.calum.traininglog.ui.SectionCard
 
-// ---------------- Core / hike ----------------
+// ---------------- Hike / walk (core has its own guided screen, see CoreSessionScreen) ----------------
 
 @Composable
 fun LightScreen(vm: AppViewModel, type: SessionType) {
     val inputs by vm.inputs.collectAsState()
-    var minutes by remember { mutableIntStateOf(minOf(inputs.minutes, if (type == SessionType.CORE) 20 else inputs.minutes)) }
+    var minutes by remember { mutableIntStateOf(inputs.minutes) }
     var note by remember { mutableStateOf("") }
     Page {
         Title(typeName(type))

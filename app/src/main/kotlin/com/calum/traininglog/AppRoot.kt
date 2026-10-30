@@ -92,6 +92,7 @@ fun AppRoot(vm: AppViewModel, inPip: Boolean) {
                     Screen.TreadmillPlayer -> PlayerContent(vm, compact = false)
                     Screen.TreadmillDone -> TreadmillDoneScreen(vm)
                     is Screen.Light -> LightScreen(vm, s.type)
+                    Screen.Core -> CoreSessionScreen(vm)
                     Screen.Manual -> ManualLogScreen(vm)
                     Screen.Plan -> PlanScreen(vm)
                     Screen.Settings -> SettingsScreen(vm)
