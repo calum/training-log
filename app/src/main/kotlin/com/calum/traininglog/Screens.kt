@@ -133,6 +133,7 @@ fun HomeScreen(vm: AppViewModel) {
     LazyColumn(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         item {
             Title("Training Log")
+            UpdateBanner(Modifier.padding(bottom = 4.dp))
             Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text("This week", fontWeight = FontWeight.SemiBold)
@@ -143,6 +144,8 @@ fun HomeScreen(vm: AppViewModel) {
             Button(onClick = { vm.go(Screen.Start) }, Modifier.fillMaxWidth().height(64.dp)) { Text("Start a session", fontSize = 20.sp) }
             OutlinedButton(onClick = { vm.go(Screen.Manual) }, Modifier.fillMaxWidth()) { Text("Log a session I already did") }
             OutlinedButton(onClick = { vm.go(Screen.Export) }, Modifier.fillMaxWidth()) { Text("Export for Claude") }
+            val appCtx = LocalContext.current
+            TextButton(onClick = { UpdateManager.check(appCtx, quiet = false) }) { Text("Check for updates (v${UpdateManager.currentVersion(appCtx)})") }
             Spacer(Modifier.height(4.dp))
             Text("History", fontWeight = FontWeight.SemiBold)
             if (data.records.isEmpty()) Muted("Nothing logged yet. Your first session will show up here.")
