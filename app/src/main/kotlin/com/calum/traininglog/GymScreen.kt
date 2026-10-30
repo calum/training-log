@@ -6,6 +6,27 @@ import android.os.SystemClock
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.width
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -54,9 +75,7 @@ import com.calum.traininglog.ui.ConfettiBurst
 import com.calum.traininglog.ui.Pill
 import com.calum.traininglog.ui.RestTimerBar
 import com.calum.traininglog.ui.SecondaryButton
-import com.calum.traininglog.ui.SectionCard
 import com.calum.traininglog.ui.SelectChip
-import com.calum.traininglog.ui.BigNumberStepper
 import com.calum.traininglog.ui.DoneToggle
 import com.calum.traininglog.ui.Spacing
 import kotlinx.coroutines.delay
@@ -109,37 +128,42 @@ fun GymScreen(vm: AppViewModel) {
     )
     val rest = live.rest
 
+    var barHeight by remember { mutableStateOf(0.dp) }
+    val density = LocalDensity.current
     Box(Modifier.fillMaxSize().background(flashBg)) {
-        Column(Modifier.fillMaxSize()) {
-            Column(
-                Modifier.weight(1f).verticalScroll(rememberScrollState()).statusBarsPadding().padding(Spacing.screen),
-                verticalArrangement = Arrangement.spacedBy(Spacing.lg),
-            ) {
-                GymHeader(live.plan.dayLabel, live.plan.deload, doneSets, totalSets, progress)
-                live.plan.rebaseline?.takeIf { it.active }?.let { Pill(it.headline, color = AppColors.info) }
-                if (live.plan.dropped.isNotEmpty()) {
-                    Text(
-                        "Trimmed to fit your time: ${live.plan.dropped.joinToString { it.name }}",
-                        style = MaterialTheme.typography.bodyMedium, color = AppColors.textMuted,
-                    )
-                }
-                live.exercises.forEachIndexed { ei, e ->
-                    ExerciseCard(vm, ei, e, count = live.exercises.size, optional = e.planned.exercise.id in live.plan.optionalIds, targetRir = live.plan.rebaseline?.takeIf { it.active && it.stage < 3 }?.targetRir)
-                }
-                SecondaryButton("Add exercise", onClick = { showAdd = true }, Modifier.fillMaxWidth(), accent = AppColors.info)
-                BigActionButton("Finish session", onClick = {
-                    bigBurst++
-                    scope.launch { delay(900); vm.finishGym() }
-                })
-                SecondaryButton("Discard", onClick = { vm.home() }, Modifier.fillMaxWidth())
-                Spacer(Modifier.height(Spacing.lg))
-            }
-            if (rest != null) {
-                RestTimerBar(
-                    remainingSec = remaining, totalSec = rest.totalSec,
-                    modifier = Modifier.padding(horizontal = Spacing.screen, vertical = Spacing.sm).navigationBarsPadding(),
-                    onSkip = { vm.clearRest() },
+        Column(
+            Modifier.fillMaxSize().verticalScroll(rememberScrollState()).statusBarsPadding()
+                .padding(start = Spacing.screen, end = Spacing.screen, top = Spacing.screen)
+                .padding(bottom = if (rest != null) barHeight else 0.dp),
+            verticalArrangement = Arrangement.spacedBy(Spacing.md),
+        ) {
+            GymHeader(live.plan.dayLabel, live.plan.deload, doneSets, totalSets, progress)
+            live.plan.rebaseline?.takeIf { it.active }?.let { Pill(it.headline, color = AppColors.info) }
+            if (live.plan.dropped.isNotEmpty()) {
+                Text(
+                    "Trimmed to fit your time: ${live.plan.dropped.joinToString { it.name }}",
+                    style = MaterialTheme.typography.bodyMedium, color = AppColors.textMuted,
                 )
+            }
+            live.exercises.forEachIndexed { ei, e ->
+                ExerciseCard(vm, ei, e, count = live.exercises.size, optional = e.planned.exercise.id in live.plan.optionalIds, targetRir = live.plan.rebaseline?.takeIf { it.active && it.stage < 3 }?.targetRir)
+            }
+            SecondaryButton("Add exercise", onClick = { showAdd = true }, Modifier.fillMaxWidth(), accent = AppColors.info)
+            BigActionButton("Finish session", onClick = {
+                bigBurst++
+                scope.launch { delay(900); vm.finishGym() }
+            })
+            SecondaryButton("Discard", onClick = { vm.home() }, Modifier.fillMaxWidth())
+            Spacer(Modifier.height(Spacing.lg).navigationBarsPadding())
+        }
+        if (rest != null) {
+            Box(
+                Modifier.align(Alignment.BottomCenter).fillMaxWidth()
+                    .onSizeChanged { barHeight = with(density) { it.height.toDp() } }
+                    .background(Brush.verticalGradient(listOf(Color.Transparent, AppColors.background.copy(alpha = 0.95f), AppColors.background)))
+                    .padding(horizontal = Spacing.screen, vertical = Spacing.sm).navigationBarsPadding(),
+            ) {
+                RestTimerBar(remainingSec = remaining, totalSec = rest.totalSec, onSkip = { vm.clearRest() })
             }
         }
         if (showAdd) AddExerciseDialog(vm, onDismiss = { showAdd = false })
@@ -164,6 +188,7 @@ private fun GymHeader(dayLabel: String, deload: Boolean, done: Int, total: Int, 
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun ExerciseCard(vm: AppViewModel, ei: Int, e: LiveExercise, count: Int, optional: Boolean, targetRir: Int? = null) {
     var showSwap by remember { mutableStateOf(false) }
@@ -171,32 +196,36 @@ private fun ExerciseCard(vm: AppViewModel, ei: Int, e: LiveExercise, count: Int,
     val ex = e.planned.exercise
     val allDone = e.sets.isNotEmpty() && e.sets.all { it.done }
     val swaps = vm.swapOptions(ex)
-    SectionCard(
-        title = ex.name,
-        action = {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
-                if (optional) Pill("Optional", color = AppColors.info)
-                if (allDone) Pill("Done", filled = true)
-                Box {
-                    SelectChip("Edit", selected = menu || showSwap, onClick = { menu = true })
-                    DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-                        if (swaps.isNotEmpty()) {
-                            DropdownMenuItem(text = { Text("Swap") }, onClick = { menu = false; showSwap = true })
-                        }
-                        if (ei > 0) DropdownMenuItem(text = { Text("Move up") }, onClick = { menu = false; vm.moveExercise(ei, -1) })
-                        if (ei < count - 1) DropdownMenuItem(text = { Text("Move down") }, onClick = { menu = false; vm.moveExercise(ei, 1) })
-                        DropdownMenuItem(text = { Text("Remove (skip today)") }, onClick = { menu = false; vm.removeExercise(ei) })
+    // The set whose RIR chips are open: the most recently completed one (older ones show a small pill).
+    val latestDone = e.sets.indexOfLast { it.done }
+    // Tight card (12 dp padding, not the 16 dp SectionCard) so a whole set fits one row on a phone.
+    Column(
+        Modifier.fillMaxWidth().clip(AppShapes.large).background(AppColors.surface)
+            .border(1.dp, AppColors.outline.copy(alpha = 0.5f), AppShapes.large).padding(Spacing.md),
+        verticalArrangement = Arrangement.spacedBy(Spacing.sm),
+    ) {
+        Row(Modifier.fillMaxWidth().padding(start = Spacing.xs), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+            Text(ex.name, style = MaterialTheme.typography.titleLarge, color = AppColors.textPrimary, modifier = Modifier.weight(1f), maxLines = 1)
+            if (optional) Pill("Optional", color = AppColors.info)
+            if (allDone) Pill("Done", filled = true)
+            Box {
+                SelectChip("Edit", selected = menu || showSwap, onClick = { menu = true })
+                DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                    if (swaps.isNotEmpty()) {
+                        DropdownMenuItem(text = { Text("Swap") }, onClick = { menu = false; showSwap = true })
                     }
+                    if (ei > 0) DropdownMenuItem(text = { Text("Move up") }, onClick = { menu = false; vm.moveExercise(ei, -1) })
+                    if (ei < count - 1) DropdownMenuItem(text = { Text("Move down") }, onClick = { menu = false; vm.moveExercise(ei, 1) })
+                    DropdownMenuItem(text = { Text("Remove (skip today)") }, onClick = { menu = false; vm.removeExercise(ei) })
                 }
             }
-        },
-    ) {
-        Text(e.planned.prescription.note, style = MaterialTheme.typography.bodyMedium, color = AppColors.textMuted)
+        }
+        Text(e.planned.prescription.note, style = MaterialTheme.typography.bodyMedium, color = AppColors.textMuted, modifier = Modifier.padding(horizontal = Spacing.xs))
         if (targetRir != null) {
-            Text("Stop each set with $targetRir+ reps in reserve.", style = MaterialTheme.typography.bodySmall, color = AppColors.info)
+            Text("Stop each set with $targetRir+ reps in reserve.", style = MaterialTheme.typography.bodySmall, color = AppColors.info, modifier = Modifier.padding(horizontal = Spacing.xs))
         }
         if (showSwap) {
-            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(Spacing.sm), verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
                 SelectChip("Close", selected = true, onClick = { showSwap = false })
                 swaps.forEach { alt ->
                     SelectChip(alt.name, selected = false, onClick = { vm.swap(ei, alt.id); showSwap = false }, accent = AppColors.info)
@@ -204,15 +233,15 @@ private fun ExerciseCard(vm: AppViewModel, ei: Int, e: LiveExercise, count: Int,
             }
         }
         if (e.warmups.isNotEmpty()) {
-            Text("WARM-UP", style = AppType.eyebrow, color = AppColors.textMuted)
-            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+            Text("WARM-UP", style = AppType.eyebrow, color = AppColors.textMuted, modifier = Modifier.padding(horizontal = Spacing.xs))
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 e.warmups.forEachIndexed { wi, w ->
-                    SelectChip("${fmt(w.kg)} kg × ${w.reps}", selected = w.done, onClick = { vm.toggleWarmup(ei, wi) })
+                    WarmupChip("${fmt(w.kg)} kg × ${w.reps}", w.done) { vm.toggleWarmup(ei, wi) }
                 }
             }
         }
         e.sets.forEachIndexed { si, set ->
-            GymSetCard(vm, ei, si, set)
+            GymSetRow(vm, ei, si, set, rirOpen = si == latestDone)
         }
         if (e.askMiss) {
             Text("A few reps were missed. How did it feel?", style = MaterialTheme.typography.titleMedium, color = AppColors.textPrimary)
@@ -224,49 +253,132 @@ private fun ExerciseCard(vm: AppViewModel, ei: Int, e: LiveExercise, count: Int,
     }
 }
 
-/** One set: number badge + giant Done toggle, big hold-to-repeat weight and reps steppers, RIR chips once done. */
+/**
+ * One compact row per set: [number] [- kg +] [- reps +] [Done]. RIR chips appear as a slim row for the
+ * latest finished set; on earlier finished sets they collapse to a small pill that reopens them.
+ */
 @Composable
-private fun GymSetCard(vm: AppViewModel, ei: Int, si: Int, s: LiveSet) {
+private fun GymSetRow(vm: AppViewModel, ei: Int, si: Int, s: LiveSet, rirOpen: Boolean) {
     val bg by animateColorAsState(
         if (s.done) AppColors.primary.copy(alpha = 0.16f) else AppColors.surfaceRaised, tween(350), label = "setBg",
     )
+    var reopened by remember { mutableStateOf(false) }
     Column(
-        Modifier.fillMaxWidth().clip(AppShapes.medium).background(bg).padding(Spacing.md),
-        verticalArrangement = Arrangement.spacedBy(Spacing.sm),
+        Modifier.fillMaxWidth().clip(AppShapes.medium).background(bg).padding(horizontal = Spacing.sm, vertical = Spacing.sm),
+        verticalArrangement = Arrangement.spacedBy(Spacing.xs),
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Spacing.md)) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
             Box(
-                Modifier.size(40.dp).clip(CircleShape).background(if (s.done) AppColors.primary.copy(alpha = 0.3f) else AppColors.surfaceHigh),
+                Modifier.size(26.dp).clip(CircleShape).background(if (s.done) AppColors.primary.copy(alpha = 0.3f) else AppColors.surfaceHigh),
                 contentAlignment = Alignment.Center,
             ) {
-                Text("${si + 1}", style = MaterialTheme.typography.titleMedium, color = if (s.done) AppColors.primary else AppColors.textMuted)
+                Text("${si + 1}", style = MaterialTheme.typography.labelLarge, color = if (s.done) AppColors.primary else AppColors.textMuted)
             }
-            Text(
-                if (s.done) "Nice. Set done" else "Set ${si + 1} of target ${s.target} reps",
-                style = MaterialTheme.typography.titleSmall, color = if (s.done) AppColors.primary else AppColors.textMuted,
-                modifier = Modifier.weight(1f),
+            CompactStepper(
+                fmt(s.kg), "kg", valueWidth = 46.dp,
+                onMinus = { vm.adjustSet(ei, si, dKg = -2.5) }, onPlus = { vm.adjustSet(ei, si, dKg = 2.5) },
             )
-            DoneToggle(s.done, onToggle = { vm.doneSet(ei, si) })
+            CompactStepper(
+                "${s.reps}", "reps", valueWidth = 26.dp,
+                onMinus = { vm.adjustSet(ei, si, dReps = -1) }, onPlus = { vm.adjustSet(ei, si, dReps = 1) },
+            )
+            DoneToggle(s.done, onToggle = { vm.doneSet(ei, si) }, modifier = Modifier.size(52.dp))
         }
-        BigNumberStepper(
-            value = fmt(s.kg), unit = "kg", label = "Weight",
-            onMinus = { vm.adjustSet(ei, si, dKg = -2.5) }, onPlus = { vm.adjustSet(ei, si, dKg = 2.5) },
-        )
-        BigNumberStepper(
-            value = "${s.reps}", unit = "reps", label = "Reps",
-            onMinus = { vm.adjustSet(ei, si, dReps = -1) }, onPlus = { vm.adjustSet(ei, si, dReps = 1) },
-        )
         if (s.done) {
-            Text("HOW MANY REPS LEFT IN THE TANK?", style = AppType.eyebrow, color = AppColors.textMuted)
-            Row(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
-                listOf(0, 1, 2, 3).forEach { r ->
-                    SelectChip(
-                        if (r == 3) "3+" else "$r", selected = s.rir == r, onClick = { vm.setRir(ei, si, r) },
-                        modifier = Modifier.weight(1f), accent = AppColors.energy,
+            if (rirOpen || reopened) {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Spacing.xs)) {
+                    Text("RIR", style = AppType.eyebrow, color = AppColors.textMuted, modifier = Modifier.padding(horizontal = Spacing.sm))
+                    listOf(0, 1, 2, 3).forEach { r ->
+                        val sel = s.rir == r
+                        Box(
+                            Modifier.weight(1f).height(40.dp).clip(AppShapes.chip)
+                                .background(if (sel) AppColors.primary else AppColors.surfaceHigh)
+                                .clickable(role = Role.RadioButton) { vm.setRir(ei, si, r); reopened = false },
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(
+                                if (r == 3) "3+" else "$r", style = MaterialTheme.typography.titleMedium,
+                                color = if (sel) AppColors.onPrimary else AppColors.textPrimary,
+                            )
+                        }
+                    }
+                }
+            } else {
+                Box(Modifier.padding(start = 34.dp).heightIn(min = 36.dp).clip(AppShapes.chip).clickable { reopened = true }, contentAlignment = Alignment.CenterStart) {
+                    Text(
+                        if (s.rir == null) "RIR ?" else "RIR ${if (s.rir == 3) "3+" else s.rir.toString()}",
+                        style = MaterialTheme.typography.labelMedium, color = AppColors.primary,
+                        modifier = Modifier.clip(AppShapes.chip).background(AppColors.primary.copy(alpha = 0.16f)).padding(horizontal = 12.dp, vertical = 5.dp),
                     )
                 }
             }
         }
+    }
+}
+
+/** Slim warm-up chip (44 dp tall) so a typical warm-up ladder wraps to two rows. */
+@Composable
+private fun WarmupChip(text: String, done: Boolean, onClick: () -> Unit) {
+    val haptic = LocalHapticFeedback.current
+    Box(
+        Modifier.heightIn(min = 44.dp).clip(AppShapes.chip)
+            .background(if (done) AppColors.primary.copy(alpha = 0.22f) else AppColors.surfaceRaised)
+            .clickable(role = Role.Checkbox) { haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove); onClick() }
+            .padding(horizontal = 11.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(text, style = MaterialTheme.typography.labelMedium, color = if (done) AppColors.primary else AppColors.textPrimary, maxLines = 1)
+    }
+}
+
+/** 44 dp hold-to-repeat round button (smaller sibling of the shared 64 dp stepper button so a full set fits one row). */
+@Composable
+private fun CompactRepeatButton(plus: Boolean, onStep: () -> Unit) {
+    val latest by rememberUpdatedState(onStep)
+    val scope = rememberCoroutineScope()
+    val haptic = LocalHapticFeedback.current
+    var pressed by remember { mutableStateOf(false) }
+    val glyph = if (plus) AppColors.primary else AppColors.textPrimary
+    Box(
+        Modifier.size(44.dp).clip(CircleShape)
+            .background(if (pressed) AppColors.surfaceHigh else AppColors.surface)
+            .pointerInput(Unit) {
+                detectTapGestures(onPress = {
+                    pressed = true
+                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    latest()
+                    val job = scope.launch {
+                        delay(450)
+                        var wait = 150L
+                        while (true) {
+                            latest()
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            delay(wait)
+                            wait = maxOf(55L, wait - 10L)
+                        }
+                    }
+                    try { awaitRelease() } finally { job.cancel(); pressed = false }
+                })
+            },
+        contentAlignment = Alignment.Center,
+    ) {
+        Canvas(Modifier.size(18.dp)) {
+            val sw = 3.dp.toPx()
+            drawLine(glyph, Offset(0f, center.y), Offset(size.width, center.y), sw, StrokeCap.Round)
+            if (plus) drawLine(glyph, Offset(center.x, 0f), Offset(center.x, size.height), sw, StrokeCap.Round)
+        }
+    }
+}
+
+@Composable
+private fun CompactStepper(value: String, unit: String, valueWidth: Dp, onMinus: () -> Unit, onPlus: () -> Unit) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        CompactRepeatButton(plus = false, onStep = onMinus)
+        Column(Modifier.width(valueWidth), horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(value, style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.ExtraBold), color = AppColors.textPrimary, maxLines = 1, softWrap = false)
+            Text(unit, style = MaterialTheme.typography.labelSmall, color = AppColors.textMuted, maxLines = 1)
+        }
+        CompactRepeatButton(plus = true, onStep = onPlus)
     }
 }
 

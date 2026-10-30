@@ -7,7 +7,11 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
@@ -49,6 +53,33 @@ internal fun <T> ChipFlow(options: List<T>, selected: T, label: (T) -> String, o
         verticalArrangement = Arrangement.spacedBy(Spacing.sm),
     ) {
         options.forEach { o -> SelectChip(label(o), o == selected, { onPick(o) }) }
+    }
+}
+
+/** Equal-width chips laid out [perRow] to a row, so rows line up and nothing wraps awkwardly. */
+@Composable
+private fun <T> ChipGrid(options: List<T>, perRow: Int, isSelected: (T) -> Boolean, label: (T) -> String, onPick: (T) -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+        options.chunked(perRow).forEach { row ->
+            Row(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+                row.forEach { o -> GridChip(label(o), isSelected(o), { onPick(o) }, Modifier.weight(1f)) }
+                repeat(perRow - row.size) { Spacer(Modifier.weight(1f)) }
+            }
+        }
+    }
+}
+
+/** Chip without side padding, so narrow cells ("10", "Skip") never clip. */
+@Composable
+private fun GridChip(text: String, selected: Boolean, onClick: () -> Unit, modifier: Modifier) {
+    val haptic = LocalHapticFeedback.current
+    Box(
+        modifier.heightIn(min = Spacing.minTap).clip(AppShapes.chip)
+            .background(if (selected) AppColors.primary else AppColors.surfaceRaised)
+            .clickable(role = Role.RadioButton) { haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove); onClick() },
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(text, style = MaterialTheme.typography.labelLarge, color = if (selected) AppColors.onPrimary else AppColors.textPrimary, maxLines = 1)
     }
 }
 
@@ -111,7 +142,7 @@ fun StartScreen(vm: AppViewModel) {
         }
 
         FieldLabel("HOW MUCH TIME?")
-        ChipFlow(listOf(20, 30, 45, 60, 90, 120), inputs.minutes, { if (it == 120) "2 hours" else "$it min" }) { m ->
+        ChipGrid(listOf(20, 30, 45, 60, 90, 120), 3, { inputs.minutes == it }, { if (it == 120) "2 hours" else "$it min" }) { m ->
             vm.setInputs { it.copy(minutes = m) }
         }
 
@@ -126,14 +157,15 @@ fun StartScreen(vm: AppViewModel) {
         }
 
         FieldLabel("RIGHT KNEE, 0 (FINE) TO 10")
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(Spacing.sm), verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
-            (0..10).forEach { n -> SelectChip(n.toString(), inputs.knee == n, { vm.setInputs { it.copy(knee = n) } }) }
-            SelectChip("Skip", inputs.knee == null, { vm.setInputs { it.copy(knee = null) } }, accent = AppColors.info)
+        // 0-5 on the first row, 6-10 and Skip on the second: six equal chips per row.
+        ChipGrid((0..10).map<Int, Int?> { it } + null, 6, { inputs.knee == it }, { it?.toString() ?: "Skip" }) { n ->
+            vm.setInputs { it.copy(knee = n) }
         }
 
         SelectChip(
             if (inputs.atGym) "At the gym ✓" else "I'm already at the gym",
             inputs.atGym, { vm.setInputs { it.copy(atGym = !it.atGym) } },
+            modifier = Modifier.fillMaxWidth(),
         )
 
         BigActionButton("What should I do?", onClick = { vm.recommend() })
@@ -146,7 +178,7 @@ fun StartScreen(vm: AppViewModel) {
                     modifier = Modifier.padding(top = Spacing.sm),
                 )
                 Text(
-                    r.reason, color = AppColors.onHero.copy(alpha = 0.85f),
+                    r.reason, color = AppColors.onHero,
                     style = MaterialTheme.typography.bodyMedium,
                     modifier = Modifier.padding(top = Spacing.xs, bottom = Spacing.lg),
                 )
