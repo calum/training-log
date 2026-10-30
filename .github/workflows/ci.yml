@@ -18,3 +18,14 @@ jobs:
           java-version: 17
       - uses: gradle/actions/setup-gradle@v4
       - run: ./gradlew :core:test :app:assembleDebug
+      # Screenshots of every screen, for people to look at. Record-only: never compares, never fails the build.
+      - name: Record screenshots
+        continue-on-error: true
+        run: ./gradlew :app:recordRoborazziDebug --no-daemon
+      - name: Upload screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: screenshots
+          path: docs/screenshots
+          if-no-files-found: ignore

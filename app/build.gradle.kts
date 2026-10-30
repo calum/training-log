@@ -3,6 +3,7 @@ plugins {
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
     id("org.jetbrains.kotlin.plugin.serialization")
+    id("io.github.takahirom.roborazzi") version "1.26.0"
 }
 
 android {
@@ -28,6 +29,21 @@ android {
     }
     kotlinOptions { jvmTarget = "17" }
     buildFeatures { compose = true }
+    testOptions {
+        unitTests.isIncludeAndroidResources = true
+        unitTests.all {
+            // Optional: a folder with pre-downloaded android-all jars (when Maven Central rate-limits Robolectric).
+            System.getenv("ROBOLECTRIC_DEPENDENCY_DIR")?.let { dir ->
+                it.systemProperty("robolectric.dependency.dir", dir)
+                it.systemProperty("robolectric.offline", "true")
+            }
+        }
+    }
+}
+
+// Screenshots are recorded for people (and reviewers) to look at, never compared, so UI changes can't fail CI.
+roborazzi {
+    outputDir.set(rootProject.layout.projectDirectory.dir("docs/screenshots"))
 }
 
 dependencies {
@@ -46,4 +62,12 @@ dependencies {
     implementation("com.google.android.gms:play-services-auth:21.2.0")
     implementation("androidx.work:work-runtime-ktx:2.9.1")
     testImplementation(kotlin("test"))
+    testImplementation("junit:junit:4.13.2")
+    testImplementation("org.robolectric:robolectric:4.14.1")
+    testImplementation("androidx.test:core-ktx:1.6.1")
+    testImplementation("androidx.test.ext:junit:1.2.1")
+    testImplementation("androidx.compose.ui:ui-test-junit4")
+    testImplementation("io.github.takahirom.roborazzi:roborazzi:1.26.0")
+    testImplementation("io.github.takahirom.roborazzi:roborazzi-compose:1.26.0")
+    debugImplementation("androidx.compose.ui:ui-test-manifest")
 }
