@@ -1,10 +1,9 @@
-# Builds and signs the release APK when you push a version tag (e.g. v0.1.0), or run it manually with a version.
+# Builds and signs the release APK. Run it by hand from the Actions tab (or the API) with a version such as v0.2.2.
+# There is deliberately NO tag trigger: pushing a tag must never be enough to get a signed build.
 # Needs these repository secrets: KEYSTORE_BASE64, KEYSTORE_PASSWORD, KEY_ALIAS, KEY_PASSWORD.
 # Secrets are only used here, on tags pushed by the owner; never in pull-request workflows.
 name: Release
 on:
-  push:
-    tags: ["v*"]
   workflow_dispatch:
     inputs:
       version:
@@ -15,7 +14,7 @@ permissions:
   contents: write
 
 env:
-  TAG: ${{ github.ref_type == 'tag' && github.ref_name || inputs.version }}
+  TAG: ${{ inputs.version }}
 
 jobs:
   release:
