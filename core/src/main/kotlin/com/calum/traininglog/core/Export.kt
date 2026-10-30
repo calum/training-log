@@ -51,12 +51,19 @@ object Export {
             }
             r.note?.let { sb.appendLine("  note: $it") }
         }
+        val custom = rows.flatMap { it.exercises }.filter { ExerciseLibrary.isCustom(it.exerciseId) }
+            .map { ExerciseLibrary.nameOf(it.exerciseId, it.customName) }.distinct()
+        if (custom.isNotEmpty()) {
+            sb.appendLine()
+            sb.appendLine("Custom exercises logged (please add properly): ${custom.joinToString(", ")}")
+        }
         return sb.toString().trimEnd()
     }
 
     private fun exerciseLine(e: ExerciseLog): String {
-        val name = ExerciseLibrary.get(e.exerciseId).name
+        val name = (if (ExerciseLibrary.isCustom(e.exerciseId)) "CUSTOM: " else "") + ExerciseLibrary.nameOf(e.exerciseId, e.customName)
         val sets = e.sets
+        if (sets.isEmpty()) return name
         val sameWeight = sets.map { it.weightKg }.distinct().size == 1
         val body = if (sameWeight) "${num(sets[0].weightKg)}kg x ${sets.joinToString("/") { it.reps.toString() }}"
         else sets.joinToString(", ") { "${num(it.weightKg)}x${it.reps}" }

@@ -95,8 +95,9 @@ data class Forecast(
  *   CONSERVATIVE 50%, EXPECTED 70%, BEST 100%. Lower rates never overtake higher ones.
  * - Week 1 is the current Mon-Sun week and only counts the gym sessions still to do; week N
  *   is N-1 weeks later. Week 0 is "now".
- * - Gym sessions alternate A/B continuing from the last logged day, using the [GymBuilder]
- *   day patterns, so squat (both days) gets about twice the exposures of rdl or deadlift.
+ * - Gym sessions alternate the hinge (continuing from whichever of deadlift or RDL was logged
+ *   last, RDL first), each with squat and calf, so squat gets about twice the exposures of
+ *   rdl or deadlift. Upper-body slots are not forecast.
  * - Every 6th week (6, 12, ...) is a deload in every scenario: loads stay the same, sets
  *   drop to [Progression.deloadSets], and no increase is earned.
  * - Weights are rounded to the nearest 2.5 kg with [roundTo]. No injuries, illness, or missed
@@ -151,7 +152,7 @@ object Projection {
     private class ScheduledWeek(val offset: Int, val days: List<String>, val deload: Boolean)
 
     private fun buildSchedule(records: List<SessionRecord>, horizon: Int, gymN: Int, gymDone: Int): List<ScheduledWeek> {
-        var label = GymBuilder.nextDayLabel(records)
+        var label = if (GymBuilder.nextHinge(records).id == "deadlift") "B" else "A"
         return (1..horizon).map { w ->
             val count = if (w == 1) (gymN - gymDone).coerceAtLeast(0) else gymN
             val days = List(count) { label.also { label = if (label == "A") "B" else "A" } }
@@ -161,7 +162,8 @@ object Projection {
 
     private fun isDeloadWeek(w: Int) = w % DELOAD_EVERY_WEEKS == 0
 
-    private fun dayPattern(label: String) = if (label == "A") GymBuilder.dayA else GymBuilder.dayB
+    private fun dayPattern(label: String) =
+        if (label == "A") listOf("squat", "rdl", "calf") else listOf("squat", "deadlift", "calf")
 
     private fun exposures(ex: Exercise, days: List<String>) = days.count { ex.id in dayPattern(it) }
 
@@ -263,7 +265,7 @@ object Projection {
             out += Milestone(DELOAD_EVERY_WEEKS, "Week $DELOAD_EVERY_WEEKS: a planned lighter week, same loads with fewer sets")
         }
         headline?.let { h ->
-            val name = ExerciseLibrary.get(h.target.exerciseId).name.lowercase()
+            val name = ExerciseLibrary.nameOf(h.target.exerciseId).lowercase()
             val eta = h.weeksToTarget.getValue(Scenario.EXPECTED)
             out += if (eta != null) {
                 Milestone(eta, "Week $eta: $name about ${fmt(h.target.targetKg)} kg (expected pace, your target)")

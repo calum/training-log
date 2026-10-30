@@ -240,7 +240,8 @@ object Rewards {
                 val sets = log.sets.filter { it.reps > 0 }
                 if (sets.isEmpty()) continue
                 val id = log.exerciseId
-                val name = ExerciseLibrary.all.firstOrNull { it.id == id }?.name ?: id
+                if (ExerciseLibrary.isCustom(id)) continue // no personal records for free-text exercises
+                val name = ExerciseLibrary.nameOf(id)
                 val known = bestWeight.containsKey(id)
                 val prevMax = bestWeight[id] ?: 0.0
                 val repsAt = bestReps.getOrPut(id) { HashMap() }

@@ -22,8 +22,13 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -38,8 +43,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
+import com.calum.traininglog.core.ExerciseLibrary
+import com.calum.traininglog.core.GymBuilder
 import com.calum.traininglog.core.MissReason
-import com.calum.traininglog.core.Role
 import com.calum.traininglog.ui.AppColors
 import com.calum.traininglog.ui.AppShapes
 import com.calum.traininglog.ui.AppType
@@ -93,6 +99,7 @@ fun GymScreen(vm: AppViewModel) {
         seenDone = doneExercises
     }
     val scope = rememberCoroutineScope()
+    var showAdd by remember { mutableStateOf(false) }
 
     val totalSets = live.exercises.sumOf { it.sets.size }
     val doneSets = live.exercises.sumOf { e -> e.sets.count { it.done } }
@@ -115,7 +122,10 @@ fun GymScreen(vm: AppViewModel) {
                         style = MaterialTheme.typography.bodyMedium, color = AppColors.textMuted,
                     )
                 }
-                live.exercises.forEachIndexed { ei, e -> ExerciseCard(vm, ei, e) }
+                live.exercises.forEachIndexed { ei, e ->
+                    ExerciseCard(vm, ei, e, count = live.exercises.size, optional = e.planned.exercise.id in live.plan.optionalIds)
+                }
+                SecondaryButton("Add exercise", onClick = { showAdd = true }, Modifier.fillMaxWidth(), accent = AppColors.info)
                 BigActionButton("Finish session", onClick = {
                     bigBurst++
                     scope.launch { delay(900); vm.finishGym() }
@@ -131,6 +141,7 @@ fun GymScreen(vm: AppViewModel) {
                 )
             }
         }
+        if (showAdd) AddExerciseDialog(vm, onDismiss = { showAdd = false })
         ConfettiBurst(smallBurst, Modifier.fillMaxSize(), particleCount = 60)
         ConfettiBurst(bigBurst, Modifier.fillMaxSize(), particleCount = 220, durationMillis = 2400)
     }
@@ -140,7 +151,7 @@ fun GymScreen(vm: AppViewModel) {
 private fun GymHeader(dayLabel: String, deload: Boolean, done: Int, total: Int, progress: Float) {
     Column(verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Spacing.md)) {
-            Text("Gym $dayLabel", style = MaterialTheme.typography.headlineLarge, color = AppColors.textPrimary, modifier = Modifier.weight(1f, fill = false))
+            Text(if (dayLabel.length <= 1) "Gym $dayLabel" else dayLabel, style = MaterialTheme.typography.headlineLarge, color = AppColors.textPrimary, modifier = Modifier.weight(1f, fill = false))
             if (deload) Pill("Deload week", color = AppColors.info)
         }
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Spacing.md)) {
@@ -153,21 +164,37 @@ private fun GymHeader(dayLabel: String, deload: Boolean, done: Int, total: Int, 
 }
 
 @Composable
-private fun ExerciseCard(vm: AppViewModel, ei: Int, e: LiveExercise) {
+private fun ExerciseCard(vm: AppViewModel, ei: Int, e: LiveExercise, count: Int, optional: Boolean) {
     var showSwap by remember { mutableStateOf(false) }
+    var menu by remember { mutableStateOf(false) }
     val ex = e.planned.exercise
     val allDone = e.sets.isNotEmpty() && e.sets.all { it.done }
+    val swaps = vm.swapOptions(ex)
     SectionCard(
         title = ex.name,
         action = {
-            if (allDone) Pill("Done", filled = true)
-            else if (ex.role == Role.ACCESSORY) SelectChip(if (showSwap) "Close" else "Swap", selected = showSwap, onClick = { showSwap = !showSwap })
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+                if (optional) Pill("Optional", color = AppColors.info)
+                if (allDone) Pill("Done", filled = true)
+                Box {
+                    SelectChip("Edit", selected = menu || showSwap, onClick = { menu = true })
+                    DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                        if (swaps.isNotEmpty()) {
+                            DropdownMenuItem(text = { Text("Swap") }, onClick = { menu = false; showSwap = true })
+                        }
+                        if (ei > 0) DropdownMenuItem(text = { Text("Move up") }, onClick = { menu = false; vm.moveExercise(ei, -1) })
+                        if (ei < count - 1) DropdownMenuItem(text = { Text("Move down") }, onClick = { menu = false; vm.moveExercise(ei, 1) })
+                        DropdownMenuItem(text = { Text("Remove (skip today)") }, onClick = { menu = false; vm.removeExercise(ei) })
+                    }
+                }
+            }
         },
     ) {
         Text(e.planned.prescription.note, style = MaterialTheme.typography.bodyMedium, color = AppColors.textMuted)
         if (showSwap) {
             Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
-                vm.swapOptions(ex).forEach { alt ->
+                SelectChip("Close", selected = true, onClick = { showSwap = false })
+                swaps.forEach { alt ->
                     SelectChip(alt.name, selected = false, onClick = { vm.swap(ei, alt.id); showSwap = false }, accent = AppColors.info)
                 }
             }
@@ -237,4 +264,54 @@ private fun GymSetCard(vm: AppViewModel, ei: Int, si: Int, s: LiveSet) {
             }
         }
     }
+}
+
+/** Pick a library exercise (grouped by movement, plus your earlier own ones) or type "Something else". */
+@Composable
+private fun AddExerciseDialog(vm: AppViewModel, onDismiss: () -> Unit) {
+    val groups = remember { vm.addOptions() }
+    var name by remember { mutableStateOf("") }
+    var movement by remember { mutableStateOf<String?>(null) }
+    val movements = listOf("vertical-pull", "horizontal-pull", "horizontal-push", "vertical-push", "squat", "hinge", "calf")
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Add exercise") },
+        text = {
+            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+                groups.forEach { group ->
+                    Text(group.title.uppercase(), style = AppType.eyebrow, color = AppColors.textMuted)
+                    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+                        group.exercises.forEach { ex ->
+                            SelectChip(ex.name, selected = false, onClick = { vm.addExercise(ex.id); onDismiss() })
+                        }
+                    }
+                }
+                Text("SOMETHING ELSE", style = AppType.eyebrow, color = AppColors.textMuted)
+                OutlinedTextField(
+                    name, { name = it }, label = { Text("Exercise name") }, singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Text("Movement group (optional)", style = MaterialTheme.typography.bodySmall, color = AppColors.textMuted)
+                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+                    movements.forEach { m ->
+                        SelectChip(
+                            ExerciseLibrary.groupTitle(m), selected = movement == m,
+                            onClick = { movement = if (movement == m) null else m },
+                        )
+                    }
+                }
+                Text(
+                    "Logged as your own exercise: 3 x 10, no automatic progression. It shows up in your export so it can be added properly.",
+                    style = MaterialTheme.typography.bodySmall, color = AppColors.textMuted,
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(
+                enabled = name.isNotBlank(),
+                onClick = { vm.addCustomExercise(name, movement); onDismiss() },
+            ) { Text("Add") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
 }

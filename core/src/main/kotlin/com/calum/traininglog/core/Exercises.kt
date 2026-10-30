@@ -43,13 +43,50 @@ object ExerciseLibrary {
     val all: List<Exercise> = listOf(squat, deadlift, rdl, calf) + upper
     private val byId = all.associateBy { it.id }
 
+    const val CUSTOM_PREFIX = "custom:"
+    const val OTHER_MOVEMENT = "other"
+
+    /** Throws for unknown or custom ids; prefer [find] for anything that can come from history. */
     fun get(id: String): Exercise = byId.getValue(id)
 
-    /** Other upper-body exercises that train the same movement. */
-    fun swapsFor(id: String): List<Exercise> {
-        val ex = get(id)
-        return upper.filter { it.movement == ex.movement && it.id != id }
+    /** Safe lookup: null for custom (free-text) or unknown ids. */
+    fun find(id: String): Exercise? = byId[id]
+
+    fun isCustom(id: String) = id.startsWith(CUSTOM_PREFIX)
+
+    /** Display name that never throws: library name, else the logged custom name, else a readable id. */
+    fun nameOf(id: String, customName: String? = null): String =
+        byId[id]?.name ?: customName?.takeIf { it.isNotBlank() } ?: if (isCustom(id)) id.removePrefix(CUSTOM_PREFIX).replace('_', ' ') else id
+
+    fun customId(name: String): String {
+        val slug = name.trim().lowercase().replace(Regex("[^a-z0-9]+"), "_").trim('_')
+        return CUSTOM_PREFIX + slug.ifEmpty { "exercise" }
     }
+
+    /** A free-text exercise as a plan-able [Exercise]: 3 x 10, no progression (see GymBuilder.plan). */
+    fun custom(name: String, movement: String? = null): Exercise =
+        Exercise(customId(name), name.trim(), Role.ACCESSORY, movement ?: OTHER_MOVEMENT, 0.0, 0.0, 3, 10, 10, 90)
+
+    /** Movements that may swap with each other (deadlift and RDL share the hinge group). */
+    fun groupOf(movement: String) = if (movement == "hinge-heavy" || movement == "hinge") "hinge" else movement
+
+    fun groupTitle(group: String) = when (group) {
+        "squat" -> "Squat"
+        "hinge" -> "Hinge"
+        "calf" -> "Calves"
+        "vertical-pull" -> "Vertical pull"
+        "horizontal-pull" -> "Horizontal pull"
+        "horizontal-push" -> "Horizontal push"
+        "vertical-push" -> "Vertical push"
+        else -> "Other"
+    }
+
+    /** Other exercises in the same movement group (including deadlift <-> RDL). */
+    fun swapsFor(id: String): List<Exercise> = find(id)?.let { swapsFor(it) } ?: emptyList()
+
+    fun swapsFor(ex: Exercise): List<Exercise> =
+        if (ex.movement == OTHER_MOVEMENT) emptyList()
+        else all.filter { groupOf(it.movement) == groupOf(ex.movement) && it.id != ex.id }
 
     fun firstFor(movement: String): Exercise = upper.first { it.movement == movement }
 }

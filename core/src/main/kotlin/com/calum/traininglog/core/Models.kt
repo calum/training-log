@@ -39,6 +39,8 @@ data class ExerciseLog(
     val exerciseId: String,
     val sets: List<LoggedSet>,
     val missReason: MissReason? = null,
+    /** Display name for free-text exercises (ids like `custom:cable_face_pull`); null for library exercises. */
+    val customName: String? = null,
 )
 
 @Serializable

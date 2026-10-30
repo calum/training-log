@@ -78,35 +78,132 @@ class ProgressionTest {
 }
 
 class GymBuilderTest {
-    @Test fun fullSessionKeepsEverythingWithPlentyOfTime() {
-        val plan = GymBuilder.build(120, "A", emptyList(), d)
-        assertEquals(5, plan.exercises.size)
+    private fun rec(daysAgo: Long, vararg ids: String, label: String? = null) = SessionRecord(
+        "r$daysAgo-${ids.joinToString()}", d.minusDays(daysAgo), SessionType.GYM, 60, 55, Feeling.GOOD, dayLabel = label,
+        exercises = ids.map { id ->
+            val ex = ExerciseLibrary.find(id)
+            ExerciseLog(id, List(3) { LoggedSet(ex?.startKg ?: 20.0, 8, 8, rir = 2) }, customName = if (ex == null) "Cable face pull" else null)
+        },
+    )
+    private fun ids(p: GymPlan) = p.exercises.map { it.exercise.id }
+
+    @Test fun fullSessionHasSquatHingeCalfAndTwoUpper() {
+        val plan = GymBuilder.build(60, emptyList(), d)
+        val ids = ids(plan)
+        assertEquals(listOf("squat", "rdl", "calf"), ids.take(3))
+        assertEquals(5, ids.size)
         assertTrue(plan.dropped.isEmpty())
-        assertEquals("squat", plan.exercises.first().exercise.id)
         assertTrue(plan.exercises.first().warmups.isNotEmpty())
+        assertEquals("Squat + RDL", plan.dayLabel)
     }
-    @Test fun tightTimeDropsAccessoriesFirst() {
-        val plan = GymBuilder.build(30, "A", emptyList(), d)
-        assertTrue(plan.exercises.size < 5)
-        assertTrue(plan.dropped.all { it.role == Role.ACCESSORY || it.id == "calf" || it.id == "rdl" })
-        assertEquals("squat", plan.exercises.first().exercise.id)
-        assertTrue(plan.dropped.first().role == Role.ACCESSORY)
+    @Test fun hingeAlternates() {
+        assertEquals("rdl", GymBuilder.nextHinge(emptyList()).id)
+        assertEquals("rdl", GymBuilder.nextHinge(listOf(rec(7, "squat"))).id)
+        assertEquals("rdl", GymBuilder.nextHinge(listOf(rec(7, "squat", "deadlift"))).id)
+        assertEquals("deadlift", GymBuilder.nextHinge(listOf(rec(7, "squat", "rdl"))).id)
+        assertEquals("deadlift", GymBuilder.nextHinge(listOf(rec(14, "deadlift"), rec(7, "rdl"))).id)
+        assertEquals("rdl", GymBuilder.nextHinge(listOf(rec(14, "rdl"), rec(7, "deadlift"))).id)
+        val plan = GymBuilder.build(60, listOf(rec(7, "squat", "rdl")), d)
+        assertEquals("Squat + Deadlift", plan.dayLabel)
+        assertTrue("deadlift" in ids(plan) && "rdl" !in ids(plan))
     }
-    @Test fun alternatesDayLabels() {
-        assertEquals("A", GymBuilder.nextDayLabel(emptyList()))
-        val rec = SessionRecord("1", d, SessionType.GYM, 60, 55, Feeling.GOOD, dayLabel = "A")
-        assertEquals("B", GymBuilder.nextDayLabel(listOf(rec)))
+    @Test fun upperRotationPicksLeastRecentMovements() {
+        assertEquals(listOf("vertical-pull", "horizontal-pull"), GymBuilder.nextUpperMovements(emptyList()))
+        val history = listOf(rec(14, "lat_pulldown", "machine_chest"), rec(7, "cable_row", "db_shoulder"))
+        // Never-trained none left; oldest first: vertical-pull and horizontal-push (14 days), tie by rotation order.
+        assertEquals(listOf("vertical-pull", "horizontal-push"), GymBuilder.nextUpperMovements(history))
+        val plan = GymBuilder.build(60, history, d)
+        val upper = ids(plan).filter { it !in listOf("squat", "rdl", "deadlift", "calf") }
+        assertEquals(listOf("lat_pulldown", "machine_chest"), upper)
     }
-    @Test fun swapKeepsMovement() {
+    @Test fun usesMostRecentlyUsedExercisePerMovement() {
+        val history = listOf(rec(20, "lat_pulldown"), rec(10, "neutral_pulldown"), rec(1, "cable_row", "machine_chest", "db_shoulder"))
+        assertEquals("neutral_pulldown", GymBuilder.preferredFor("vertical-pull", history).id)
+        assertEquals("lat_pulldown", GymBuilder.preferredFor("vertical-pull", emptyList()).id)
+        val plan = GymBuilder.build(60, history, d)
+        assertTrue("neutral_pulldown" in ids(plan))
+    }
+    @Test fun timeFitDropsSecondUpperThenFirstUpperKeepingSquatAndCalf() {
+        val full = GymBuilder.build(60, emptyList(), d)
+        fun minutesOf(vararg keep: String) = full.exercises.filter { it.exercise.id in keep }.sumOf { GymBuilder.estimateMinutes(it) }
+        val upper1 = ids(full)[3]
+        val upper2 = ids(full)[4]
+        val budget4 = minutesOf("squat", "rdl", "calf", upper1).toInt() + 1
+        val p4 = GymBuilder.build(budget4, emptyList(), d)
+        assertEquals(listOf("squat", "rdl", "calf", upper1), ids(p4))
+        assertEquals(listOf(upper2), p4.dropped.map { it.id })
+        val budget3 = minutesOf("squat", "rdl", "calf").toInt() + 1
+        val p3 = GymBuilder.build(budget3, emptyList(), d)
+        assertEquals(listOf("squat", "rdl", "calf"), ids(p3))
+        assertEquals(listOf(upper2, upper1), p3.dropped.map { it.id })
+        val tiny = GymBuilder.build(minutesOf("squat", "calf").toInt() + 1, emptyList(), d)
+        assertEquals(listOf("squat", "calf"), ids(tiny))
+        assertEquals("Squat + Calf", tiny.dayLabel)
+        val zero = GymBuilder.build(1, emptyList(), d)
+        assertEquals(listOf("squat", "calf"), ids(zero))
+    }
+    @Test fun otherHingeIsAnOptionalExtraWithBigBudget() {
+        val big = GymBuilder.build(75, emptyList(), d)
+        assertEquals("deadlift", ids(big).last())
+        assertEquals(setOf("deadlift"), big.optionalIds)
+        assertEquals(6, ids(big).size)
+        val small = GymBuilder.build(74, emptyList(), d)
+        assertTrue("deadlift" !in ids(small))
+        assertTrue(small.optionalIds.isEmpty())
+    }
+    @Test fun extraIsDroppedBeforeFirstUpper() {
+        val big = GymBuilder.build(120, emptyList(), d)
+        val without = big.exercises.filter { it.exercise.id != "deadlift" }.sumOf { GymBuilder.estimateMinutes(it) }
+        val p = GymBuilder.build(without.toInt() + 1, emptyList(), d)
+        assertTrue("deadlift" !in ids(p))
+        assertTrue(p.dropped.isEmpty())
+    }
+    @Test fun oldABRecordsStillWork() {
+        val old = listOf(
+            SessionRecord("1", d.minusDays(9), SessionType.GYM, 60, 55, Feeling.GOOD, dayLabel = "B",
+                exercises = listOf(ExerciseLog("deadlift", listOf(LoggedSet(100.0, 3, 3, 2))), ExerciseLog("horizontal_missing_id", listOf(LoggedSet(5.0, 5, 5))))),
+            SessionRecord("2", d.minusDays(12), SessionType.GYM, 60, 55, Feeling.GOOD, dayLabel = "A",
+                exercises = listOf(ExerciseLog("rdl", listOf(LoggedSet(70.0, 8, 8, 2))))),
+        )
+        assertEquals("rdl", GymBuilder.nextHinge(old).id)
+        assertEquals("Squat + RDL", GymBuilder.nextDayLabel(old))
+        val plan = GymBuilder.build(60, old, d)
+        assertEquals("Squat + RDL", plan.dayLabel)
+        assertEquals("Squat + RDL", GymBuilder.nextDayLabel(emptyList()))
+    }
+    @Test fun swapStaysInMovementGroupIncludingHinge() {
         val swaps = ExerciseLibrary.swapsFor("lat_pulldown")
         assertTrue(swaps.isNotEmpty())
         assertTrue(swaps.all { it.movement == "vertical-pull" })
-        val plan = GymBuilder.build(120, "A", emptyList(), d, upperChoice = mapOf("vertical-pull" to "neutral_pulldown"))
-        assertTrue(plan.exercises.any { it.exercise.id == "neutral_pulldown" })
+        assertEquals(listOf("rdl"), ExerciseLibrary.swapsFor("deadlift").map { it.id })
+        assertEquals(listOf("deadlift"), ExerciseLibrary.swapsFor("rdl").map { it.id })
+        assertTrue(ExerciseLibrary.swapsFor("squat").isEmpty())
+        assertTrue(ExerciseLibrary.swapsFor("custom:whatever").isEmpty())
     }
     @Test fun deloadCutsSets() {
-        val plan = GymBuilder.build(120, "A", emptyList(), d, deload = true)
+        val plan = GymBuilder.build(120, emptyList(), d, deload = true)
         assertEquals(2, plan.exercises.first().prescription.sets)
+    }
+    @Test fun customExercisePlanningDefaultsAndRepeats() {
+        val fresh = GymBuilder.planFor("custom:cable_face_pull", emptyList(), d, deload = false)
+        assertEquals(3, fresh.prescription.sets); assertEquals(10, fresh.prescription.reps); assertEquals(0.0, fresh.prescription.weightKg)
+        assertEquals("cable face pull", fresh.exercise.name)
+        val history = listOf(SessionRecord("c", d.minusDays(3), SessionType.GYM, 60, 50, Feeling.GOOD,
+            exercises = listOf(ExerciseLog("custom:cable_face_pull", listOf(LoggedSet(20.0, 12, 10, 3), LoggedSet(20.0, 12, 10, 3), LoggedSet(20.0, 10, 10, 1)), customName = "Cable face pull"))))
+        val again = GymBuilder.planFor("custom:cable_face_pull", history, d, deload = false)
+        assertEquals(20.0, again.prescription.weightKg); assertEquals(12, again.prescription.reps); assertEquals("Cable face pull", again.exercise.name)
+        // No progression even after a long gap or all reps hit with RIR.
+        val later = GymBuilder.planFor("custom:cable_face_pull", history, d.plusDays(60), deload = false)
+        assertEquals(20.0, later.prescription.weightKg)
+        assertTrue(GymBuilder.addOptions(history).last().let { it.title == GymBuilder.YOUR_EXERCISES && it.exercises.single().id == "custom:cable_face_pull" })
+        assertTrue(GymBuilder.addOptions(emptyList()).none { it.title == GymBuilder.YOUR_EXERCISES })
+        assertEquals(ExerciseLibrary.all.size, GymBuilder.addOptions(emptyList()).sumOf { it.exercises.size })
+        assertEquals("custom:cable_face_pull", ExerciseLibrary.customId("Cable face pull!"))
+    }
+    @Test fun customExercisesDoNotAffectSlots() {
+        val history = listOf(rec(3, "squat", "custom:x"))
+        assertEquals("rdl", GymBuilder.nextHinge(history).id)
+        assertEquals(listOf("vertical-pull", "horizontal-pull"), GymBuilder.nextUpperMovements(history))
     }
 }
 
@@ -210,6 +307,35 @@ class ExportStatsTest {
         assertTrue("Squat 80kg x 5/5/4" in text); assertTrue("MISSED reps (rough day)" in text)
         assertTrue("30 of 45 min (shortened)" in text)
         assertTrue("Sessions done: 2" in text)
+    }
+    @Test fun exportFlagsCustomExercises() {
+        val custom = SessionRecord("3", d, SessionType.GYM, 60, 50, Feeling.GOOD, dayLabel = "Squat + RDL",
+            exercises = listOf(
+                ExerciseLog("squat", listOf(set(80.0, 5, 5, 3))),
+                ExerciseLog("custom:cable_face_pull", listOf(set(20.0, 12, 12, 2), set(20.0, 12, 12, 2), set(20.0, 10, 12, 1)), customName = "cable face pull"),
+            ))
+        val text = Export.summary(listOf(custom), d, d)
+        assertTrue("CUSTOM: cable face pull 20kg x 12/12/10" in text, text)
+        assertTrue(text.lines().last() == "Custom exercises logged (please add properly): cable face pull", text)
+        assertFalse("Custom exercises logged" in Export.summary(listOf(rec), d, d))
+    }
+    @Test fun unknownAndCustomIdsDoNotCrash() {
+        val weird = SessionRecord("4", d, SessionType.GYM, 60, 50, Feeling.GOOD,
+            exercises = listOf(ExerciseLog("custom:lost", listOf(set(10.0, 5, 5, 2))), ExerciseLog("removed_exercise", listOf(set(10.0, 5, 5, 2)))))
+        val records = listOf(weird, weird.copy(id = "5", date = d.plusDays(7), exercises = weird.exercises.map { it.copy(sets = listOf(set(15.0, 5, 5, 2))) }))
+        assertTrue("CUSTOM: lost 10kg x 5" in Export.summary(records, d, d.plusDays(8)))
+        assertTrue("removed_exercise" in Export.summary(records, d, d.plusDays(8)))
+        val r = Rewards.summary(records, d.plusDays(8))
+        Rewards.celebration(records.last(), records.dropLast(1))
+        assertTrue(r.prs.none { it.exerciseId.startsWith("custom:") })
+        Projection.forecast(records, d.plusDays(8), headlineTarget = HeadlineTarget("custom:lost", 50.0))
+        assertEquals("lost", ExerciseLibrary.nameOf("custom:lost"))
+        assertEquals("removed_exercise", ExerciseLibrary.nameOf("removed_exercise"))
+        assertEquals(null, ExerciseLibrary.find("custom:lost"))
+    }
+    @Test fun oldJsonWithoutCustomNameDecodes() {
+        val old = """{"exerciseId":"squat","sets":[{"weightKg":80.0,"reps":5,"targetReps":5}]}"""
+        assertEquals(null, kotlinx.serialization.json.Json.decodeFromString(ExerciseLog.serializer(), old).customName)
     }
     @Test fun weekStatsCountDoneSessions() {
         val w = Stats.week(listOf(rec, tread), d)

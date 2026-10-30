@@ -10,6 +10,7 @@ import com.calum.traininglog.core.Exercise
 import com.calum.traininglog.core.ExerciseLibrary
 import com.calum.traininglog.core.ExerciseLog
 import com.calum.traininglog.core.Export
+import com.calum.traininglog.core.ExerciseGroup
 import com.calum.traininglog.core.Feeling
 import com.calum.traininglog.core.GymBuilder
 import com.calum.traininglog.core.GymPlan
@@ -148,7 +149,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         val lifting = if (_inputs.value.atGym) minutes else maxOf(25, GymBuilder.liftingMinutes(minutes))
         val gymDates = records.filter { it.type == SessionType.GYM }.map { it.date }
         val deload = Progression.deloadDue(gymDates, _data.value.profile.lastDeload, today)
-        val plan = GymBuilder.build(lifting, GymBuilder.nextDayLabel(records), records, today, deload)
+        val plan = GymBuilder.build(lifting, records, today, deload)
         gymStartedAt = SystemClock.elapsedRealtime()
         _gym.value = GymLive(plan, plan.exercises.map { live(it) })
         go(Screen.Gym)
@@ -199,21 +200,57 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     fun clearRest() = editGym { it.copy(rest = null) }
 
+    /** Replace exercise [ei] with another one (any exercise in the same movement group, incl. deadlift <-> RDL). */
     fun swap(ei: Int, newId: String) {
-        val records = _data.value.records
         val g = _gym.value ?: return
-        val planned = GymBuilder.plan(ExerciseLibrary.get(newId), records, today, g.plan.deload)
+        if (ei !in g.exercises.indices) return
+        val planned = GymBuilder.planFor(newId, _data.value.records, today, g.plan.deload)
         editExercise(ei) { live(planned) }
     }
 
-    fun swapOptions(ex: Exercise): List<Exercise> = ExerciseLibrary.swapsFor(ex.id)
+    /** Skip an exercise for today. */
+    fun removeExercise(ei: Int) = editGym { g ->
+        if (ei !in g.exercises.indices) g else g.copy(exercises = g.exercises.filterIndexed { i, _ -> i != ei })
+    }
+
+    /** Move exercise [ei] up (delta -1) or down (delta +1). */
+    fun moveExercise(ei: Int, delta: Int) = editGym { g ->
+        val to = ei + delta
+        if (ei !in g.exercises.indices || to !in g.exercises.indices) g
+        else g.copy(exercises = g.exercises.toMutableList().also { it.add(to, it.removeAt(ei)) })
+    }
+
+    /** Append a library exercise (or one of your earlier custom ones) to today's session. */
+    fun addExercise(id: String) {
+        val g = _gym.value ?: return
+        val planned = GymBuilder.planFor(id, _data.value.records, today, g.plan.deload)
+        editGym { it.copy(exercises = it.exercises + live(planned)) }
+    }
+
+    /** Append a free-text exercise; [movement] is an optional group used only for swaps today. */
+    fun addCustomExercise(name: String, movement: String? = null) {
+        val clean = name.trim()
+        if (clean.isEmpty()) return
+        val g = _gym.value ?: return
+        val ex = ExerciseLibrary.custom(clean, movement)
+        // Reuse the logged name/weights if this id was used before.
+        val planned = GymBuilder.plan(ex, _data.value.records, today, g.plan.deload)
+        editGym { it.copy(exercises = it.exercises + live(planned)) }
+    }
+
+    fun swapOptions(ex: Exercise): List<Exercise> = ExerciseLibrary.swapsFor(ex)
+
+    fun addOptions(): List<ExerciseGroup> = GymBuilder.addOptions(_data.value.records)
 
     fun finishGym() {
         val g = _gym.value ?: return
         val logs = g.exercises.mapNotNull { e ->
             val done = e.sets.filter { it.done }
             if (done.isEmpty()) null
-            else ExerciseLog(e.planned.exercise.id, done.map { LoggedSet(it.kg, it.reps, it.target, it.rir) }, e.missReason)
+            else ExerciseLog(
+                e.planned.exercise.id, done.map { LoggedSet(it.kg, it.reps, it.target, it.rir) }, e.missReason,
+                customName = if (ExerciseLibrary.isCustom(e.planned.exercise.id)) e.planned.exercise.name else null,
+            )
         }
         val minutes = ((SystemClock.elapsedRealtime() - gymStartedAt) / 60000).toInt().coerceAtLeast(1)
         if (logs.isNotEmpty()) {

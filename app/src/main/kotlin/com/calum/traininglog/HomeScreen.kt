@@ -252,7 +252,7 @@ private fun RecordCard(r: SessionRecord, isPr: Boolean, xp: Int?, onLongPress: (
         val detail = when {
             r.exercises.isNotEmpty() -> r.exercises.joinToString(" · ") { e ->
                 val w = e.sets.maxOfOrNull { it.weightKg } ?: 0.0
-                "${ExerciseLibrary.get(e.exerciseId).name} ${if (w % 1.0 == 0.0) w.toInt() else w}kg"
+                "${ExerciseLibrary.nameOf(e.exerciseId, e.customName)} ${if (w % 1.0 == 0.0) w.toInt() else w}kg"
             }
             r.treadmill != null -> "${r.treadmill!!.style.label}, ${r.treadmill!!.completedSec / 60} min"
             else -> "${r.minutesActual} min"
