@@ -80,7 +80,14 @@ data class Rest(val endsAt: Long, val totalSec: Int)
 /** Fired when a session is saved; the Home screen shows it once, then calls [AppViewModel.dismissCelebration]. */
 data class Celebration(val record: SessionRecord, val messages: List<String>)
 
-data class GymLive(val plan: GymPlan, val exercises: List<LiveExercise>, val rest: Rest? = null)
+/** [startedAt] is `SystemClock.elapsedRealtime()` at the start; [windowMinutes] is the lifting time the plan was fitted to. */
+data class GymLive(
+    val plan: GymPlan,
+    val exercises: List<LiveExercise>,
+    val rest: Rest? = null,
+    val startedAt: Long = 0L,
+    val windowMinutes: Int = 0,
+)
 
 class AppViewModel @JvmOverloads constructor(
     app: Application,
@@ -169,7 +176,7 @@ class AppViewModel @JvmOverloads constructor(
         val deload = Progression.deloadDue(gymDates, _data.value.profile.lastDeload, today, settings = _data.value.profile.settings)
         val plan = GymBuilder.build(lifting, records, today, deload, rebaseline = Rebaseline.status(records, today), settings = _data.value.profile.settings)
         gymStartedAt = SystemClock.elapsedRealtime()
-        _gym.value = GymLive(plan, plan.exercises.map { live(it) })
+        _gym.value = GymLive(plan, plan.exercises.map { live(it) }, startedAt = gymStartedAt, windowMinutes = lifting)
         go(Screen.Gym)
     }
 
@@ -284,6 +291,8 @@ class AppViewModel @JvmOverloads constructor(
                     profile = if (g.plan.deload) d.profile.copy(lastDeload = today) else d.profile,
                 )
             }
+            val took = "Took $minutes min (the plan was about ${g.plan.estimatedMinutes})."
+            _celebration.update { it?.copy(messages = listOf(took) + it.messages) }
         }
         _gym.value = null
         home()

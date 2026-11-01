@@ -4,6 +4,7 @@ import android.media.AudioManager
 import android.media.ToneGenerator
 import android.os.SystemClock
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.Canvas
@@ -131,9 +132,11 @@ fun GymScreen(vm: AppViewModel) {
     var barHeight by remember { mutableStateOf(0.dp) }
     val density = LocalDensity.current
     Box(Modifier.fillMaxSize().background(flashBg)) {
+        Column(Modifier.fillMaxSize().statusBarsPadding()) {
+        if (live.startedAt > 0L) SessionClockBar(live.startedAt, live.windowMinutes, live.plan.estimatedMinutes)
         Column(
-            Modifier.fillMaxSize().verticalScroll(rememberScrollState()).statusBarsPadding()
-                .padding(start = Spacing.screen, end = Spacing.screen, top = Spacing.screen)
+            Modifier.weight(1f).verticalScroll(rememberScrollState())
+                .padding(start = Spacing.screen, end = Spacing.screen, top = Spacing.md)
                 .padding(bottom = if (rest != null) barHeight else 0.dp),
             verticalArrangement = Arrangement.spacedBy(Spacing.md),
         ) {
@@ -156,6 +159,7 @@ fun GymScreen(vm: AppViewModel) {
             SecondaryButton("Discard", onClick = { vm.home() }, Modifier.fillMaxWidth())
             Spacer(Modifier.height(Spacing.lg).navigationBarsPadding())
         }
+        }
         if (rest != null) {
             Box(
                 Modifier.align(Alignment.BottomCenter).fillMaxWidth()
@@ -169,6 +173,41 @@ fun GymScreen(vm: AppViewModel) {
         if (showAdd) AddExerciseDialog(vm, onDismiss = { showAdd = false })
         ConfettiBurst(smallBurst, Modifier.fillMaxSize(), particleCount = 60)
         ConfettiBurst(bigBurst, Modifier.fillMaxSize(), particleCount = 220, durationMillis = 2400)
+    }
+}
+
+/**
+ * Slim always-visible clock: elapsed time against the lifting window the plan was fitted to.
+ * Going over just turns the bar amber and says '+N min'; it is information, never a warning.
+ */
+@Composable
+private fun SessionClockBar(startedAt: Long, windowMinutes: Int, plannedMinutes: Int) {
+    var elapsedSec by remember { mutableIntStateOf(((SystemClock.elapsedRealtime() - startedAt) / 1000).toInt().coerceAtLeast(0)) }
+    LaunchedEffect(startedAt) {
+        while (true) {
+            elapsedSec = ((SystemClock.elapsedRealtime() - startedAt) / 1000).toInt().coerceAtLeast(0)
+            delay(1000)
+        }
+    }
+    val windowSec = (if (windowMinutes > 0) windowMinutes else plannedMinutes).coerceAtLeast(1) * 60
+    val over = elapsedSec > windowSec
+    val accent = if (over) AppColors.energy else AppColors.primary
+    val fraction by animateFloatAsState((elapsedSec / windowSec.toFloat()).coerceIn(0f, 1f), tween(400), label = "clock")
+    Row(
+        Modifier.fillMaxWidth().padding(horizontal = Spacing.screen, vertical = Spacing.sm),
+        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Spacing.md),
+    ) {
+        Text(
+            "%d:%02d".format(elapsedSec / 60, elapsedSec % 60),
+            style = MaterialTheme.typography.labelLarge, color = AppColors.textPrimary, fontWeight = FontWeight.Bold,
+        )
+        Box(Modifier.weight(1f).height(6.dp).clip(AppShapes.chip).background(AppColors.track)) {
+            Box(Modifier.fillMaxWidth(fraction).height(6.dp).clip(AppShapes.chip).background(accent))
+        }
+        Text(
+            if (over) "+${(elapsedSec - windowSec + 59) / 60} min" else "of ${windowSec / 60} min",
+            style = MaterialTheme.typography.labelMedium, color = if (over) AppColors.energy else AppColors.textMuted,
+        )
     }
 }
 
