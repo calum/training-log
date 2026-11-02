@@ -2,6 +2,11 @@
 
 What changed in each release, in plain language, newest first. The release workflow copies the matching `## vX.Y.Z` section into the GitHub release, and the app shows it as "What's new" before you tap Update.
 
+## v0.6.2
+
+- Fixed the freeze at the end of a treadmill session. The screen could get stuck on the green flash with no way to finish. A finished session is now also saved the moment it ends, so it can never be lost; the "how did it feel?" question just adds to it.
+- The treadmill screen now shows small boxes for distance (metres), elevation (metres climbed) and calories, and the finish screen shows the totals. They are estimates from your speed, incline and body weight, which you can set in Settings under Treadmill. The numbers are saved with the session and included in the Claude export.
+
 ## v0.6.1
 
 - A slim session clock at the top of the gym screen: time so far against the lifting time the plan was fitted to. If you go over, it just turns amber and says how many minutes over.

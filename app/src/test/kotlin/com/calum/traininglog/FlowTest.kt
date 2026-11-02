@@ -20,7 +20,9 @@ import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
+import android.os.Looper
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 import java.io.File
@@ -195,6 +197,44 @@ class FlowTest {
         vm.saveTreadmill(Effort.TOO_HARD)
         assertEquals(emptyList(), onDisk().records)
         assertEquals(vm.data.value.profile.treadmill, onDisk().profile.treadmill)
+    }
+
+    /**
+     * Regression for the "froze on the final screen and lost my session" bug: a whole 30 minute ladder is run to
+     * the end on a fake clock with the service no longer ticking afterwards. The session must already be saved,
+     * the display must not be stuck on the button-less flash screen, and Finish must be reachable.
+     */
+    @Test fun finishedLadderIsSavedAtOnceAndFinishIsReachable() {
+        val vm = newVm()
+        vm.setInputs { it.copy(minutes = 30) }
+        vm.begin(SessionType.TREADMILL, 30, TreadmillStyle.LADDER)
+        val plan = vm.pendingTreadmill.value!!
+        TreadmillEngine.start(plan, 0L)
+        vm.go(Screen.TreadmillPlayer)
+        var now = 0L
+        while (!TreadmillEngine.ui.value.finished) { now += 1000; TreadmillEngine.tick(now) }
+        shadowOf(Looper.getMainLooper()).idle()
+
+        assertFalse(TreadmillEngine.ui.value.flashing, "must not be left on the flash screen")
+        // Saved the moment it finished, before any screen or effort question:
+        val saved = onDisk().records.single()
+        assertEquals(SessionType.TREADMILL, saved.type)
+        assertEquals(plan.totalSec, saved.treadmill!!.completedSec)
+        assertNull(saved.treadmill!!.effort)
+        assertTrue(saved.treadmill!!.distanceM!! > 1500, "distance recorded: ${saved.treadmill}")
+        assertTrue(saved.treadmill!!.climbM!! > 0)
+        assertTrue(saved.treadmill!!.kcal!! > 100)
+
+        rule.setContent { AppRoot(vm, inPip = false) }
+        rule.onNodeWithText("Finish").assertExists().performClick()
+        rule.waitForIdle()
+        assertEquals(Screen.TreadmillDone, vm.screen.value)
+
+        vm.saveTreadmill(Effort.JUST_RIGHT)
+        val d = onDisk()
+        assertEquals(1, d.records.size, "no duplicate when the effort is added")
+        assertEquals(Effort.JUST_RIGHT, d.records.single().treadmill!!.effort)
+        assertFalse(TreadmillEngine.ui.value.active)
     }
 
     // (c) manual log

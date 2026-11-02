@@ -4,6 +4,7 @@ import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
+import android.os.SystemClock
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
@@ -28,6 +29,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import kotlinx.coroutines.delay
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -55,6 +57,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.calum.traininglog.core.TreadmillStats
+import com.calum.traininglog.core.TreadmillStatsCalc
 import com.calum.traininglog.core.Effort
 import com.calum.traininglog.core.Segment
 import com.calum.traininglog.core.Timeline
@@ -266,8 +270,18 @@ fun PlayerContent(vm: AppViewModel, compact: Boolean) {
         return
     }
     if (!compact) KeepScreenOn()
+    // Keep the display moving (and clear any stale flash) even if the service is gone; cues stay the service's job.
+    LaunchedEffect(Unit) {
+        while (true) {
+            TreadmillEngine.refresh(SystemClock.elapsedRealtime())
+            delay(500)
+        }
+    }
+    val data by vm.data.collectAsState()
+    val bodyKg = data.profile.settings.bodyWeightKg
+    val stats = ui.plan?.let { TreadmillStatsCalc.at(it.segments, ui.state?.elapsedSec ?: 0, bodyKg) }
     TreadmillPlayerBody(
-        ui, compact,
+        ui, compact, stats = stats,
         onTogglePause = { vm.togglePause() },
         onAdjust = { vm.adjustSegment(it) },
         onEnd = { vm.endTreadmill() },
@@ -281,13 +295,14 @@ private fun TreadmillPlayerBody(
     onTogglePause: () -> Unit,
     onAdjust: (Int) -> Unit,
     onEnd: () -> Unit,
+    stats: TreadmillStats? = null,
 ) {
     val s = ui.state ?: return
     val left = mmss(s.secondsLeft)
     val progress = if (ui.totalSec == 0) 0f else (s.elapsedSec / ui.totalSec.toFloat()).coerceIn(0f, 1f)
     val warn = !ui.finished && !ui.paused && s.next != null && s.secondsLeft <= 15
 
-    if (ui.flashing) {
+    if (ui.flashing && !ui.finished) {
         // Full-screen flash: high-contrast mint with the current setting in giant dark type.
         Column(
             Modifier.fillMaxSize().background(AppColors.primary).padding(if (compact) 6.dp else Spacing.screen),
@@ -361,6 +376,7 @@ private fun TreadmillPlayerBody(
                 color = AppColors.textMuted, modifier = Modifier.align(Alignment.End),
             )
         }
+        stats?.let { SessionStatsRow(it) }
         s.next?.let { n -> NextChangeCard(n, s.secondsLeft, warn) }
         Spacer(Modifier.height(Spacing.sm))
         if (!ui.finished) {
@@ -372,6 +388,32 @@ private fun TreadmillPlayerBody(
             SecondaryButton("End session", onEnd, Modifier.fillMaxWidth(), accent = AppColors.textMuted)
         } else {
             BigActionButton("Finish", onEnd)
+        }
+    }
+}
+
+/** Three small boxes: distance, elevation (vertical climb) and calories so far. */
+@Composable
+private fun SessionStatsRow(stats: TreadmillStats, modifier: Modifier = Modifier) {
+    Row(modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+        MiniStat("Distance", "%,d".format(stats.distanceM), "m", Modifier.weight(1f))
+        MiniStat("Elevation", "%,d".format(stats.climbM), "m", Modifier.weight(1f))
+        MiniStat("Calories", "%,d".format(stats.kcal), "kcal", Modifier.weight(1f))
+    }
+}
+
+@Composable
+private fun MiniStat(label: String, value: String, unit: String, modifier: Modifier = Modifier) {
+    Column(
+        modifier.clip(AppShapes.medium).background(AppColors.surfaceRaised)
+            .padding(horizontal = Spacing.md, vertical = Spacing.sm),
+        verticalArrangement = Arrangement.spacedBy(2.dp),
+    ) {
+        Text(label.uppercase(), style = AppType.eyebrow, color = AppColors.textMuted, maxLines = 1)
+        Row(verticalAlignment = Alignment.Bottom) {
+            Text(value, style = MaterialTheme.typography.titleLarge, color = AppColors.textPrimary, maxLines = 1, softWrap = false, modifier = Modifier.weight(1f, fill = false))
+            Spacer(Modifier.width(3.dp))
+            Text(unit, style = MaterialTheme.typography.labelMedium, color = AppColors.textMuted, maxLines = 1, softWrap = false, modifier = Modifier.padding(bottom = 2.dp))
         }
     }
 }
@@ -419,6 +461,12 @@ fun TreadmillDoneScreen(vm: AppViewModel) {
             verticalArrangement = Arrangement.spacedBy(Spacing.lg, Alignment.CenterVertically),
         ) {
             Text("Nice work", style = MaterialTheme.typography.displaySmall, color = AppColors.textPrimary)
+            val doneData by vm.data.collectAsState()
+            val doneStats = TreadmillStatsCalc.at(TreadmillEngine.segments(), TreadmillEngine.completedSec(), doneData.profile.settings.bodyWeightKg)
+            if (doneStats.distanceM > 0) {
+                SessionStatsRow(doneStats)
+                Text("Estimates from your speed, incline and body weight (set in Settings).", style = MaterialTheme.typography.bodySmall, color = AppColors.textMuted)
+            }
             Column(verticalArrangement = Arrangement.spacedBy(Spacing.xs)) {
                 Text("How did that feel?", style = MaterialTheme.typography.headlineSmall, color = AppColors.textPrimary)
                 Text("This tunes next time's speed and incline.", style = MaterialTheme.typography.bodyMedium, color = AppColors.textMuted)

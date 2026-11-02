@@ -51,6 +51,10 @@ data class TreadmillLog(
     val plannedSec: Int,
     val completedSec: Int,
     val effort: Effort? = null,
+    /** Estimated from the plan's speeds and inclines (see [TreadmillStatsCalc]); null on older sessions. */
+    val distanceM: Int? = null,
+    val climbM: Int? = null,
+    val kcal: Int? = null,
 )
 
 @Serializable

@@ -143,4 +143,27 @@ class TreadmillEngineTest {
         assertFalse(TreadmillEngine.ui.value.active)
         assertEquals(emptyList(), TreadmillEngine.tick(5000))
     }
+
+    /**
+     * Regression: the service stops ticking once the session has finished. The last published state used to
+     * still say `flashing = true` (the done cue sets a flash), and the flash screen has no buttons, so the
+     * player looked frozen with no way to finish. A finished session must never be left flashing.
+     */
+    @Test fun finishedSessionIsNeverLeftFlashing() {
+        runTo(300)
+        // The service loop ends here: no more ticks. Even a much later tick must not matter.
+        val ui = TreadmillEngine.ui.value
+        assertTrue(ui.finished)
+        assertFalse(ui.flashing, "a finished session must not be stuck on the flash screen")
+    }
+
+    @Test fun refreshWithoutServiceClearsStaleFlashAndKeepsCues() {
+        runTo(84)
+        // UI-side refresh (no service) at the pre-warning second must not swallow the cue the service plays.
+        TreadmillEngine.refresh(85_000L)
+        val cues = TreadmillEngine.tick(85_000L)
+        assertEquals(listOf(Cue(85, CueType.PRE_WARNING, 1)), cues)
+        TreadmillEngine.refresh(86_500L)
+        assertFalse(TreadmillEngine.ui.value.flashing)
+    }
 }

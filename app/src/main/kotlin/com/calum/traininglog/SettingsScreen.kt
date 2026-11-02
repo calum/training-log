@@ -226,6 +226,12 @@ fun SettingsScreen(vm: AppViewModel) {
                 onMinus = { update { it.copy(warmupInclinePct = it.warmupInclinePct - 1) } },
                 onPlus = { update { it.copy(warmupInclinePct = it.warmupInclinePct + 1) } },
             )
+            SettingRow(
+                fmt(settings.bodyWeightKg), "kg", label = "Body weight (for calories)", open = openRow, onOpen = { openRow = it },
+                onMinus = { update { it.copy(bodyWeightKg = it.bodyWeightKg - 1) } },
+                onPlus = { update { it.copy(bodyWeightKg = it.bodyWeightKg + 1) } },
+            )
+            Muted("Only used for the calorie estimate on the treadmill screen; it is never shared or synced.")
             ResetButton(Group.TREADMILL)
         }
 

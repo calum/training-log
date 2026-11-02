@@ -82,8 +82,14 @@ class ScreenshotTest(private val shot: Shot) {
         fun treadmillPlayer(style: TreadmillStyle, minutes: Int, tickToMs: List<Long>) {
             vm.setInputs { it.copy(minutes = minutes) }
             vm.begin(SessionType.TREADMILL, minutes, style)
-            TreadmillEngine.start(vm.pendingTreadmill.value!!, 0L)
-            tickToMs.forEach { TreadmillEngine.tick(it) }
+            // The player refreshes itself from the device clock, so drive the engine from that same clock.
+            TreadmillEngine.start(vm.pendingTreadmill.value!!, android.os.SystemClock.elapsedRealtime())
+            var done = 0L
+            tickToMs.forEach { ms ->
+                org.robolectric.shadows.ShadowSystemClock.advanceBy(java.time.Duration.ofMillis(ms - done))
+                done = ms
+                TreadmillEngine.tick(android.os.SystemClock.elapsedRealtime())
+            }
             vm.go(Screen.TreadmillPlayer)
         }
     }

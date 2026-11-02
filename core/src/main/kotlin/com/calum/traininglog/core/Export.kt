@@ -47,7 +47,9 @@ object Export {
                 val done = t.completedSec / 60
                 val planned = t.plannedSec / 60
                 val short = if (t.completedSec < t.plannedSec) " (shortened)" else ""
-                sb.appendLine("  ${t.style.label}: $done of $planned min$short${t.effort?.let { ", effort ${it.name.lowercase().replace('_', ' ')}" } ?: ""}")
+                val extras = listOfNotNull(t.distanceM?.let { "$it m" }, t.climbM?.let { "$it m climb" }, t.kcal?.let { "about $it kcal" })
+                    .takeIf { it.isNotEmpty() }?.joinToString(", ", prefix = ", ") ?: ""
+                sb.appendLine("  ${t.style.label}: $done of $planned min$short$extras${t.effort?.let { ", effort ${it.name.lowercase().replace('_', ' ')}" } ?: ""}")
             }
             r.note?.let { sb.appendLine("  note: $it") }
         }

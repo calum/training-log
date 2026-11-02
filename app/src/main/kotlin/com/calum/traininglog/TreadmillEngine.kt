@@ -109,6 +109,16 @@ object TreadmillEngine {
     }
 
     /**
+     * Update the displayed state without handing out cues (they stay pending for the service's [tick]).
+     * The screen calls this itself every second, so the display never depends on the service staying alive.
+     */
+    @Synchronized
+    fun refresh(now: Long) {
+        advance(now)
+        publish(now, _ui.value.paused, _ui.value.finished)
+    }
+
+    /**
      * How long the driver may sleep before the next tick matters: the next whole-second boundary of the
      * session clock (so the timer, cues and notification stay on the second), or the end of the flash.
      * Paused/finished sessions only need an occasional wake.
@@ -151,8 +161,11 @@ object TreadmillEngine {
     private fun publish(now: Long, paused: Boolean, finished: Boolean) {
         val tl = timeline ?: return
         val state = tl.stateAt((elapsedMs / 1000).toInt())
+        val isFinished = finished || state.finished
         val next = Ui(
-            active = true, paused = paused, finished = finished || state.finished, flashing = now < flashUntil,
+            // A finished session never flashes: the service stops ticking at the end, so a flash set by the
+            // done cue could never be cleared and the (button-less) flash screen would stay up for good.
+            active = true, paused = paused, finished = isFinished, flashing = !isFinished && now < flashUntil,
             plan = TreadmillPlan(style.style, tl.segments), state = state, totalSec = tl.totalSec,
         )
         if (next != _ui.value) _ui.value = next

@@ -38,6 +38,8 @@ data class UserSettings(
     val restartAfterDays: Int = 21,
     val restartFactor: Double = 0.9,
     val barKg: Double = 20.0,
+    /** Used only for the treadmill calorie estimate. Placeholder until you set yours in Settings. */
+    val bodyWeightKg: Double = 80.0,
     // Gentle evening reminder (opt-in, off by default)
     val reminderEnabled: Boolean = false,
     val reminderHour: Int = 20,
@@ -97,6 +99,7 @@ data class UserSettings(
         restartAfterDays = restartAfterDays.coerceIn(RESTART_DAYS_RANGE),
         restartFactor = restartFactor.coerceIn(RESTART_FACTOR_RANGE),
         barKg = barKg.coerceIn(BAR_RANGE),
+        bodyWeightKg = bodyWeightKg.coerceIn(BODY_WEIGHT_RANGE),
         reminderHour = reminderHour.coerceIn(0, 23),
         reminderMinute = reminderMinute.coerceIn(0, 59),
         reminderMaxPerWeek = reminderMaxPerWeek.coerceIn(REMINDER_MAX_RANGE),
@@ -114,6 +117,7 @@ data class UserSettings(
         val RESTART_DAYS_RANGE = 7..90
         val RESTART_FACTOR_RANGE = 0.5..1.0
         val BAR_RANGE = 5.0..30.0
+        val BODY_WEIGHT_RANGE = 30.0..250.0
         val REMINDER_MAX_RANGE = 1..7
     }
 }

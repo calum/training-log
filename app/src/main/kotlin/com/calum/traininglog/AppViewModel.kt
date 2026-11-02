@@ -5,6 +5,9 @@ import android.content.Intent
 import android.os.SystemClock
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.viewModelScope
+import com.calum.traininglog.core.TreadmillStatsCalc
+import kotlinx.coroutines.launch
 import com.calum.traininglog.core.Effort
 import com.calum.traininglog.core.Exercise
 import com.calum.traininglog.core.ExerciseLibrary
@@ -318,6 +321,7 @@ class AppViewModel @JvmOverloads constructor(
 
     fun startTreadmill() {
         val plan = _pendingTreadmill.value ?: return
+        autoSavedTreadmillId = null
         TreadmillEngine.start(plan, SystemClock.elapsedRealtime())
         val ctx = getApplication<Application>()
         ContextCompat.startForegroundService(ctx, Intent(ctx, TreadmillService::class.java))
@@ -333,25 +337,58 @@ class AppViewModel @JvmOverloads constructor(
 
     fun endTreadmill() = go(Screen.TreadmillDone)
 
+    /** Id of the record saved automatically when the current treadmill session finished (null until then). */
+    private var autoSavedTreadmillId: String? = null
+
+    private fun treadmillRecord(plan: TreadmillPlan, completedSec: Int, effort: Effort?, id: String = UUID.randomUUID().toString()): SessionRecord {
+        val stats = TreadmillStatsCalc.at(TreadmillEngine.segments(), completedSec, _data.value.profile.settings.bodyWeightKg)
+        return SessionRecord(
+            id = id, date = today, type = SessionType.TREADMILL,
+            minutesAvailable = _inputs.value.minutes, minutesActual = completedSec / 60,
+            feeling = _inputs.value.feeling, kneePain = _inputs.value.knee,
+            treadmill = TreadmillLog(plan.style, plan.totalSec, completedSec, effort, stats.distanceM, stats.climbM, stats.kcal),
+        )
+    }
+
+    private fun autosaveFinishedTreadmill(ui: TreadmillEngine.Ui) {
+        val plan = _pendingTreadmill.value ?: return
+        if (!ui.active || !ui.finished || autoSavedTreadmillId != null) return
+        // Best effort: if this ever fails the normal save on the done screen still works.
+        runCatching {
+            val record = treadmillRecord(plan, TreadmillEngine.completedSec(), effort = null)
+            persist { it.copy(records = it.records + record) }
+            autoSavedTreadmillId = record.id
+        }
+    }
+
     fun saveTreadmill(effort: Effort?) {
         val plan = _pendingTreadmill.value
+        val auto = autoSavedTreadmillId
         if (plan != null) {
-            val completed = TreadmillEngine.completedSec()
-            if (completed >= 60) {
-                val record = SessionRecord(
-                    id = UUID.randomUUID().toString(), date = today, type = SessionType.TREADMILL,
-                    minutesAvailable = _inputs.value.minutes, minutesActual = completed / 60,
-                    feeling = _inputs.value.feeling, kneePain = _inputs.value.knee,
-                    treadmill = TreadmillLog(plan.style, plan.totalSec, completed, effort),
-                )
-                persist { d ->
-                    d.copy(
-                        records = d.records + record,
-                        profile = d.profile.copy(treadmill = effort?.let { d.profile.treadmill.adjusted(it) } ?: d.profile.treadmill),
-                    )
+            if (auto != null) {
+                // Already saved when it finished: just attach the effort and tune the calibration.
+                if (effort != null) {
+                    persist { d ->
+                        d.copy(
+                            records = d.records.map { r -> if (r.id == auto) r.copy(treadmill = r.treadmill?.copy(effort = effort)) else r },
+                            profile = d.profile.copy(treadmill = d.profile.treadmill.adjusted(effort)),
+                        )
+                    }
+                }
+            } else {
+                val completed = TreadmillEngine.completedSec()
+                if (completed >= 60) {
+                    val record = treadmillRecord(plan, completed, effort)
+                    persist { d ->
+                        d.copy(
+                            records = d.records + record,
+                            profile = d.profile.copy(treadmill = effort?.let { d.profile.treadmill.adjusted(it) } ?: d.profile.treadmill),
+                        )
+                    }
                 }
             }
         }
+        autoSavedTreadmillId = null
         TreadmillEngine.stop()
         _pendingTreadmill.value = null
         home()
@@ -449,5 +486,12 @@ class AppViewModel @JvmOverloads constructor(
             SyncManager.request(app)
             DriveBackup.requestBackup(app, next)
         }
+    }
+
+    // Keep this LAST in the class: it runs during construction and reads properties declared above.
+    init {
+        // A finished treadmill session is saved the moment it finishes, before any screen is involved,
+        // so nothing the user did can be lost to a stuck or closed screen. The effort question just edits it.
+        viewModelScope.launch { TreadmillEngine.ui.collect { autosaveFinishedTreadmill(it) } }
     }
 }
