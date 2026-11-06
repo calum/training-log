@@ -1,11 +1,11 @@
 {
-  "generated_from_records": 4,
+  "generated_from_records": 5,
   "top_weight_kg_by_week": {
     "squat": [["2026-W44", 72.5], ["2026-W45", 72.5]],
     "deadlift": [["2026-W45", 90]],
     "rdl": [["2026-W44", 62.5]],
     "calf": [["2026-W44", 60], ["2026-W45", 62.5]]
   },
-  "sessions_per_week": [["2026-W44", 2], ["2026-W45", 2]],
-  "treadmill_min_per_week": [["2026-W44", 30], ["2026-W45", 30]]
+  "sessions_per_week": [["2026-W44", 2], ["2026-W45", 3]],
+  "treadmill_min_per_week": [["2026-W44", 30], ["2026-W45", 75]]
 }
