@@ -36,6 +36,17 @@ import kotlin.math.roundToInt
  *  - NOT strong evidence, only sensible heuristics: weekly load increases of about 10% or less, a lighter week
  *    every 4th week, session RPE for monitoring, the exact session lengths and shares used here.
  *
+ * Time cap ([RacePlanSettings.maxWeeklyMinutes], default none): the weekly volume model runs as usual and, when its
+ * largest week is over the cap, weeks 1-11 are all multiplied by cap / largest (floored to 5 minutes), so the
+ * build-up shape and the lighter weeks keep their proportions and no week is over the cap. Sharpen, taper and race
+ * week are then sized from the CAPPED peak (85%, 58%, 42%), so their reductions are unchanged. The week layout
+ * already drops sessions in priority order when time is short (second easy, easy, long easy first; the key
+ * session and the two strength sessions stay), and never makes a session shorter than its minimum length, so with
+ * a very tight cap (near 120 minutes) a lighter week cannot be lighter than three minimum-length sessions. The
+ * hard share of a session is part of its own length, so the 80/20 mix holds whenever the easy sessions are
+ * kept; with only the key session left as endurance work the week is as mixed as that one session. With no cap the
+ * output is exactly what it was before the cap existed.
+ *
  * Adaptive rules (no guilt, never shown as failure): a past week with under 60% of its planned time repeats its
  * target instead of progressing; there is never any 'catching up' by doubling sessions; feeling ill or rough
  * drops the key session first; a gap of 10 or more days steps one week of load back; the sharpen, taper and race
@@ -122,7 +133,7 @@ object RacePlanner {
         val start = planStart(cfg.raceDate)
         val status = RunStageLogic.assess(records, today)
         val baseline = baselineMinutes(records, start, today)
-        val vol = volumes(records, today, start, count, baseline)
+        val vol = volumes(records, today, start, count, baseline, cfg.maxWeeklyMinutes)
         val currentIdx = weekIndexOf(cfg.raceDate, today)
         val rough = recentRough(records, today)
 
@@ -133,7 +144,7 @@ object RacePlanner {
             val stage = projectStage(status, i, currentIdx, today)
             val rung = if (stage == status.stage && !projected) status.rung else 0
             val kneeCaution = status.flareRecent || (status.steppedBackOn?.let { ChronoUnit.DAYS.between(it, today) <= 14 } == true)
-            val ctx = Ctx(i, phaseOf(i), isDeload(i), ws, stage, rung, records, settings, profile, cfg.raceDate, kneeCaution)
+            val ctx = Ctx(i, phaseOf(i), isDeload(i), ws, stage, rung, records, settings, profile, cfg.raceDate, kneeCaution, cfg.maxWeeklyMinutes != null)
             var sessions = layoutWeek(ctx, vol.minutes[i], count, prevSessions)
             var adjustment = vol.notes[i]
             if (i == currentIdx && rough != null) {
@@ -205,10 +216,13 @@ object RacePlanner {
      * Weekly minutes for weeks 1-14 (index 0 unused). Normal weeks climb geometrically (at most 10% a week) from
      * the baseline to a peak target; see the class comment for the adaptive rules.
      */
-    private fun volumes(records: List<SessionRecord>, today: LocalDate, start: LocalDate, count: Int, baseline: Int): Volumes {
+    private fun volumes(records: List<SessionRecord>, today: LocalDate, start: LocalDate, count: Int, baseline: Int, cap: Int?): Volumes {
         val lo = minTotal(count)
-        val s = max(baseline, lo).toDouble()
-        val p = max(s, min(factor(count) * (s * 1.9).coerceIn(240.0, 380.0), maxTotal(count) * 0.95))
+        // With a cap the starting week and the peak target are limited to it, so the build-up keeps its shape
+        // (about +10% a week from the start to the peak) instead of the first weeks being squashed.
+        val s = max(if (cap != null) min(baseline, cap) else baseline, lo).toDouble()
+        val p0 = max(s, min(factor(count) * (max(baseline, lo) * 1.9).coerceIn(240.0, 380.0), maxTotal(count) * 0.95))
+        val p = if (cap != null) max(min(p0, cap.toDouble()), s) else p0
         val vols = IntArray(WEEKS + 1)
         val notes = arrayOfNulls<String>(WEEKS + 1)
         val normal = (1..11).filter { !isDeload(it) }
@@ -246,6 +260,15 @@ object RacePlanner {
             t = t.coerceIn(lo, maxTotal(count))
             vols[i] = t
             vPrev = t.toDouble(); hist += vPrev; lastNormalT = t
+        }
+        if (cap != null) {
+            // Time cap: scale weeks 1-11 by one factor so the biggest week lands on the cap. Deloads (already 75% of
+            // the week before) and the build-up keep their proportions; floor to 5 so no week can round past the cap.
+            val biggest = normal.maxOf { vols[it] }
+            if (biggest > cap) {
+                val f = cap.toDouble() / biggest
+                for (i in 1..11) vols[i] = floor5(vols[i] * f)
+            }
         }
         val peak = normal.maxOf { vols[it] }
         vols[12] = round5(SHARPEN_FACTOR * peak)
@@ -332,7 +355,7 @@ object RacePlanner {
     private class Ctx(
         val i: Int, val phase: RacePhase, val deload: Boolean, val start: LocalDate, val stage: RunStage, val rung: Int,
         val records: List<SessionRecord>, val settings: UserSettings, val profile: Profile, val raceDate: LocalDate,
-        val kneeCaution: Boolean,
+        val kneeCaution: Boolean, val capped: Boolean = false,
     )
 
     private data class Slot(val kind: SessionKind, val weight: Double, val min: Int, val max: Int, val fixed: Int? = null)
@@ -364,7 +387,7 @@ object RacePlanner {
         if (kinds.size > days.size) kinds = kinds.take(days.size).toMutableList()
         val slots = kinds.map { k ->
             val (lo, hi) = bounds(k)
-            if (k == SessionKind.KEY && simWeek) Slot(SessionKind.SIM, weightOf(k), 30, 95, min(simMinutes, floor5(0.45 * total)))
+            if (k == SessionKind.KEY && simWeek) Slot(SessionKind.SIM, weightOf(k), 30, 95, simFixed(c, total, kinds, simMinutes))
             else Slot(k, weightOf(k), lo, hi)
         }
         val mins = allocate(total, slots)
@@ -375,6 +398,17 @@ object RacePlanner {
             Draft(dates[n], slots[n].kind, mins[n], max(0, sn))
         }.sortedBy { it.date }
         return finishDrafts(c, drafts)
+    }
+
+    /**
+     * Length of the simulation session: normally [simMinutes] but at most 45% of the week. With a time cap it also
+     * leaves the other sessions their minimum lengths, so a tight week cannot be pushed over the cap.
+     */
+    private fun simFixed(c: Ctx, total: Int, kinds: List<SessionKind>, simMinutes: Int): Int {
+        val base = min(simMinutes, floor5(0.45 * total))
+        if (!c.capped) return base
+        val others = kinds.filter { it != SessionKind.KEY }.sumOf { SLOT_BOUNDS.getValue(it).first }
+        return min(base, floor5((total - others).toDouble()).coerceAtLeast(30))
     }
 
     private class Draft(val date: LocalDate, val kind: SessionKind, val minutes: Int, val strengthNo: Int)

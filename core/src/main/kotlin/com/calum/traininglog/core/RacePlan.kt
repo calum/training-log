@@ -13,17 +13,29 @@ val DEFAULT_RACE_DATE: LocalDate = LocalDate.of(2027, 2, 27)
  *
  * @property sessionsPerWeek 3 to 6. Fewer sessions drop the easy extras first (second easy, easy, long easy) and
  * always keep the key session and two strength sessions.
+ * @property maxWeeklyMinutes optional time cap (120 to 600 minutes, in steps of 15; null means no limit). When set,
+ * [RacePlanner.build] scales the whole plan down so no week plans more than this (see there). Null leaves the plan
+ * exactly as it is without a cap.
  */
 @Serializable
 data class RacePlanSettings(
     @Serializable(with = LocalDateSerializer::class) val raceDate: LocalDate = DEFAULT_RACE_DATE,
     val sessionsPerWeek: Int = 5,
     val enabled: Boolean = true,
+    val maxWeeklyMinutes: Int? = null,
 ) {
-    fun sanitized(): RacePlanSettings = copy(sessionsPerWeek = sessionsPerWeek.coerceIn(SESSIONS_RANGE))
+    fun sanitized(): RacePlanSettings = copy(
+        sessionsPerWeek = sessionsPerWeek.coerceIn(SESSIONS_RANGE),
+        maxWeeklyMinutes = maxWeeklyMinutes?.let { snapCap(it) },
+    )
 
     companion object {
         val SESSIONS_RANGE = 3..6
+        val CAP_RANGE = 120..600
+        const val CAP_STEP = 15
+
+        /** Clamps [minutes] into [CAP_RANGE] and rounds it to the nearest [CAP_STEP]. */
+        fun snapCap(minutes: Int): Int = (Math.round(minutes.toDouble() / CAP_STEP).toInt() * CAP_STEP).coerceIn(CAP_RANGE)
     }
 }
 
