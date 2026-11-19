@@ -77,7 +77,7 @@ fun BlocksScreen(vm: AppViewModel) {
         records = data.records,
         today = LocalDate.now(),
         onChange = { f -> vm.updateProfile { it.copy(blocks = f(it.blocks)) } },
-        onBack = { vm.home() },
+        onBack = { vm.back() },
     )
 }
 

@@ -124,6 +124,8 @@ data class GymLive(
     val finisherOffered: Boolean = false,
 )
 
+private const val MAX_BACK_STACK = 20
+
 class AppViewModel @JvmOverloads constructor(
     app: Application,
     /** Today's date; tests inject a fixed one. */
@@ -164,8 +166,46 @@ class AppViewModel @JvmOverloads constructor(
     private var styleSeed = 0L
     private var gymStartedAt = 0L
 
-    fun go(s: Screen) { _screen.value = s }
-    fun home() { _screen.value = Screen.Home }
+    /** Screens left behind, oldest first. Only screens that can be re-entered are ever pushed (see [pushable]). */
+    private val backStack = ArrayDeque<Screen>()
+    /** The screens system back would pass through, nearest last (for tests). */
+    internal val backStackSnapshot: List<Screen> get() = backStack.toList()
+
+    /**
+     * Shows [s] and remembers the screen being left so [back] can return to it. Live and transient screens (a running
+     * session, its setup and results) are never remembered: they cannot be re-entered once left. Going to the screen
+     * that is already on top of the stack is a step back, not a new step.
+     */
+    fun go(s: Screen) {
+        if (s == Screen.Home) { home(); return }
+        val cur = _screen.value
+        if (backStack.lastOrNull() == s) backStack.removeAt(backStack.lastIndex)
+        else if (cur != s && pushable(cur) && backStack.lastOrNull() != cur) {
+            backStack.addLast(cur)
+            while (backStack.size > MAX_BACK_STACK) backStack.removeAt(0)
+        }
+        _screen.value = s
+    }
+
+    fun home() { backStack.clear(); _screen.value = Screen.Home }
+
+    /** Steps back to the previous screen. False only on Home, where the system may close the app. */
+    fun back(): Boolean {
+        if (_screen.value == Screen.Home) return false
+        _screen.value = if (backStack.isEmpty()) Screen.Home else backStack.removeAt(backStack.lastIndex)
+        return true
+    }
+
+    /** Like [back], but with nothing to go back to (the screen was opened directly) it shows [fallback] instead of Home. */
+    fun backOr(fallback: Screen) {
+        if (backStack.isEmpty() && _screen.value != Screen.Home) go(fallback) else back()
+    }
+
+    private fun pushable(s: Screen) = when (s) {
+        Screen.Gym, Screen.TreadmillSetup, Screen.TreadmillPlayer, Screen.TreadmillDone, Screen.Core,
+        is Screen.HyroxSession, is Screen.GuidedTimer, is Screen.HyroxSim -> false
+        else -> true
+    }
 
     fun setInputs(f: (Inputs) -> Inputs) {
         _inputs.update(f)
@@ -358,6 +398,12 @@ class AppViewModel @JvmOverloads constructor(
         _gym.value = null
         hyrox.prepare(hyroxInput(), g.finisherMinutes.coerceAtLeast(20), focus)
         go(Screen.HyroxSession(focus))
+    }
+
+    /** Leaves the gym screen without saving (nothing logged, or "Discard"): the session is dropped, nothing is deleted from the history. */
+    fun discardGym() {
+        _gym.value = null
+        home()
     }
 
     /** "Skip finisher": the lifts are already saved, so just go home. */
@@ -625,7 +671,38 @@ class AppViewModel @JvmOverloads constructor(
     /** Leaves the simulation results (the record is already saved). */
     fun simClose(toHub: Boolean = false) {
         if (sim.ui.value.phase != SimPhase.RUNNING) sim.reset()
-        if (toHub) go(Screen.Hyrox) else home()
+        if (toHub) backOr(Screen.Hyrox) else home()
+    }
+
+    /** Back on the results card: the record is already saved, so leave as the Save button does (without editing it). */
+    fun simFinish() {
+        autosaveSim(sim.ui.value)
+        sim.reset()
+        home()
+    }
+
+    /** Drops a running simulation without saving. */
+    fun simDiscard() {
+        sim.reset()
+        home()
+    }
+
+    /** Drops a running guided Hyrox session without saving. */
+    fun hyroxDiscard() {
+        hyrox.reset()
+        home()
+    }
+
+    /** Drops a running guided mat / core session without saving. */
+    fun coreDiscard() {
+        core.reset()
+        home()
+    }
+
+    /** Drops a running guided timer without saving. */
+    fun guidedDiscard() {
+        guided.reset()
+        home()
     }
 
     // ---- Hike (and the old core log) ----
@@ -755,7 +832,7 @@ class AppViewModel @JvmOverloads constructor(
     /** Leaves the guided timer setup without starting. */
     fun guidedBack() {
         if (guided.ui.value.phase != GuidedPhase.RUNNING) guided.reset()
-        go(Screen.RacePlan)
+        backOr(Screen.RacePlan)
     }
 
     fun dismissCelebration() { _celebration.value = null }

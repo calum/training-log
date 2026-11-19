@@ -169,7 +169,7 @@ fun HyroxLogScreen(vm: AppViewModel, station: Station?) {
         form, vm.todayDate(),
         onForm = { form = it }, defaultsFor = defaultsFor,
         onSave = { vm.saveHyroxLog(form.daysAgo, form.toSave()) },
-        onBack = { vm.home() },
+        onBack = { vm.back() },
     )
 }
 

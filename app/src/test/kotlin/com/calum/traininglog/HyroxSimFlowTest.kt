@@ -399,6 +399,7 @@ class HyroxSimFlowTest {
         val vm = newVm()
         vm.simOpen(SimPreset(SimFormat.FIRST_HALF)); vm.startRace(); finishAll(vm); vm.saveSim(Feeling.GOOD, null)
         val rec = onDisk().records.single()
+        vm.go(Screen.Hyrox) // the past simulation is opened from the hub, so closing it returns there
         vm.simView(rec.id)
         assertEquals(Screen.HyroxSim(null), vm.screen.value)
         assertEquals(SimPhase.DONE, vm.sim.ui.value.phase)

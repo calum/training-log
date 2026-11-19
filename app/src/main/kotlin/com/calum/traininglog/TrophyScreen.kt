@@ -46,7 +46,7 @@ fun TrophyScreen(vm: AppViewModel) {
         contentPadding = PaddingValues(Spacing.screen),
         verticalArrangement = Arrangement.spacedBy(Spacing.md),
     ) {
-        item { SecondaryButton("Back", onClick = { vm.home() }) }
+        item { SecondaryButton("Back", onClick = { vm.back() }) }
         item {
             HeroCard(brush = AppColors.gradientReward) {
                 Text("LEVEL ${r.level}", style = AppType.eyebrow, color = AppColors.onHero.copy(alpha = 0.8f))

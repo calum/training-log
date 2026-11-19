@@ -309,7 +309,7 @@ fun SettingsScreen(vm: AppViewModel) {
             }
         }
 
-        SecondaryButton("Back", onClick = { vm.home() }, modifier = Modifier.fillMaxWidth())
+        SecondaryButton("Back", onClick = { vm.back() }, modifier = Modifier.fillMaxWidth())
     }
 
     resetting?.let { g ->

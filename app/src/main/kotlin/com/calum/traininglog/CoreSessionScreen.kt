@@ -169,7 +169,7 @@ fun CoreSessionScreen(vm: AppViewModel) {
             onKnee = { vm.coreSetup(kneeSensitive = it) },
             onShuffle = { vm.coreSetup(reshuffle = true) },
             onStart = { vm.core.start() },
-            onBack = { vm.go(Screen.Start) },
+            onBack = { vm.backOr(Screen.Start) },
         )
         CorePhase.RUNNING -> CorePlayer(vm, ui)
         CorePhase.DONE -> CoreDoneScreen(ui, onSave = { vm.saveCore(it) })

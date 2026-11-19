@@ -91,7 +91,7 @@ fun RacePlanScreen(vm: AppViewModel) {
         today = LocalToday.current ?: LocalDate.now(),
         onSettings = { f -> vm.updateProfile { p -> p.copy(settings = p.settings.copy(racePlan = f(p.settings.racePlan).sanitized())) } },
         onStart = { vm.launchPlanned(it) },
-        onBack = { vm.home() },
+        onBack = { vm.back() },
         onProfile = { f -> vm.updateProfile(f) },
     )
 }

@@ -65,7 +65,7 @@ fun HyroxScreen(vm: AppViewModel) {
         onOpen = { vm.go(Screen.HyroxStation(it)) },
         onStart = { vm.go(Screen.HyroxSession(emptySet())) },
         onLog = { vm.go(Screen.HyroxLog(null)) },
-        onBack = { vm.home() },
+        onBack = { vm.back() },
         onSimulate = { vm.simOpen(null) },
         onOpenSim = { vm.simView(it) },
     )

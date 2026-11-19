@@ -71,7 +71,7 @@ private val monthFmt = DateTimeFormatter.ofPattern("MMMM", Locale.ENGLISH)
 @Composable
 fun ProgressScreen(vm: AppViewModel) {
     val data by vm.data.collectAsState()
-    ProgressContent(data.records, LocalDate.now(), data.profile.settings, onBack = { vm.home() })
+    ProgressContent(data.records, LocalDate.now(), data.profile.settings, onBack = { vm.back() })
 }
 
 @Composable

@@ -274,6 +274,6 @@ fun BackupScreen(vm: AppViewModel) {
 
         DriveBackupCard(vm)
 
-        SecondaryButton("Back", onClick = { vm.home() }, modifier = Modifier.fillMaxWidth())
+        SecondaryButton("Back", onClick = { vm.back() }, modifier = Modifier.fillMaxWidth())
     }
 }

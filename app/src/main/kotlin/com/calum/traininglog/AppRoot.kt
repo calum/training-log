@@ -7,6 +7,7 @@ import android.content.Intent
 import android.media.AudioManager
 import android.media.ToneGenerator
 import android.os.SystemClock
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -82,6 +83,24 @@ fun AppRoot(vm: AppViewModel, inPip: Boolean) {
             if (inPip) {
                 PlayerContent(vm, compact = true)
                 return@Surface
+            }
+            // System back (swipe or button): Home exits the app (this handler is off there); live sessions ask first.
+            val celebration by vm.celebration.collectAsState()
+            val action = backActionFor(vm, screen)
+            var asking by remember { mutableStateOf(false) }
+            LaunchedEffect(screen, action is BackAction.Ask) { asking = false }
+            val ask = (action as? BackAction.Ask)?.takeIf { asking }
+            BackHandler(enabled = screen != Screen.Home || celebration != null) {
+                when {
+                    asking -> asking = false
+                    screen == Screen.Home -> vm.dismissCelebration()
+                    action is BackAction.Ask -> asking = true
+                    action is BackAction.Do -> action.run()
+                    else -> vm.back()
+                }
+            }
+            if (ask != null) {
+                LeaveDialog(ask, onKeepGoing = { asking = false }, onChoose = { asking = false; it.onClick() })
             }
             Box(Modifier.statusBarsPadding()) {
                 when (val s = screen) {

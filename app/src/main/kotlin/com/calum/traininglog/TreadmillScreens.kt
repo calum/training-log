@@ -85,7 +85,7 @@ fun TreadmillSetupScreen(vm: AppViewModel) {
     val plan by vm.pendingTreadmill.collectAsState()
     val p = plan ?: run { vm.home(); return }
     TreadmillSetupContent(
-        p, onStart = { vm.startTreadmill() }, onOtherStyle = { vm.otherStyle() }, onBack = { vm.go(if (p.title != null) Screen.RacePlan else Screen.Start) },
+        p, onStart = { vm.startTreadmill() }, onOtherStyle = { vm.otherStyle() }, onBack = { vm.backOr(if (p.title != null) Screen.RacePlan else Screen.Start) },
     )
 }
 

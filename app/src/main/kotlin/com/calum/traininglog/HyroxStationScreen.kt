@@ -76,7 +76,7 @@ fun HyroxStationScreen(vm: AppViewModel, station: Station) {
         },
         onPractice = { vm.go(Screen.HyroxSession(setOf(station))) },
         onLog = { vm.go(Screen.HyroxLog(station)) },
-        onBack = { vm.go(Screen.Hyrox) },
+        onBack = { vm.backOr(Screen.Hyrox) },
     )
 }
 

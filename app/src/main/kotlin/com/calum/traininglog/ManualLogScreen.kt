@@ -59,6 +59,6 @@ fun ManualLogScreen(vm: AppViewModel) {
         OutlinedTextField(note, { note = it }, label = { Text("Note (optional)") }, modifier = Modifier.fillMaxWidth())
         BigActionButton("Add to log", onClick = { vm.saveManual(type, daysAgo, minutes, style, note) })
         Muted("Gym sessions are logged live so each set's weight and effort feed your progression.")
-        SecondaryButton("Back", onClick = { vm.home() }, modifier = Modifier.fillMaxWidth())
+        SecondaryButton("Back", onClick = { vm.back() }, modifier = Modifier.fillMaxWidth())
     }
 }

@@ -36,6 +36,6 @@ fun LightScreen(vm: AppViewModel, type: SessionType) {
         }
         OutlinedTextField(note, { note = it }, label = { Text("Note (optional)") }, modifier = Modifier.fillMaxWidth())
         BigActionButton("Log it", onClick = { vm.saveLight(type, minutes, note) })
-        SecondaryButton("Back", onClick = { vm.go(Screen.Start) }, modifier = Modifier.fillMaxWidth())
+        SecondaryButton("Back", onClick = { vm.backOr(Screen.Start) }, modifier = Modifier.fillMaxWidth())
     }
 }

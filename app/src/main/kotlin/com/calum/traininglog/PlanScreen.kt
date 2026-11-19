@@ -63,7 +63,7 @@ fun PlanScreen(vm: AppViewModel) {
         headlineId = data.profile.headlineExerciseId,
         headlineKg = data.profile.headlineKg,
         onHeadline = { id, kg -> vm.updateProfile { it.copy(headlineExerciseId = id, headlineKg = kg) } },
-        onBack = { vm.home() },
+        onBack = { vm.back() },
         today = LocalDate.now(),
         settings = data.profile.settings,
     )

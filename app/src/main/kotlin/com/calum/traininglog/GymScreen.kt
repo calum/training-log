@@ -159,7 +159,7 @@ fun GymScreen(vm: AppViewModel) {
                 bigBurst++
                 scope.launch { delay(900); vm.finishGym() }
             })
-            SecondaryButton("Discard", onClick = { vm.home() }, Modifier.fillMaxWidth())
+            SecondaryButton("Discard", onClick = { vm.discardGym() }, Modifier.fillMaxWidth())
             Spacer(Modifier.height(Spacing.lg).navigationBarsPadding())
         }
         }

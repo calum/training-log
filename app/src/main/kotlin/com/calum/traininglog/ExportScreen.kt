@@ -55,6 +55,6 @@ fun ExportScreen(vm: AppViewModel) {
                 Text(text, color = AppColors.textPrimary, fontSize = 13.sp, fontFamily = FontFamily.Monospace)
             }
         }
-        SecondaryButton("Back", onClick = { vm.home() }, modifier = Modifier.fillMaxWidth())
+        SecondaryButton("Back", onClick = { vm.back() }, modifier = Modifier.fillMaxWidth())
     }
 }

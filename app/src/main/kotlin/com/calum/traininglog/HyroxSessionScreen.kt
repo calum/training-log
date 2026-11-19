@@ -99,7 +99,7 @@ fun HyroxSessionScreen(vm: AppViewModel, focus: Set<Station>) {
             runInclinePct = data.profile.settings.hyroxRunInclinePct,
             onShuffle = { vm.hyroxSetup(shuffle = true) },
             onStart = { vm.hyrox.start() },
-            onBack = { vm.home() },
+            onBack = { vm.back() },
         )
         HyroxPhase.RUNNING -> HyroxPlayer(vm, ui)
         HyroxPhase.DONE -> HyroxFinish(vm, ui)
