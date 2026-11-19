@@ -105,3 +105,6 @@ internal fun <T> ChipRow(options: List<T>, selected: T, label: (T) -> String, on
 
 internal fun fmt(x: Double) = if (x % 1.0 == 0.0) x.toInt().toString() else x.toString()
 
+
+/** Dark ink for text on the bright mint gradient (white on mint is hard to read). */
+internal val HeroInk = Color(0xFF05241A)

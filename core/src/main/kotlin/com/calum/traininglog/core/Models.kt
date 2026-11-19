@@ -74,6 +74,12 @@ data class StationLog(
     val rpe: Int? = null,
     val technique: Int? = null,
     val level: Int? = null,
+    /**
+     * How much work (metres or reps) this block was meant to be, when that was less than the full level
+     * (a plan fitted to a short session, or ended early). Null means 'the level's full work'. A shortened
+     * block that was completed is neither 'hard' nor a reason to move up.
+     */
+    val plannedWork: Int? = null,
 )
 
 @Serializable

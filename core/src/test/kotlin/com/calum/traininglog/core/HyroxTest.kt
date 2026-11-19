@@ -191,6 +191,29 @@ class HyroxTest {
         assertEquals(3, HyroxProgression.next(s, D, listOf(entry(7, s, 3, 10), entry(3, s, 3, 7).let { it.copy(log = it.log.copy(rpe = 9)) }, entry(0, s, 3, 10))).level)
     }
 
+    /** A block shortened to fit the time, and done as planned, is not 'incomplete' and does not move you up. */
+    @Test fun shortenedBlockIsNeitherHardNorAPromotion() {
+        val s = HyroxStation.SLED_PUSH
+        val level = HyroxLadder.of(D, s)[2]
+        fun shortened(n: Int, rpe: Int) = StationEntry(
+            day(n),
+            StationLog(s.id, weightKg = level.weightKg, distanceM = level.totalWork / 2, rpe = rpe, level = 3, plannedWork = level.totalWork / 2),
+        )
+        // Done as planned at an easy effort: repeat at full length, do not move up.
+        val one = HyroxProgression.next(s, D, listOf(shortened(0, 7)))
+        assertEquals(3, one.level)
+        assertTrue(one.note.contains("shortened"), one.note)
+        // Two shortened sessions in a row never count as two hard ones.
+        assertEquals(3, HyroxProgression.next(s, D, listOf(shortened(7, 7), shortened(0, 8))).level)
+        // The same distance WITHOUT the planned-work note is still judged against the full level (incomplete).
+        val unplanned = StationEntry(day(0), shortened(0, 8).log.copy(plannedWork = null))
+        val hardPrev = StationEntry(day(-7), shortened(-7, 10).log.copy(plannedWork = null))
+        assertEquals(2, HyroxProgression.next(s, D, listOf(unplanned, hardPrev)).level)
+        // Falling short of even the shortened plan is incomplete.
+        val short = StationEntry(day(0), shortened(0, 8).log.copy(distanceM = level.totalWork / 4))
+        assertEquals(3, HyroxProgression.next(s, D, listOf(short)).level)
+    }
+
     @Test fun topOfLadderStays() {
         val s = HyroxStation.WALL_BALLS
         assertEquals(6, HyroxProgression.next(s, D, listOf(entry(0, s, 6, 6))).level)

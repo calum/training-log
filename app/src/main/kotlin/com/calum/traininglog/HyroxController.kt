@@ -253,7 +253,9 @@ class HyroxController(private val now: () -> Long = { SystemClock.elapsedRealtim
         val b = u.block!!
         val frac = u.laps.size.toDouble() / b.prescription.rounds
         val full = defaultActual(b)
-        return logOf(u, HyroxActual(full.weightKg, full.distanceM?.let { (it * frac).toInt() }, full.reps?.let { (it * frac).toInt() }), null, null)
+        val log = logOf(u, HyroxActual(full.weightKg, full.distanceM?.let { (it * frac).toInt() }, full.reps?.let { (it * frac).toInt() }), null, null)
+        // Ended early on purpose: judge it against what was done, so it is neutral (no step up, never 'hard').
+        return log.copy(plannedWork = log.distanceM ?: log.reps)
     }
 
     private fun logOf(u: HyroxUi, a: HyroxActual, rpe: Int?, technique: Int?): StationLog {
@@ -261,6 +263,7 @@ class HyroxController(private val now: () -> Long = { SystemClock.elapsedRealtim
         return StationLog(
             stationId = b.station.id, weightKg = a.weightKg, distanceM = a.distanceM, reps = a.reps,
             seconds = u.laps.sum().takeIf { it > 0 }, rpe = rpe, technique = technique, level = b.prescription.level,
+            plannedWork = b.prescription.totalWork.takeIf { it > 0 },
         )
     }
 

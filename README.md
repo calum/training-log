@@ -46,6 +46,10 @@ Personal progressive training app for Android (Pixel 6a). Asks how much time and
 
 - **Progress** screen with real history charts; **data safety** (schema version, daily safety copies, automatic restore); **What's new** shown before updating; flow tests that run whole sessions on the JVM.
 
+## Added in v0.7
+
+- **Hyrox**: hub with the 8 stations by division, per-station technique, mistakes, knee notes, alternatives and a 6-level progression, a guided station session with lap timer and ratings, quick logging, PRs, badges and export. Standards are third-party figures (confirm at hyrox.com) and editable. See `core/.../Hyrox.kt`.
+
 Not yet built: training blocks, in-app settings for increments and starting weights.
 
 ## Starting weights are placeholders

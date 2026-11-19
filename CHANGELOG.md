@@ -2,6 +2,16 @@
 
 What changed in each release, in plain language, newest first. The release workflow copies the matching `## vX.Y.Z` section into the GitHub release, and the app shows it as "What's new" before you tap Update.
 
+## v0.7.0
+
+- Hyrox is here. A new Hyrox button on Home opens a hub with all eight stations in race order: SkiErg, sled push, sled pull, burpee broad jumps, rowing, farmers carry, sandbag lunges and wall balls. Pick your division (Men's or Women's, Open or Pro) and you see the loads for it.
+- Each station has a page with short technique tips, common mistakes, a knee note where it matters, a pacing tip, what to use if your gym lacks the equipment, and a six-step progression from learning the movement up to race standard. The app suggests your next session and moves you up when a session feels controlled; a hard day just repeats the level.
+- A guided Hyrox session picks a few stations to fit your time, with a lap timer, effort and technique ratings, and rest timers. Easy runs between stations are off by default.
+- A quick log for a station you have already done, with weight, distance or reps, and time.
+- Hyrox sessions count in your history, progress, trophies (three new badges), personal records and the Claude export.
+- Station standards come from third-party sources; confirm them at hyrox.com. You can edit the race weights.
+- Shortened Hyrox blocks no longer count as "incomplete", and the intro cards on Hyrox and Progress are easier to read.
+
 ## v0.6.2
 
 - Fixed the freeze at the end of a treadmill session. The screen could get stuck on the green flash with no way to finish. A finished session is now also saved the moment it ends, so it can never be lost; the "how did it feel?" question just adds to it.

@@ -84,14 +84,14 @@ internal fun HyroxHubContent(
         }
         item {
             HeroCard(brush = AppColors.gradientPrimary) {
-                Text("HYROX IN 30 SECONDS", style = AppType.eyebrow, color = AppColors.onHero.copy(alpha = 0.8f))
+                Text("HYROX IN 30 SECONDS", style = AppType.eyebrow, color = HeroInk.copy(alpha = 0.8f))
                 Text(
                     "8 rounds of a 1 km run plus a station.",
-                    style = MaterialTheme.typography.titleLarge, color = AppColors.onHero,
+                    style = MaterialTheme.typography.titleLarge, color = HeroInk,
                 )
                 Text(
                     "You already know the run and the row, so we start with the other six. Learn one at a time, light and easy.",
-                    style = MaterialTheme.typography.bodyMedium, color = AppColors.onHero.copy(alpha = 0.9f),
+                    style = MaterialTheme.typography.bodyMedium, color = HeroInk.copy(alpha = 0.9f),
                 )
             }
         }

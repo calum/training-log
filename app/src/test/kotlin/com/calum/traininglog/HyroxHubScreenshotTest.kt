@@ -28,7 +28,7 @@ import java.time.LocalDate
 
 private fun outDir() = File(System.getProperty("roborazzi.output.dir") ?: "../docs/screenshots").also { it.mkdirs() }
 
-private object HyroxFixtures {
+private object HyroxHubFixtures {
     private var n = 0
     private fun rec(today: LocalDate, daysAgo: Int, vararg st: StationLog) = SessionRecord(
         id = "hx-${n++}", date = today.minusDays(daysAgo.toLong()), type = SessionType.HYROX,
@@ -65,7 +65,7 @@ class HyroxHubScreenshotTest(private val s: Case) {
     @Test
     fun capture() {
         val today = LocalDate.now()
-        val records = if (s.history) HyroxFixtures.history(today) else emptyList()
+        val records = if (s.history) HyroxHubFixtures.history(today) else emptyList()
         rule.setContent {
             TrainingTheme {
                 Surface(Modifier.fillMaxSize(), color = AppColors.background) {
@@ -114,7 +114,7 @@ class HyroxTallScreenshotTest {
         rule.setContent {
             TrainingTheme {
                 Surface(Modifier.fillMaxSize(), color = AppColors.background) {
-                    HyroxStationContent(HyroxStation.SANDBAG_LUNGES, HyroxFixtures.history(today), UserSettings(), today, {}, {}, {}, {})
+                    HyroxStationContent(HyroxStation.SANDBAG_LUNGES, HyroxHubFixtures.history(today), UserSettings(), today, {}, {}, {}, {})
                 }
             }
         }

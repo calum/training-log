@@ -141,36 +141,36 @@ private fun sinceText(d: LocalDate, today: LocalDate): String =
 private fun Headline(data: ProgressData, lift: LiftProgress?) {
     val today = data.weekStarts.last().plusDays(6)
     HeroCard(brush = AppColors.gradientPrimary) {
-        Text("SINCE YOU STARTED", style = AppType.eyebrow, color = AppColors.onHero.copy(alpha = 0.8f))
+        Text("SINCE YOU STARTED", style = AppType.eyebrow, color = HeroInk.copy(alpha = 0.8f))
         val first = data.firstSessionDate
         if (lift != null && lift.changeKg > 0.0) {
             Text(
                 "${lift.name} is up ${kg(lift.changeKg)} kg",
-                style = MaterialTheme.typography.headlineMedium, color = AppColors.onHero,
+                style = MaterialTheme.typography.headlineMedium, color = HeroInk,
             )
             Text(
                 "Since ${sinceText(lift.firstDate, today)}: ${kg(lift.firstKg)} kg, now ${kg(lift.lastKg)} kg.",
-                style = MaterialTheme.typography.bodyLarge, color = AppColors.onHero.copy(alpha = 0.9f),
+                style = MaterialTheme.typography.bodyLarge, color = HeroInk.copy(alpha = 0.9f),
             )
         } else if (lift != null) {
             Text(
                 "${lift.name}: ${kg(lift.lastKg)} kg",
-                style = MaterialTheme.typography.headlineMedium, color = AppColors.onHero,
+                style = MaterialTheme.typography.headlineMedium, color = HeroInk,
             )
             Text(
                 "Your best so far is ${kg(lift.bestEverKg)} kg. Steady is good.",
-                style = MaterialTheme.typography.bodyLarge, color = AppColors.onHero.copy(alpha = 0.9f),
+                style = MaterialTheme.typography.bodyLarge, color = HeroInk.copy(alpha = 0.9f),
             )
         } else {
             Text(
                 "${data.totals.sessions} sessions done",
-                style = MaterialTheme.typography.headlineMedium, color = AppColors.onHero,
+                style = MaterialTheme.typography.headlineMedium, color = HeroInk,
             )
         }
         if (first != null) {
             Text(
                 "${data.totals.sessions} sessions done since ${first.format(monthFmt)}. Well done.",
-                style = MaterialTheme.typography.bodyMedium, color = AppColors.onHero.copy(alpha = 0.85f),
+                style = MaterialTheme.typography.bodyMedium, color = HeroInk.copy(alpha = 0.85f),
             )
         }
     }

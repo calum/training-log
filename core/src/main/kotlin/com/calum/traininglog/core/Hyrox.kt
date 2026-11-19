@@ -472,6 +472,7 @@ object HyroxProgression {
         val lastLevel = (last.log.level ?: HyroxLadder.startLevel(station)).coerceIn(1, ladder.size)
         val rpe = last.log.rpe
         val doneLast = completed(last.log, ladder[lastLevel - 1], station)
+        val shortenedLast = last.log.plannedWork?.let { it < ladder[lastLevel - 1].totalWork } == true
         val hardLast = !doneLast || (rpe != null && rpe >= 10)
         val prev = sorted.getOrNull(1)
         val hardPrev = prev?.let {
@@ -485,13 +486,15 @@ object HyroxProgression {
             else "Two tough ones in a row. Staying at level 1 with a lighter, shorter feel: take it easy and enjoy it."
             return presc(ladder[target - 1], msg)
         }
-        if (doneLast && rpe != null && rpe <= 8 && last.log.technique != 1) {
+        if (doneLast && rpe != null && rpe <= 8 && last.log.technique != 1 && !shortenedLast) {
             val target = min(ladder.size, lastLevel + 1)
             val msg = if (target > lastLevel) "Last time felt controlled (effort $rpe/10), so moving up to level $target."
             else "Top of the ladder. Repeat, or chase a faster time."
             return presc(ladder[target - 1], msg)
         }
         val msg = when {
+            shortenedLast && doneLast && (rpe ?: 0) <= 9 ->
+                "Last time was a shortened version of this level (fitted to your time), so do it at full length before moving up."
             last.log.technique == 1 && doneLast && (rpe ?: 0) <= 8 -> "Strong effort. One more session on this level to polish the technique before moving up."
             rpe == 9 -> "That was close to your limit, so repeat this level and let it settle."
             rpe == null -> "Add an effort rating (RPE) after the session so the next step can be picked well. Repeating this level."
@@ -509,7 +512,9 @@ object HyroxProgression {
 
     internal fun completed(log: StationLog, planned: StationLevel, station: HyroxStation): Boolean {
         val loggedWork = if (station.kind == StationKind.REPS) log.reps else log.distanceM
-        if (loggedWork != null && loggedWork < planned.totalWork) return false
+        // Judge against what was actually prescribed for that block, which can be less than the full level.
+        val required = log.plannedWork ?: planned.totalWork
+        if (loggedWork != null && loggedWork < required) return false
         val pw = planned.weightKg
         if (pw != null && log.weightKg != null && log.weightKg < pw - 0.001) return false
         return true
