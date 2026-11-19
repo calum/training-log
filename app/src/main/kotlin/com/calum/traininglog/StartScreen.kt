@@ -121,6 +121,7 @@ private fun typeEmoji(t: SessionType) = when (t) {
     SessionType.TREADMILL -> "🏃"
     SessionType.CORE -> "🧘"
     SessionType.HIKE -> "🥾"
+    SessionType.HYROX -> "🏁"
 }
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -198,7 +199,7 @@ fun StartScreen(vm: AppViewModel) {
 
         FieldLabel("OR PICK IT YOURSELF")
         Row(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
-            for (t in SessionType.entries) {
+            for (t in SessionType.entries.filter { it != SessionType.HYROX }) {
                 ChoiceTile(
                     typeEmoji(t), if (t == SessionType.HIKE) "Hike" else typeName(t), false,
                     { vm.begin(t) }, Modifier.weight(1f),

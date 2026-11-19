@@ -282,8 +282,8 @@ class RewardsBadgeTest {
 
     @Test fun fifteenBadgesAllLockedWhenEmpty() {
         val s = Rewards.summary(emptyList(), mon)
-        assertEquals(15, s.badges.size)
-        assertEquals(15, s.badges.map { it.id }.toSet().size)
+        assertEquals(18, s.badges.size)
+        assertEquals(18, s.badges.map { it.id }.toSet().size)
         assertTrue(s.badges.all { !it.unlocked })
     }
 

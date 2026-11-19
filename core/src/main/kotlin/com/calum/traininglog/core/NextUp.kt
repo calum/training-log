@@ -40,6 +40,7 @@ object NextUp {
             SessionType.TREADMILL -> treadmillText(records, today)
             SessionType.CORE -> "Core day."
             SessionType.HIKE -> "Hike day."
+            SessionType.HYROX -> "Hyrox day."
         }
     }
 }

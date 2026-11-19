@@ -12,6 +12,9 @@ object PublicImport {
     /** Minutes assumed per gym set; the export doesn't carry session length. */
     private const val GYM_MIN_PER_SET = 3
 
+    /** Minutes assumed per Hyrox station; the export doesn't carry session length. */
+    private const val HYROX_MIN_PER_STATION = 8
+
     fun records(files: Map<String, String>): List<SessionRecord> {
         val paths = files.keys.sorted()
         fun under(dir: String) = paths.filter { it.startsWith("data/$dir/") && it.endsWith(".csv") }.map { files.getValue(it) }
@@ -19,6 +22,7 @@ object PublicImport {
         out += gym(under("gym"))
         out += treadmill(under("treadmill"))
         out += other(under("other"))
+        out += hyrox(under("hyrox"))
         return out.sortedWith(compareBy({ it.date }, { it.type }, { it.id }))
     }
 
@@ -71,6 +75,33 @@ object PublicImport {
             )
         }
         return out
+    }
+
+    private fun hyrox(contents: List<String>): List<SessionRecord> {
+        val byDate = sortedMapOf<LocalDate, MutableList<StationLog>>()
+        for (c in contents) for (cells in rows(c)) {
+            if (cells.size < 2) continue
+            val date = date(cells[0]) ?: continue
+            val station = HyroxStation.byId(cells[1].trim()) ?: continue
+            fun cell(i: Int) = cells.getOrNull(i)?.trim()?.takeIf { it.isNotEmpty() }
+            byDate.getOrPut(date) { mutableListOf() }.add(
+                StationLog(
+                    stationId = station.id,
+                    weightKg = cell(2)?.toDoubleOrNull(),
+                    distanceM = cell(3)?.toIntOrNull(),
+                    reps = cell(4)?.toIntOrNull(),
+                    seconds = cell(5)?.toIntOrNull(),
+                    rpe = cell(6)?.toIntOrNull(),
+                )
+            )
+        }
+        return byDate.map { (date, logs) ->
+            val mins = maxOf(10, logs.size * HYROX_MIN_PER_STATION)
+            SessionRecord(
+                id = "gh-$date-hyrox-1", date = date, type = SessionType.HYROX,
+                minutesAvailable = mins, minutesActual = mins, feeling = Feeling.GOOD, stations = logs,
+            )
+        }
     }
 
     private fun other(contents: List<String>): List<SessionRecord> {

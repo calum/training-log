@@ -62,7 +62,42 @@ data class ProgressData(
     fun lift(id: String): LiftProgress? = lifts.firstOrNull { it.exerciseId == id }
 }
 
+/**
+ * One Mon-Sun week of one Hyrox station. [heaviestKg] is the heaviest load logged that week. [bestSeconds] is the
+ * time of the fastest-PACE log that week (seconds per metre or rep) and [volume] its distance (m) or reps, so the
+ * UI can say "3:52 for 1000 m". Quiet weeks are all null (nothing is carried forward).
+ */
+data class StationWeekBest(
+    val weekStart: LocalDate,
+    val heaviestKg: Double?,
+    val bestSeconds: Int?,
+    val volume: Int?,
+    val logs: Int,
+)
+
 object ProgressStats {
+    /** Per-week best for [station] over the last [weeks] weeks ending with the week of [today] (oldest first). */
+    fun stationBest(records: List<SessionRecord>, station: HyroxStation, today: LocalDate, weeks: Int = 12): List<StationWeekBest> {
+        val n = weeks.coerceIn(1, 104)
+        val thisWeek = weekStart(today)
+        val starts = (0 until n).map { thisWeek.minusWeeks((n - 1 - it).toLong()) }
+        val byWeek = records.filter { it.date <= today }
+            .flatMap { r -> r.stations.filter { it.stationId == station.id }.map { weekStart(r.date) to it } }
+            .groupBy({ it.first }, { it.second })
+        return starts.map { ws ->
+            val logs = byWeek[ws].orEmpty()
+            val timed = logs.filter { it.seconds != null && it.seconds > 0 && (it.distanceM ?: it.reps ?: 0) > 0 }
+            val best = timed.minByOrNull { it.seconds!!.toDouble() / (it.distanceM ?: it.reps!!) }
+            StationWeekBest(
+                weekStart = ws,
+                heaviestKg = logs.mapNotNull { it.weightKg }.maxOrNull(),
+                bestSeconds = best?.seconds,
+                volume = best?.let { it.distanceM ?: it.reps },
+                logs = logs.size,
+            )
+        }
+    }
+
     /** Epley estimate of a one-rep max. */
     fun e1rm(weightKg: Double, reps: Int): Double = if (reps <= 1) weightKg else weightKg * (1.0 + reps / 30.0)
 
@@ -120,7 +155,7 @@ object ProgressStats {
                 weekStart = ws,
                 gym = inWeek.count { it.type == SessionType.GYM },
                 treadmill = inWeek.count { it.type == SessionType.TREADMILL },
-                other = inWeek.count { it.type == SessionType.CORE || it.type == SessionType.HIKE },
+                other = inWeek.count { it.type.countsAsOther },
                 treadmillMinutes = inWeek.filter { it.type == SessionType.TREADMILL }.sumOf { treadmillMin(it) },
                 minutes = inWeek.sumOf { it.minutesActual },
             )

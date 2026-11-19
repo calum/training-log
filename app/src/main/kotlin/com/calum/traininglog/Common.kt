@@ -88,7 +88,7 @@ internal fun Page(content: @Composable () -> Unit) =
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) { content() }
 
 internal fun typeName(t: SessionType) = when (t) {
-    SessionType.GYM -> "Gym"; SessionType.TREADMILL -> "Treadmill"; SessionType.CORE -> "Core"; SessionType.HIKE -> "Hike / walk"
+    SessionType.GYM -> "Gym"; SessionType.TREADMILL -> "Treadmill"; SessionType.CORE -> "Core"; SessionType.HIKE -> "Hike / walk"; SessionType.HYROX -> "Hyrox"
 }
 
 @Composable

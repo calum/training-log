@@ -166,6 +166,7 @@ class AppViewModel @JvmOverloads constructor(
             SessionType.TREADMILL -> prepareTreadmill(minutes, style)
             SessionType.CORE -> prepareCore(minutes)
             SessionType.HIKE -> go(Screen.Light(type))
+            SessionType.HYROX -> home() // Hyrox screens are added by the UI work; no tile points here yet
             null -> home()
         }
     }

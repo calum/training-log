@@ -46,6 +46,10 @@ data class UserSettings(
     val reminderMinute: Int = 0,
     @Serializable(with = DayOfWeekSetSerializer::class) val reminderDays: Set<DayOfWeek> = DayOfWeek.entries.toSet(),
     val reminderMaxPerWeek: Int = 3,
+    // Hyrox
+    val hyroxDivision: HyroxDivision = HyroxDivision.MEN_OPEN,
+    /** Race-weight overrides by station id (kg; per hand for the farmers carry), for editing the stored standards. */
+    val hyroxWeightOverrides: Map<String, Double> = emptyMap(),
 ) {
     /** The library [exercise] with this user's starting weight, increment and rest applied. */
     fun resolve(exercise: Exercise): Exercise {
@@ -103,7 +107,14 @@ data class UserSettings(
         reminderHour = reminderHour.coerceIn(0, 23),
         reminderMinute = reminderMinute.coerceIn(0, 59),
         reminderMaxPerWeek = reminderMaxPerWeek.coerceIn(REMINDER_MAX_RANGE),
+        hyroxWeightOverrides = hyroxWeightOverrides
+            .filter { (id, _) -> HyroxStation.byId(id)?.weighted == true }
+            .mapValues { (_, kg) -> kg.coerceIn(HYROX_KG_RANGE) },
     )
+
+    /** The station standard for the chosen division with this user's weight edits applied. */
+    fun hyroxStandard(station: HyroxStation): StationStandard =
+        HyroxStandards.of(hyroxDivision, station, hyroxWeightOverrides)
 
     companion object {
         val START_KG_RANGE = 0.0..300.0
@@ -119,5 +130,6 @@ data class UserSettings(
         val BAR_RANGE = 5.0..30.0
         val BODY_WEIGHT_RANGE = 30.0..250.0
         val REMINDER_MAX_RANGE = 1..7
+        val HYROX_KG_RANGE = 1.0..300.0
     }
 }

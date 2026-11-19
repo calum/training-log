@@ -22,8 +22,10 @@ data class XpBreakdown(
     val variety: Int,
     val rir: Int,
     val pr: Int,
+    /** Hyrox only: a station completed at the full race standard. */
+    val race: Int = 0,
 ) {
-    val total: Int get() = base + effort + variety + rir + pr
+    val total: Int get() = base + effort + variety + rir + pr + race
 
     /** Human readable parts, only the non-zero ones, e.g. "Session 100", "Sets 48", "PR 25". */
     val lines: List<String>
@@ -33,6 +35,7 @@ data class XpBreakdown(
             if (variety > 0) add("New style $variety")
             if (rir > 0) add("RIR logged $rir")
             if (pr > 0) add("PR $pr")
+            if (race > 0) add("Race standard $race")
         }
 }
 
@@ -98,6 +101,10 @@ object Rewards {
     const val RIR_BONUS = 10
     const val PR_BONUS = 25
     const val VARIETY_WINDOW = 3
+    const val HYROX_BASE = 80
+    const val HYROX_PER_STATION = 15
+    const val HYROX_NEW_STATION = 10
+    const val HYROX_RACE_STANDARD = 30
 
     const val TOKEN_EVERY_ACTIVE_WEEKS = 4
     const val MAX_TOKENS = 2
@@ -130,7 +137,7 @@ object Rewards {
 
     fun summary(records: List<SessionRecord>, today: LocalDate, settings: UserSettings = UserSettings()): RewardsSummary {
         val sorted = records.filter { it.date <= today }.sortedBy { it.date }
-        val a = analyse(sorted)
+        val a = analyse(sorted, settings)
         val xp = a.xp.values.sumOf { it.total }
         val level = levelFor(xp)
         val streak = streakFor(sorted, today)
@@ -153,9 +160,9 @@ object Rewards {
     }
 
     /** XP for one session given the sessions before it (the record is placed after them). */
-    fun sessionXp(record: SessionRecord, before: List<SessionRecord>): XpBreakdown {
+    fun sessionXp(record: SessionRecord, before: List<SessionRecord>, settings: UserSettings = UserSettings()): XpBreakdown {
         val prior = before.filter { it.id != record.id && it.date <= record.date }.sortedBy { it.date }
-        return analyse(prior + record).xp.getValue(record.id)
+        return analyse(prior + record, settings).xp.getValue(record.id)
     }
 
     // ---------------------------------------------------------------- weekly ring
@@ -227,12 +234,13 @@ object Rewards {
 
     private data class Analysis(val xp: Map<String, XpBreakdown>, val prs: List<PersonalRecord>)
 
-    private fun analyse(sorted: List<SessionRecord>): Analysis {
+    private fun analyse(sorted: List<SessionRecord>, settings: UserSettings = UserSettings()): Analysis {
         val bestWeight = HashMap<String, Double>()
         val bestReps = HashMap<String, HashMap<Double, Int>>()
         val recentStyles = ArrayDeque<TreadmillStyle>()
         val xp = LinkedHashMap<String, XpBreakdown>()
         val prs = mutableListOf<PersonalRecord>()
+        val stationHistory = HashMap<String, MutableList<StationLog>>()
 
         for (rec in sorted) {
             val found = mutableListOf<PersonalRecord>()
@@ -266,6 +274,23 @@ object Rewards {
                 bestWeight[id] = maxOf(prevMax, sessMax)
                 for (s in sets) repsAt[s.weightKg] = maxOf(repsAt[s.weightKg] ?: 0, s.reps)
             }
+
+            var hyroxVariety = 0
+            var race = 0
+            if (rec.stations.isNotEmpty()) {
+                val stationPrs = LinkedHashMap<String, PersonalRecord>()
+                for (st in rec.stations) {
+                    if (HyroxStation.byId(st.stationId) == null) continue
+                    if (st.stationId !in stationPrs) {
+                        hyroxPr(rec, st, stationHistory[st.stationId].orEmpty())?.let { stationPrs[st.stationId] = it }
+                    }
+                }
+                found += stationPrs.values
+                hyroxVariety = rec.stations.map { it.stationId }.distinct()
+                    .count { HyroxStation.byId(it) != null && stationHistory[it].isNullOrEmpty() } * HYROX_NEW_STATION
+                if (rec.stations.any { HyroxStandards.meets(settings.hyroxDivision, it, settings.hyroxWeightOverrides) }) race = HYROX_RACE_STANDARD
+                for (st in rec.stations) stationHistory.getOrPut(st.stationId) { mutableListOf() }.add(st)
+            }
             prs += found
 
             var variety = 0
@@ -276,10 +301,39 @@ object Rewards {
                     while (recentStyles.size > VARIETY_WINDOW) recentStyles.removeFirst()
                 }
             }
-            xp[rec.id] = baseXp(rec).copy(variety = variety, pr = if (found.isNotEmpty()) PR_BONUS else 0)
+            xp[rec.id] = baseXp(rec).copy(variety = variety + hyroxVariety, pr = if (found.isNotEmpty()) PR_BONUS else 0, race = race)
         }
         return Analysis(xp, prs)
     }
+
+    private fun volume(st: StationLog): Int? = st.distanceM ?: st.reps
+
+    /** PR for one station: heaviest load for the same distance or reps, or the best time at the same or a heavier weight. */
+    private fun hyroxPr(rec: SessionRecord, st: StationLog, priors: List<StationLog>): PersonalRecord? {
+        val station = HyroxStation.byId(st.stationId) ?: return null
+        val vol = volume(st) ?: return null
+        val same = priors.filter { volume(it) == vol }
+        if (same.isEmpty()) return null
+        val unit = if (station.kind == StationKind.REPS) "reps" else "m"
+        val id = "hyrox:${station.id}"
+        val w = st.weightKg
+        if (w != null && w > (same.maxOf { it.weightKg ?: 0.0 })) {
+            return PersonalRecord(rec.date, id, "${station.displayName}: heaviest yet at ${num(w)} kg over $vol $unit", rec.id)
+        }
+        val secs = st.seconds
+        if (secs != null) {
+            val comparable = same.filter { it.seconds != null && (it.weightKg ?: 0.0) >= (w ?: 0.0) }
+            if (comparable.isNotEmpty()) {
+                val best = comparable.minOf { it.seconds!! }
+                if (secs < best) {
+                    return PersonalRecord(rec.date, id, "${station.displayName}: $vol $unit in ${clock(secs)} (was ${clock(best)})", rec.id)
+                }
+            }
+        }
+        return null
+    }
+
+    private fun clock(sec: Int) = "${sec / 60}:${"%02d".format(sec % 60)}"
 
     private fun baseXp(rec: SessionRecord): XpBreakdown {
         return when (rec.type) {
@@ -295,6 +349,11 @@ object Rewards {
             }
             SessionType.CORE -> XpBreakdown(OTHER_BASE, minuteXp(rec.minutesActual, CORE_MINUTE_CAP), 0, 0, 0)
             SessionType.HIKE -> XpBreakdown(OTHER_BASE, minuteXp(rec.minutesActual, HIKE_MINUTE_CAP), 0, 0, 0)
+            SessionType.HYROX -> XpBreakdown(
+                HYROX_BASE,
+                rec.stations.map { it.stationId }.distinct().count { HyroxStation.byId(it) != null } * HYROX_PER_STATION,
+                0, 0, 0,
+            )
         }
     }
 
@@ -335,6 +394,16 @@ object Rewards {
 
         val prFirst = a.prs.firstOrNull()?.date
 
+        val firstStation = first { r -> r.stations.any { HyroxStation.byId(it.stationId) != null } }
+        val seenStations = mutableSetOf<String>()
+        var allEight: LocalDate? = null
+        var raceStandard: LocalDate? = null
+        for (r in sorted) {
+            r.stations.forEach { st -> HyroxStation.byId(st.stationId)?.let { seenStations += it.id } }
+            if (allEight == null && seenStations.size == HyroxStation.entries.size) allEight = r.date
+            if (raceStandard == null && r.stations.any { HyroxStandards.meets(settings.hyroxDivision, it, settings.hyroxWeightOverrides) }) raceStandard = r.date
+        }
+
         return listOf(
             Badge("first_session", "First step", "Log your first session", nth(1)),
             Badge("first_gym", "Iron welcome", "Log your first gym session", first { it.type == SessionType.GYM }),
@@ -353,6 +422,9 @@ object Rewards {
             Badge("early_week", "Early bird week", if (goodWeekText.isEmpty()) "Hit your good-week target by Friday" else "Hit the good-week target ($goodWeekText) by Friday", earlyWeek),
             Badge("quiet_hero", "Quiet hero", "Felt rough, still showed up for 30 minutes or less", first { it.feeling == Feeling.ROUGH && it.minutesActual in 1..30 }),
             Badge("streak_4", "Month of momentum", "Be active 4 weeks in a row", streak.fourWeekOn),
+            Badge("hyrox_first_station", "First station", "Log any Hyrox station", firstStation),
+            Badge("hyrox_all_eight", "All eight", "Log all 8 Hyrox stations at least once", allEight),
+            Badge("hyrox_race_standard", "Race standard", "Complete any Hyrox station at the full race standard for your division", raceStandard),
         )
     }
 

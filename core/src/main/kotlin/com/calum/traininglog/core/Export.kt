@@ -18,7 +18,7 @@ object Stats {
         return WeekStats(
             gym = inWeek.count { it.type == SessionType.GYM },
             treadmill = inWeek.count { it.type == SessionType.TREADMILL },
-            other = inWeek.count { it.type == SessionType.CORE || it.type == SessionType.HIKE },
+            other = inWeek.count { it.type.countsAsOther },
         )
     }
 
@@ -32,7 +32,7 @@ object Export {
         val rows = records.filter { it.date in from..to }.sortedBy { it.date }
         val sb = StringBuilder()
         sb.appendLine("TRAINING EXPORT $from to $to")
-        sb.appendLine("Sessions done: ${rows.size} (gym ${rows.count { it.type == SessionType.GYM }}, treadmill ${rows.count { it.type == SessionType.TREADMILL }}, other ${rows.count { it.type == SessionType.CORE || it.type == SessionType.HIKE }})")
+        sb.appendLine("Sessions done: ${rows.size} (gym ${rows.count { it.type == SessionType.GYM }}, treadmill ${rows.count { it.type == SessionType.TREADMILL }}, other ${rows.count { it.type.countsAsOther }})")
         if (rows.isEmpty()) sb.appendLine("No sessions in this period.")
         for (r in rows) {
             sb.appendLine()
@@ -51,6 +51,7 @@ object Export {
                     .takeIf { it.isNotEmpty() }?.joinToString(", ", prefix = ", ") ?: ""
                 sb.appendLine("  ${t.style.label}: $done of $planned min$short$extras${t.effort?.let { ", effort ${it.name.lowercase().replace('_', ' ')}" } ?: ""}")
             }
+            for (st in r.stations) sb.appendLine("  " + stationLine(st))
             r.note?.let { sb.appendLine("  note: $it") }
         }
         val custom = rows.flatMap { it.exercises }.filter { ExerciseLibrary.isCustom(it.exerciseId) }
@@ -61,6 +62,23 @@ object Export {
         }
         return sb.toString().trimEnd()
     }
+
+    /** e.g. "Sled Push: 102.5 kg, 50 m, 1:12, RPE 8, technique 2/3, level 5". */
+    internal fun stationLine(st: StationLog): String {
+        val name = HyroxStation.byId(st.stationId)?.displayName ?: st.stationId
+        val parts = listOfNotNull(
+            st.weightKg?.let { "${num(it)} kg" },
+            st.distanceM?.let { "$it m" },
+            st.reps?.let { "$it reps" },
+            st.seconds?.let { clock(it) },
+            st.rpe?.let { "RPE $it" },
+            st.technique?.let { "technique $it/3" },
+            st.level?.let { "level $it" },
+        )
+        return if (parts.isEmpty()) name else "$name: ${parts.joinToString(", ")}"
+    }
+
+    private fun clock(sec: Int) = "${sec / 60}:${"%02d".format(sec % 60)}"
 
     private fun exerciseLine(e: ExerciseLog): String {
         val name = (if (ExerciseLibrary.isCustom(e.exerciseId)) "CUSTOM: " else "") + ExerciseLibrary.nameOf(e.exerciseId, e.customName)

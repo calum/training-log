@@ -14,6 +14,7 @@ object PublicExport {
     const val GYM_HEADER = "date,exercise,set,weight_kg,reps,target_reps,rir"
     const val TREADMILL_HEADER = "date,style,planned_min,completed_min"
     const val OTHER_HEADER = "date,type,minutes"
+    const val HYROX_HEADER = "date,station,weight_kg,distance_m,reps,seconds,rpe"
     const val SUMMARY_PATH = "data/summary.json"
 
     /** Path to file content, e.g. "data/gym/2026-10.csv". Deterministic: same records give the same files. */
@@ -25,6 +26,7 @@ object PublicExport {
         val gym = sortedMapOf<YearMonth, MutableList<String>>()
         val treadmill = sortedMapOf<YearMonth, MutableList<String>>()
         val other = sortedMapOf<YearMonth, MutableList<String>>()
+        val hyrox = sortedMapOf<YearMonth, MutableList<String>>()
 
         for (r in sorted) {
             val month = YearMonth.from(r.date)
@@ -43,6 +45,16 @@ object PublicExport {
                         row(r.date, t.style.name.lowercase(), minutes(t.plannedSec), minutes(t.completedSec))
                     )
                 }
+                SessionType.HYROX -> for (st in r.stations) {
+                    // Whitelist: only the eight known stations, only numeric columns.
+                    val station = HyroxStation.byId(st.stationId) ?: continue
+                    hyrox.getOrPut(month) { mutableListOf() }.add(
+                        row(
+                            r.date, station.id, st.weightKg?.let { num(it) } ?: "", st.distanceM ?: "", st.reps ?: "",
+                            st.seconds ?: "", st.rpe ?: "",
+                        )
+                    )
+                }
                 SessionType.CORE, SessionType.HIKE ->
                     other.getOrPut(month) { mutableListOf() }.add(row(r.date, r.type.name.lowercase(), r.minutesActual))
             }
@@ -53,6 +65,7 @@ object PublicExport {
             for ((m, lines) in rows) out["data/$dir/$m.csv"] = (listOf(header) + lines).joinToString("\n", postfix = "\n")
         }
         emit("gym", GYM_HEADER, gym)
+        emit("hyrox", HYROX_HEADER, hyrox)
         emit("other", OTHER_HEADER, other)
         emit("treadmill", TREADMILL_HEADER, treadmill)
         out[SUMMARY_PATH] = summary(sorted)
