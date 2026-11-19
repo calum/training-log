@@ -100,6 +100,8 @@ data class SessionRecord(
     val treadmill: TreadmillLog? = null,
     val note: String? = null,
     val stations: List<StationLog> = emptyList(),
+    /** Set on a finished Hyrox SIMULATION: its format, loads, run mode and total time (see [HyroxSim]). Null otherwise. */
+    val sim: SimMeta? = null,
 )
 
 /** Persisted user state that is not a session: calibration and tuning. */

@@ -134,6 +134,17 @@ The plan only schedules running that the current `RunStage` allows. The stage is
 - **Four sessions a week is about 80/20, plus or minus 3 points** (planned 77-86% in the real-history example).
 - **The plan is a guide.** It adjusts to what was done, never marks anything as a miss, and nothing in it is a guarantee about race day.
 
+## Simulation mode
+
+The planned half simulation (week 9), stations 5-8 circuit (week 10) and near-full rehearsal (week 11, 90% loads) open a true race-order simulation: run 1 km, station, run 1 km, station, with a timed transition (the "Roxzone") between every two legs. Design choices:
+
+- **A rehearsal, never a test.** Effort guide RPE 7-8; first run "easier than you think", RPE 6-7 through the first half, nothing all-out until the last two legs. Quicker or slower is only ever information.
+- **Knee-gated run legs.** Only the INTERVALS and RACE_RUNS stages default to real runs; before that each 1 km run is a rower or SkiErg 1000 m, an incline walk or a 3 km bike ride at the same effort. Substitute run legs never count as running for the knee stage.
+- **The clock never stops.** Transition time counts in the total. Each transition has an allowance (race-like 20 s, gym 45 s by default, home 90 s, or custom 10-180 s); going over is shown calmly as "+0:12", never as a penalty, and nothing starts by itself.
+- **Pacing splits are ESTIMATES.** With an optional target time, about 5% goes to the transitions, then running takes about 57.5% of the rest (the first Hyrox study: 51.2 of 86.5 minutes, 59%) and the stations share the remainder in proportion to typical relative durations. These proportions are rough; without a target the app gives effort guidance only.
+- **Storage and balance.** One `SessionRecord` with `sim` metadata (format, load factor, run mode, total, per-transition seconds). Station legs feed the normal ladder progression and personal records; run legs are ignored for levels. For the easy/hard balance a station leg counts as hard (unless rated below RPE 7) and a run leg only when rated 7 or more, so a controlled sim reads as a mix.
+- **Public export** writes simulations to their own `data/hyrox-sim/` file with whitelisted numeric and enum columns only.
+
 ## Sources
 
 1. Silva Oliveira R, Boppre G, Fonseca H. Sports Medicine 2024, intensity distribution meta-analysis (17 studies): https://pmc.ncbi.nlm.nih.gov/articles/PMC11329428

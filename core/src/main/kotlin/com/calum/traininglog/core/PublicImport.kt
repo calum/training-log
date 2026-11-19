@@ -23,6 +23,7 @@ object PublicImport {
         out += treadmill(under("treadmill"))
         out += other(under("other"))
         out += hyrox(under("hyrox"))
+        out += sims(under("hyrox-sim"))
         return out.sortedWith(compareBy({ it.date }, { it.type }, { it.id }))
     }
 
@@ -100,6 +101,48 @@ object PublicImport {
             SessionRecord(
                 id = "gh-$date-hyrox-1", date = date, type = SessionType.HYROX,
                 minutesAvailable = mins, minutesActual = mins, feeling = Feeling.GOOD, stations = logs,
+            )
+        }
+    }
+
+    /** Simulations: rows grouped by (date, sim_no), legs placed by their 1-based `leg`; gaps become skipped legs. */
+    private fun sims(contents: List<String>): List<SessionRecord> {
+        class Row(val leg: Int, val log: StationLog, val transition: Int?)
+        class Group(val format: SimFormat, val load: Double, val mode: RunMode, val rows: MutableList<Row> = mutableListOf())
+        val groups = sortedMapOf<Pair<LocalDate, Int>, Group>(compareBy({ it.first }, { it.second }))
+        for (c in contents) for (cells in rows(c)) {
+            if (cells.size < 7) continue
+            val date = date(cells[0]) ?: continue
+            val no = cells[1].trim().toIntOrNull() ?: continue
+            val format = SimFormat.byId(cells[2].trim()) ?: continue
+            val load = (cells[3].trim().toIntOrNull() ?: 100).coerceIn(10, 100) / 100.0
+            val mode = RunMode.byId(cells[4].trim()) ?: continue
+            val leg = cells[5].trim().toIntOrNull()?.takeIf { it in 1..format.legCount } ?: continue
+            val stationId = cells[6].trim().takeIf { it == HyroxRuns.ID } ?: HyroxStation.byId(cells[6].trim())?.id ?: continue
+            fun cell(i: Int) = cells.getOrNull(i)?.trim()?.takeIf { it.isNotEmpty() }
+            val g = groups.getOrPut(date to no) { Group(format, load, mode) }
+            g.rows += Row(
+                leg,
+                StationLog(
+                    stationId, weightKg = cell(7)?.toDoubleOrNull(), distanceM = cell(8)?.toIntOrNull(), reps = cell(9)?.toIntOrNull(),
+                    seconds = cell(10)?.toIntOrNull(), rpe = cell(11)?.toIntOrNull(),
+                ),
+                cell(12)?.toIntOrNull()?.takeIf { it > 0 },
+            )
+        }
+        return groups.map { (key, g) ->
+            val rows = g.rows.sortedBy { it.leg }.distinctBy { it.leg }
+            val last = rows.maxOf { it.leg }
+            val have = rows.map { it.leg - 1 }.toSet()
+            val skipped = (0 until last).filter { it !in have }
+            val trans = (0 until g.format.legCount - 1).map { k -> rows.firstOrNull { it.leg == k + 2 }?.transition ?: 0 }
+            val total = rows.sumOf { it.log.seconds ?: 0 } + trans.sum()
+            val mins = maxOf(10, (total + 59) / 60)
+            SessionRecord(
+                id = "gh-${key.first}-hyrox-sim-${key.second}", date = key.first, type = SessionType.HYROX,
+                minutesAvailable = mins, minutesActual = mins, feeling = Feeling.GOOD, dayLabel = g.format.dayLabel,
+                stations = rows.map { it.log },
+                sim = SimMeta(g.format, g.load, g.mode, total, null, skipped, endedEarly = last < g.format.legCount, transitionSec = trans),
             )
         }
     }

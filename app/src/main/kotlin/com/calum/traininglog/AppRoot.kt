@@ -105,6 +105,7 @@ fun AppRoot(vm: AppViewModel, inPip: Boolean) {
                     is Screen.HyroxLog -> HyroxLogScreen(vm, s.station)
                     Screen.RacePlan -> RacePlanScreen(vm)
                     is Screen.GuidedTimer -> GuidedTimerScreen(vm, s.session)
+                    is Screen.HyroxSim -> HyroxSimScreen(vm, s.preset)
                     Screen.Export -> ExportScreen(vm)
                     Screen.Backup -> BackupScreen(vm)
                 }

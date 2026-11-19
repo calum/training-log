@@ -116,7 +116,14 @@ class GuidedTimerFlowTest {
             SessionKind.SIM, 60, Intensity.HARD, 27, 7..8, mods = listOf(Modality.HYROX_STATIONS, Modality.ROW),
             launch = LaunchHint(SessionType.HYROX, hyroxFocus = focus, minutes = 60),
         )
+        // A simulation-kind session opens the true race-order simulation (a full one at race loads without a preset).
         vm.launchPlanned(sim)
+        assertEquals(Screen.HyroxSim(null), vm.screen.value)
+        assertEquals(com.calum.traininglog.core.SimFormat.FULL, vm.sim.ui.value.format)
+        vm.sim.reset()
+        // Any other Hyrox-station session still opens the normal guided session with its focus and minutes.
+        val sharpen = sim.copy(kind = SessionKind.KEY)
+        vm.launchPlanned(sharpen)
         assertEquals(Screen.HyroxSession(focus), vm.screen.value)
         assertEquals(60, vm.hyrox.ui.value.minutes)
         assertEquals(focus, vm.hyrox.ui.value.focus)
@@ -150,7 +157,7 @@ class GuidedTimerFlowTest {
         val plan = RacePlanner.build(RacePlanSettings(), emptyList(), LocalDate.of(2026, 11, 19))
         val seen = mutableSetOf<String>()
         for (w in plan.weeks + listOfNotNull(plan.leadIn)) for (s in w.sessions) {
-            vm.hyrox.reset(); vm.guided.reset(); TreadmillEngine.stop()
+            vm.hyrox.reset(); vm.guided.reset(); vm.sim.reset(); TreadmillEngine.stop()
             vm.go(Screen.Home)
             vm.launchPlanned(s)
             val r = vm.screen.value
@@ -158,7 +165,7 @@ class GuidedTimerFlowTest {
             when (s.kind) {
                 SessionKind.REST -> assertEquals(Screen.Home, r)
                 SessionKind.STRENGTH -> assertEquals(Screen.Gym, r)
-                else -> assertTrue(r is Screen.GuidedTimer || r is Screen.HyroxSession || r == Screen.TreadmillSetup, "${s.title}: $r")
+                else -> assertTrue(r is Screen.GuidedTimer || r is Screen.HyroxSession || r is Screen.HyroxSim || r == Screen.TreadmillSetup, "${s.title}: $r")
             }
         }
         assertTrue(seen.containsAll(listOf("GuidedTimer", "Gym")), "$seen")

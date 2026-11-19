@@ -10,7 +10,9 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -38,6 +40,7 @@ import com.calum.traininglog.core.HyroxProgression
 import com.calum.traininglog.core.HyroxStandards
 import com.calum.traininglog.core.HyroxStation
 import com.calum.traininglog.core.SessionRecord
+import com.calum.traininglog.core.SimResult
 import com.calum.traininglog.core.UserSettings
 import com.calum.traininglog.ui.AppColors
 import com.calum.traininglog.ui.AppType
@@ -63,6 +66,8 @@ fun HyroxScreen(vm: AppViewModel) {
         onStart = { vm.go(Screen.HyroxSession(emptySet())) },
         onLog = { vm.go(Screen.HyroxLog(null)) },
         onBack = { vm.home() },
+        onSimulate = { vm.simOpen(null) },
+        onOpenSim = { vm.simView(it) },
     )
 }
 
@@ -76,6 +81,8 @@ internal fun HyroxHubContent(
     onLog: () -> Unit,
     onBack: () -> Unit,
     onSettings: ((UserSettings) -> UserSettings) -> Unit = {},
+    onSimulate: () -> Unit = {},
+    onOpenSim: (String) -> Unit = {},
 ) {
     val division = settings.hyroxDivision
     val overrides = settings.hyroxWeightOverrides
@@ -104,6 +111,7 @@ internal fun HyroxHubContent(
             }
         }
         item { DivisionCard(division, overrides, onDivision) }
+        item { SimulationCard(records, settings, onSimulate, onOpenSim) }
         item { EquipmentCard(settings, onSettings) }
         items(HyroxStation.entries, key = { it.id }) { st ->
             StationCard(st, records, settings, onClick = { onOpen(st) })
@@ -147,6 +155,41 @@ private fun DivisionCard(division: HyroxDivision, overrides: Map<String, Double>
             (if (approx) "~ approx: some values are approximate. " else "") + HyroxStandards.standardsNote,
             style = MaterialTheme.typography.bodySmall, color = AppColors.textMuted,
         )
+    }
+}
+
+/** The simulation entry: what it is, the button, and the last few simulations (tap one to see its results). */
+@Composable
+internal fun SimulationCard(records: List<SessionRecord>, settings: UserSettings, onStart: () -> Unit, onOpen: (String) -> Unit) {
+    val past = remember(records, settings) {
+        SimResult.history(records, settings.hyroxDivision, settings).takeLast(3).reversed()
+    }
+    SectionCard(title = "Simulation") {
+        Text(
+            "A true race-order rehearsal: run, station, run, station. Full or a half, at race loads or lighter. " +
+                "A rehearsal at RPE 7-8, never a test.",
+            style = MaterialTheme.typography.bodyMedium, color = AppColors.textMuted,
+        )
+        SecondaryButton("Start a simulation", onStart, Modifier.fillMaxWidth().heightIn(min = 64.dp), accent = AppColors.primary)
+        if (past.isNotEmpty()) {
+            Text("PAST SIMULATIONS", style = AppType.eyebrow, color = AppColors.textMuted)
+            past.forEach { (rec, res) ->
+                Row(
+                    Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(AppColors.surfaceRaised)
+                        .clickable { onOpen(rec.id) }.padding(horizontal = Spacing.lg, vertical = Spacing.md).heightIn(min = 56.dp),
+                    verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Spacing.md),
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text("${res.format.label} · ${HyroxFormat.dateShort(rec.date)}", style = MaterialTheme.typography.titleSmall, color = AppColors.textPrimary)
+                        Text(
+                            "${res.meta.runMode.label} run legs · loads ${Math.round(res.meta.loadFactor * 100)}%" + if (res.meta.endedEarly) " · ended early" else "",
+                            style = MaterialTheme.typography.bodySmall, color = AppColors.textMuted,
+                        )
+                    }
+                    Text(HyroxSimController.longClock(res.totalSec), style = AppType.numberS, color = AppColors.primary)
+                }
+            }
+        }
     }
 }
 
