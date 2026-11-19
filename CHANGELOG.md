@@ -2,6 +2,14 @@
 
 What changed in each release, in plain language, newest first. The release workflow copies the matching `## vX.Y.Z` section into the GitHub release, and the app shows it as "What's new" before you tap Update.
 
+## v0.11.1
+
+- Knee care tells you what you need before you start: a "You'll need" checklist on the setup card and a "Get ready" screen with a big Ready button, so nothing has to be fetched mid-routine.
+- My home kit: set what you own at home (step, band, chair, mat, kettlebell weight). The routine only ever uses what is on that list, and the setup card shows the real length (single-leg work takes both sides, so it can be about 18 minutes).
+- No step? No problem: the step-downs are replaced by single-leg Romanian deadlifts and slow single-leg squats to a chair, which get harder with a slower lowering, the kettlebell and more reps.
+- Home calf raises now progress without heavy weights: one leg, then one leg with the kettlebell, then a slow 4 second lowering with a pause, then more reps up to about 25, with a longer pause. You start at the level that suits you, and move up when sets feel easy. Your heavy gym calf raises stay the strength work.
+- After each set in Knee care, tap Too easy, Just right or Too hard. Too easy makes the next set harder straight away and shortens the rest to 30 seconds. It also moves you up a level next time.
+
 ## v0.11.0
 
 - Guided gym sessions, now the default: one set at a time with a huge "5 reps", the load and your last time's numbers, small buttons to correct the weight or reps, and one large "Done, next" button. Then an optional effort row, a rest countdown with a beep and a "Next up" preview. Warm-up sets are steps too, there is a short "Next exercise" screen between exercises, and if you miss reps, "Rough day" and "At my limit" are two large buttons. Swap, skip, add and reorder live in a small More menu, and Overview opens the old list. A guided session saves exactly the same record as the list, so your progression is unchanged. You can switch it off in Settings.
