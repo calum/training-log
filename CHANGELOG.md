@@ -2,6 +2,12 @@
 
 What changed in each release, in plain language, newest first. The release workflow copies the matching `## vX.Y.Z` section into the GitHub release, and the app shows it as "What's new" before you tap Update.
 
+## v0.9.1
+
+- Swiping back (or the back key) now goes to the previous screen instead of closing the app. Home still closes the app, as usual.
+- During a live session (gym, treadmill, guided timer, Hyrox session or simulation) a swipe back asks "Leave this session?" with Keep going as the default, so you cannot lose a session by accident. Nothing is deleted without a second, deliberate tap.
+- On the treadmill's "How did it feel?" screen, back acts like Skip (the session is already saved), and on Home it first dismisses the celebration card.
+
 ## v0.9.0
 
 - Hyrox simulation mode: on the Hyrox page, start a full simulation (8 runs and 8 stations) or a half (stations 1 to 4 or 5 to 8) in true race order at your division's loads, or at 90% or 80% for a first go. The week 9 half sim, the week 10 circuit and the week 11 rehearsal open it straight from your plan.
