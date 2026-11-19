@@ -33,7 +33,23 @@ This is the evidence note for the race-preparation plan engine (`core/.../RacePl
 | 13 | 15 Feb | Taper | 220 | Short race-pace pieces |
 | 14 | 22 Feb | Race week | 160 | Sharpener Monday; rest Friday; race Saturday |
 
-The numbers move with the logs: the starting volume comes from the last 4 weeks of logged minutes (default 200 when there is little history), and any week can be repeated or stepped back. Use `RacePlanner.build` for the live values.
+The numbers move with the logs: the starting volume comes from the last 4 weeks of logged minutes (default 200 when there are under 4 sessions of history), and any week can be repeated or stepped back. Use `RacePlanner.build` for the live values.
+
+### Kick-off lead-in (before week 1)
+
+The 14 weeks stay anchored to the race, so week 1 is always Monday 23 November 2026. To let the plan start earlier, `RacePlan.leadIn` (phase `KICKOFF`, index 0, headline "Kick-off: easing in before week 1") covers tomorrow (today when nothing is logged today) up to the Sunday before week 1. It exists only while today is before week 1's Monday and a free day remains. It has an easy aerobic session of 25-35 minutes and, with 3 or more free days, a first strength session of 30-40 minutes with hip prehab, sized to the current load, never on a rest day, never next to another strength day (including week 1's Monday), walking only until the knee stage allows more. A session logged today counts for today, and the app says so plainly: "Nothing more needed today: your ladder counts. The plan starts tomorrow." From week 1's Monday there is no lead-in and nothing else changes.
+
+### Starting load follows your real minutes (candid note)
+
+The old rule clamped the recent average to 150-300 and required at least 160 minutes for 4 sessions, which put week 1 at about +60-90% on someone doing 85-100 minutes a week, against the plan's own 10% rule and with a returning knee. Now:
+
+- The baseline is the true average of the last 4 weeks of logs ending today (days before the first logged session are not counted; floor 60 min a week; ceiling 300; the 200 default only with under 4 sessions). Once week 1 starts it is frozen at the day before week 1.
+- Week 1 = baseline x 1.1 (rounded to 5), then at most about 10% a normal week; deloads, repeat-a-light-week, gap step-back and taper rules are unchanged.
+- Session minimums are lower while the week is small (strength 30, key 30, long 35, easy 20) and scale back to the normal ones (40/40/40/25) as the week reaches the normal minimum total, so a 4-session week can be 125 minutes. A key session under 40 minutes uses 2 x 6 minute reps; a base/build strength session under 40 minutes has no station finisher.
+- The peak is whatever the compounded build reaches by weeks 9-11, never above the cap. It is therefore lower than the capped maximum: the honest result from a low start, not a shortfall to chase. The app says this in a plan note.
+- With 4 sessions the planned easy share is about 78-86% (the near-full simulation week is the lowest); the taper stays 42% (week 13) and 58% (race week) below the peak.
+
+Example (Calum's real history on 19 Nov 2026: 342 minutes over the 3 weeks since his first logged session, so baseline 115; 4 sessions, 300 min cap; sessions planned per week in minutes): kick-off Fri 20-Sun 22 Nov 65 (35 strength + 30 easy); weeks 1-14: 125, 135, 145, 125 (lighter), 155, 170, 185, 140 (lighter), 200, 220, 240 (peak), 205, 140, 100.
 
 ## Rules, sources and how strong the evidence is
 
@@ -115,7 +131,7 @@ The plan only schedules running that the current `RunStage` allows. The stage is
 
 - **The easy/hard classification is approximate.** The app does not record a session RPE, so logged time is sorted by session type and station RPE (see `IntensityBalance`). Use "about 80/20" as a rough nudge, not a measurement.
 - **Three sessions a week cannot be 80/20 by time.** With two strength sessions and one key session, the key session is the only endurance time, so the planned share is about 55-60% easy. The plan says so and still keeps the key session short.
-- **Four sessions a week is about 80/20, plus or minus 3 points.**
+- **Four sessions a week is about 80/20, plus or minus 3 points** (planned 77-86% in the real-history example).
 - **The plan is a guide.** It adjusts to what was done, never marks anything as a miss, and nothing in it is a guarantee about race day.
 
 ## Sources

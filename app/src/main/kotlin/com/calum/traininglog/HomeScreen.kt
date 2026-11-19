@@ -244,6 +244,9 @@ private fun RaceHomeCard(
             Pill(RacePlanFormat.weekShort(plan, today), color = AppColors.info)
         }
         Text(RacePlanFormat.countdown(days), style = MaterialTheme.typography.headlineSmall, color = AppColors.textPrimary)
+        RacePlanFormat.kickoffStatus(plan, today)?.let {
+            Text(it, style = MaterialTheme.typography.titleSmall, color = AppColors.info)
+        }
         if (counted.isNotEmpty()) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
                 counted.sortedBy { it.date }.forEach { s ->
@@ -259,7 +262,7 @@ private fun RaceHomeCard(
                     )
                 }
                 Text(
-                    "${done.size} of ${counted.size} this week", style = MaterialTheme.typography.labelMedium,
+                    "${done.size} of ${counted.size} this ${if (week?.isLeadIn == true) "kick-off" else "week"}", style = MaterialTheme.typography.labelMedium,
                     color = AppColors.textMuted, modifier = Modifier.padding(start = Spacing.xs),
                 )
             }
@@ -267,13 +270,6 @@ private fun RaceHomeCard(
         val todays = week?.sessions?.firstOrNull { it.date == today }
         when {
             week == null -> Text("The plan has finished. Well done.", style = MaterialTheme.typography.bodyLarge, color = AppColors.textPrimary)
-            today < plan.start -> {
-                val first = week.sessions.minByOrNull { it.date }
-                Text(
-                    "Week 1 starts ${RacePlanFormat.shortDay(plan.start)}" + (first?.let { ". First up: ${it.title}, ${it.minutes} min." } ?: "."),
-                    style = MaterialTheme.typography.bodyMedium, color = AppColors.textMuted,
-                )
-            }
             plannedToday != null -> Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Spacing.md)) {
                 Column(Modifier.weight(1f)) {
                     Text("TODAY", style = AppType.eyebrow, color = AppColors.primary)
@@ -284,6 +280,17 @@ private fun RaceHomeCard(
             }
             todays != null && todays.kind != SessionKind.REST && !todays.isRaceDay ->
                 Text("Today's session is done. Nice work.", style = MaterialTheme.typography.bodyLarge, color = AppColors.textPrimary)
+            week.isLeadIn -> Text(
+                RacePlanFormat.kickoffTodayNote(plan, today) ?: RacePlanFormat.nextKickoffText(plan, week, done, today),
+                style = MaterialTheme.typography.bodyLarge, color = AppColors.textPrimary,
+            )
+            today < plan.start -> {
+                val first = week.sessions.minByOrNull { it.date }
+                Text(
+                    "Week 1 starts ${RacePlanFormat.shortDay(plan.start)}" + (first?.let { ". First up: ${it.title}, ${it.minutes} min." } ?: "."),
+                    style = MaterialTheme.typography.bodyMedium, color = AppColors.textMuted,
+                )
+            }
             todays?.isRaceDay == true -> Text("Race day. Enjoy it.", style = MaterialTheme.typography.bodyLarge, color = AppColors.textPrimary)
             else -> Text("Rest day. Nothing planned, enjoy it.", style = MaterialTheme.typography.bodyLarge, color = AppColors.textPrimary)
         }

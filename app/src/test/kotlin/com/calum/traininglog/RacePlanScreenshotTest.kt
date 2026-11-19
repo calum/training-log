@@ -64,6 +64,19 @@ private object RacePlanFixtures {
         )
     }
 
+    /** Calum's real history on Thursday 19 Nov 2026: about 100 minutes a week, walking and gym, a ladder logged today. */
+    fun real(): List<SessionRecord> {
+        n = 0
+        return listOf(
+            walk(d(10, 30), 30), gym(d(11, 1), 23), walk(d(11, 2), 30), gym(d(11, 5), 27), walk(d(11, 6), 45), walk(d(11, 8), 30),
+            gym(d(11, 12), 37), walk(d(11, 15), 20), gym(d(11, 16), 40), walk(d(11, 18), 30),
+            SessionRecord(
+                "rp-${n++}", d(11, 19), SessionType.TREADMILL, 30, 30, Feeling.GOOD,
+                treadmill = TreadmillLog(TreadmillStyle.LADDER, 1800, 1800, distanceM = 2550),
+            ),
+        )
+    }
+
     /** Week 1 already under way (Tuesday 24 Nov): Monday's strength is logged. */
     fun week1(): List<SessionRecord> = calmKnee() + gym(d(11, 23), knee = 1)
 
@@ -144,12 +157,16 @@ class RacePlanScreenshotTest(private val s: Case) {
     companion object {
         private val fx = RacePlanFixtures
         private val capped = RacePlanSettings(sessionsPerWeek = 4, maxWeeklyMinutes = 240)
+        private val mine = RacePlanSettings(sessionsPerWeek = 4, maxWeeklyMinutes = 300)
 
         @JvmStatic
         @ParameterizedRobolectricTestRunner.Parameters(name = "{0}")
         fun params(): List<Array<Any>> = listOf(
             Case("racePlan-top", LocalDate.of(2026, 11, 19), { emptyList() }),
-            Case("racePlan-week1", LocalDate.of(2026, 11, 24), fx::week1, scrollTo = "week"),
+            Case("racePlan-kickoff-top", LocalDate.of(2026, 11, 19), fx::real, settings = mine),
+            Case("racePlan-kickoff", LocalDate.of(2026, 11, 19), fx::real, settings = mine, scrollTo = "week", tallDp = 1300),
+            Case("racePlan-kickoff-weeks", LocalDate.of(2026, 11, 19), fx::real, settings = mine, scrollTo = "weeks", allWeeksOpen = true, tallDp = 2000),
+            Case("racePlan-week1",LocalDate.of(2026, 11, 24), fx::week1, scrollTo = "week"),
             Case("racePlan-midplan", LocalDate.of(2026, 12, 30), fx::midPlan),
             Case("racePlan-midplan-week", LocalDate.of(2026, 12, 30), fx::midPlan, scrollTo = "week"),
             Case("racePlan-midplan-balance", LocalDate.of(2026, 12, 30), fx::midPlan, scrollTo = "balance"),
@@ -163,7 +180,9 @@ class RacePlanScreenshotTest(private val s: Case) {
             Case("home-race", LocalDate.of(2026, 12, 30), fx::midPlan, screen = "home"),
             Case("home-race-today", LocalDate.of(2026, 12, 31), fx::midPlan, screen = "home"),
             Case("home-race-prestart", LocalDate.of(2026, 11, 19), fx::calmKnee, screen = "home"),
-            Case("start-race", LocalDate.of(2026, 12, 31), fx::midPlan, screen = "start"),
+            Case("home-race-kickoff", LocalDate.of(2026, 11, 19), fx::real, settings = mine, screen = "home"),
+            Case("start-race-kickoff", LocalDate.of(2026, 11, 19), fx::real, settings = mine, screen = "start"),
+            Case("start-race",LocalDate.of(2026, 12, 31), fx::midPlan, screen = "start"),
         ).map { arrayOf(it) }
     }
 }

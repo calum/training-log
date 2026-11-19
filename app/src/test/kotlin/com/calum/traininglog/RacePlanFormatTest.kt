@@ -39,11 +39,14 @@ class RacePlanFormatTest {
     }
 
     @Test fun weekLabels() {
-        assertEquals("Week 1 of 14 · Base", RacePlanFormat.weekHeadline(plan, nov19))
+        // Before week 1 the kick-off lead-in is 'this week'.
+        assertEquals("Kick-off: easing in before week 1", RacePlanFormat.weekHeadline(plan, nov19))
+        assertEquals("Week 1 of 14 · Base", RacePlanFormat.weekHeadline(plan, LocalDate.of(2026, 11, 23)))
         assertEquals("Week 1 of 14 · Base", RacePlanFormat.weekHeadline(plan, LocalDate.of(2026, 11, 24)))
         assertEquals("Week 14 of 14 · Race week", RacePlanFormat.weekHeadline(plan, LocalDate.of(2027, 2, 23)))
         assertEquals("Plan complete", RacePlanFormat.weekHeadline(plan, LocalDate.of(2027, 3, 8)))
-        assertEquals("Week 1 Base", RacePlanFormat.weekShort(plan, nov19))
+        assertEquals("Kick-off", RacePlanFormat.weekShort(plan, nov19))
+        assertEquals("Week 1 Base", RacePlanFormat.weekShort(plan, LocalDate.of(2026, 11, 23)))
         assertEquals("23-29 Nov", RacePlanFormat.weekRange(plan.week(1)!!))
         assertEquals("28 Dec - 3 Jan", RacePlanFormat.weekRange(plan.week(6)!!))
         RacePhase.entries.forEach { assertTrue(RacePlanFormat.phasePurpose(it).isNotBlank()) }
@@ -89,7 +92,10 @@ class RacePlanFormatTest {
         assertEquals(first, RacePlanFormat.todaysOpenSession(plan, emptyList(), first.date))
         val rec = if (first.kind == SessionKind.STRENGTH) gym(first.date) else walk(first.date)
         assertNull(RacePlanFormat.todaysOpenSession(plan, listOf(rec), first.date))
-        assertNull(RacePlanFormat.todaysOpenSession(plan, emptyList(), nov19)) // before the plan
+        // Before week 1 the kick-off session planned for today is the one to start (nothing is logged here)...
+        assertEquals(plan.leadIn!!.sessions.first { it.date == nov19 }, RacePlanFormat.todaysOpenSession(plan, emptyList(), nov19))
+        // ...and a day with no kick-off session, or before the kick-off, has none.
+        assertNull(RacePlanFormat.todaysOpenSession(plan, emptyList(), nov19.minusDays(3)))
         val noSession = w.start.let { s -> generateSequence(s) { it.plusDays(1) }.take(7).first { d -> w.sessions.none { it.date == d } } }
         assertNull(RacePlanFormat.todaysOpenSession(plan, emptyList(), noSession))
         assertNull(RacePlanFormat.todaysOpenSession(plan, emptyList(), plan.race)) // race day itself is not a "start" session
@@ -106,6 +112,27 @@ class RacePlanFormatTest {
         assertNull(RacePlanFormat.capUp(600))
         assertNull(RacePlanFormat.capUp(null))
         assertEquals(315, RacePlanFormat.capUp(300))
+    }
+
+    @Test fun kickoffWording() {
+        // Ladder logged today: nothing more needed, the kick-off starts tomorrow.
+        val ladder = SessionRecord("l1", nov19, SessionType.TREADMILL, 30, 30, Feeling.GOOD, treadmill = TreadmillLog(TreadmillStyle.LADDER, 1800, 1800))
+        val recs = listOf(walk(nov19.minusDays(1)), walk(nov19.minusDays(3)), walk(nov19.minusDays(5)), ladder)
+        val p = RacePlanner.build(RacePlanSettings(sessionsPerWeek = 4, maxWeeklyMinutes = 300), recs, nov19)
+        assertEquals("Kick-off · starts tomorrow", RacePlanFormat.kickoffStatus(p, nov19))
+        assertEquals("Nothing more needed today: your ladder counts. The plan starts tomorrow.", RacePlanFormat.kickoffTodayNote(p, nov19))
+        assertNull(RacePlanFormat.todaysOpenSession(p, recs, nov19))
+        assertEquals("Kick-off · week 1 starts tomorrow", RacePlanFormat.kickoffStatus(p, LocalDate.of(2026, 11, 22)))
+        assertEquals("Kick-off · week 1 starts Mon 23 Nov", RacePlanFormat.kickoffStatus(p, LocalDate.of(2026, 11, 21)))
+        assertNull(RacePlanFormat.kickoffStatus(p, p.start))
+        assertNull(RacePlanFormat.kickoffTodayNote(p, p.start))
+        // Nothing logged: it starts today.
+        assertEquals("Kick-off · starts today", RacePlanFormat.kickoffStatus(plan, nov19))
+        assertNull(RacePlanFormat.kickoffTodayNote(plan, nov19))
+        val w = p.leadIn!!
+        assertTrue(RacePlanFormat.kickoffProgressText(p, w, 0, w.sessions.size, 0).contains("Week 1 starts"))
+        assertTrue(RacePlanFormat.nextKickoffText(p, w, emptySet(), nov19).startsWith("Next up: Kick-off"))
+        assertTrue(RacePlanFormat.nextKickoffText(p, w, w.sessions.toSet(), nov19).startsWith("Kick-off is done"))
     }
 
     @Test fun runStageTexts() {

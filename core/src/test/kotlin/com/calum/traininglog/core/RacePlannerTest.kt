@@ -113,7 +113,9 @@ class RacePlannerTest {
         val p = plan(recs, week1)
         assertTrue(p.baselineMinutes in 295..300, "${p.baselineMinutes}")
         assertTrue(p.weeks[0].plannedMinutes >= 290)
-        for (w in p.weeks.filter { it.index in 2..11 && !it.deload }) assertTrue(w.plannedMinutes <= 400)
+        // A heavy history now starts at about +10% on its real average (330) and compounds at most 10% a week,
+        // up to the 5-session maximum; it no longer jumps to a fixed peak target.
+        for (w in p.weeks.filter { it.index in 2..11 && !it.deload }) assertTrue(w.plannedMinutes <= 405)
     }
 
     // ---------------------------------------------------------------------------------------- scheduling
@@ -453,7 +455,9 @@ class RacePlannerTest {
 
     @Test fun beforeTheStartAndDuringTheWeekHelpers() {
         val p = plan()
-        assertEquals(1, RacePlanner.thisWeek(p, today)!!.index)
+        // Before week 1 the kick-off lead-in (index 0) is 'this week'; from week 1's Monday it is week 1.
+        assertEquals(0, RacePlanner.thisWeek(p, today)!!.index)
+        assertTrue(RacePlanner.thisWeek(p, today)!!.isLeadIn)
         assertEquals(1, RacePlanner.thisWeek(p, week1)!!.index)
         assertEquals(14, RacePlanner.thisWeek(p, LocalDate.of(2027, 2, 27))!!.index)
         assertNull(RacePlanner.thisWeek(p, LocalDate.of(2027, 3, 1)))

@@ -40,6 +40,8 @@ data class RacePlanSettings(
 }
 
 enum class RacePhase(val label: String) {
+    /** The short lead-in before week 1 ([RacePlan.leadIn]); never part of the 14 numbered weeks or the timeline. */
+    KICKOFF("Kick-off"),
     BASE("Base"),
     BUILD("Build"),
     SPECIFIC("Hyrox-specific"),
@@ -118,8 +120,12 @@ data class PlanWeek(
     val focus: String,
     val stationTargets: Map<HyroxStation, Int>,
     val adjustment: String? = null,
+    /** Last day of a lead-in (the Sunday before week 1); null for the ordinary Monday-Sunday weeks. */
+    val lastDay: LocalDate? = null,
 ) {
-    val end: LocalDate get() = start.plusDays(6)
+    val end: LocalDate get() = lastDay ?: start.plusDays(6)
+    /** True for the kick-off lead-in ([RacePlan.leadIn]), which has [index] 0. */
+    val isLeadIn: Boolean get() = phase == RacePhase.KICKOFF
     private val counted: List<PlannedSession> get() = sessions.filter { !it.isRaceDay && it.kind != SessionKind.REST }
     val strengthMinutes: Int get() = counted.filter { it.intensity == Intensity.STRENGTH }.sumOf { it.minutes }
     val enduranceMinutes: Int get() = counted.filter { it.intensity != Intensity.STRENGTH }.sumOf { it.minutes }
@@ -142,10 +148,22 @@ data class RacePlan(
     val baselineMinutes: Int,
     val peakMinutes: Int,
     val runStatus: RunStatus,
+    /**
+     * Gentle kick-off sessions from tomorrow (today when nothing is logged today) to the Sunday before week 1, so
+     * the plan can start before its first Monday without re-numbering the 14 weeks. Null once week 1 has begun,
+     * or when no day is left. It has [PlanWeek.index] 0 and phase [RacePhase.KICKOFF].
+     */
+    val leadIn: PlanWeek? = null,
+    /** True when [baselineMinutes] is the real recent average from the logs (false: the default for a new user). */
+    val baselineFromHistory: Boolean = false,
+    /** Plain-words note on where the starting load came from and why the peak is what it is (null for the default). */
+    val startNote: String? = null,
 ) {
     val start: LocalDate get() = weeks.first().start
     fun week(index: Int): PlanWeek? = weeks.firstOrNull { it.index == index }
     fun weekOf(date: LocalDate): PlanWeek? = weeks.firstOrNull { date in it.start..it.end }
+    /** The lead-in when [date] falls inside it, else the numbered week containing [date]. */
+    fun segmentOf(date: LocalDate): PlanWeek? = leadIn?.takeIf { date in it.start..it.end } ?: weekOf(date)
     fun daysToGo(today: LocalDate): Long = ChronoUnit.DAYS.between(today, race)
 }
 

@@ -14,6 +14,7 @@ import com.calum.traininglog.core.SessionRecord
 import com.calum.traininglog.core.SessionType
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
+import java.time.temporal.ChronoUnit
 import java.util.Locale
 
 /**
@@ -60,9 +61,10 @@ internal object RacePlanFormat {
         else -> "Race done"
     }
 
-    /** "Week 1 of 14 · Base" (the first week before the plan starts; "Plan complete" after it). */
+    /** "Week 1 of 14 · Base"; the kick-off headline before week 1 ("Plan complete" after the race week). */
     fun weekHeadline(plan: RacePlan, today: LocalDate): String {
         val w = RacePlanner.thisWeek(plan, today) ?: return "Plan complete"
+        if (w.isLeadIn) return w.headline
         val label = "Week ${w.index} of ${RacePlanner.WEEKS} · ${w.phase.label}"
         return label
     }
@@ -70,7 +72,46 @@ internal object RacePlanFormat {
     /** Short one for the Home card: "Week 1 Base". */
     fun weekShort(plan: RacePlan, today: LocalDate): String {
         val w = RacePlanner.thisWeek(plan, today) ?: return "Plan complete"
+        if (w.isLeadIn) return "Kick-off"
         return "Week ${w.index} ${w.phase.label}"
+    }
+
+    /**
+     * The Home line for the kick-off lead-in: "Kick-off · starts tomorrow" (or today), then "Kick-off · week 1 starts
+     * Mon 23 Nov" once it is under way. Null when there is no lead-in or the plan has begun.
+     */
+    fun kickoffStatus(plan: RacePlan, today: LocalDate): String? {
+        val lead = plan.leadIn ?: return null
+        if (today >= plan.start) return null
+        return when {
+            today < lead.start && ChronoUnit.DAYS.between(today, lead.start) == 1L -> "Kick-off · starts tomorrow"
+            today < lead.start -> "Kick-off · starts ${shortDay(lead.start)}"
+            today == lead.start -> "Kick-off · starts today"
+            ChronoUnit.DAYS.between(today, plan.start) == 1L -> "Kick-off · week 1 starts tomorrow"
+            else -> "Kick-off · week 1 starts ${shortDay(plan.start)}"
+        }
+    }
+
+    /** The plain "Nothing more needed today: ..." line when today's session is already logged and the kick-off is next (else null). */
+    fun kickoffTodayNote(plan: RacePlan, today: LocalDate): String? =
+        if (today < plan.start) plan.leadIn?.adjustment else null
+
+    /** Progress line for the kick-off card: gentle, no targets to chase. */
+    fun kickoffProgressText(plan: RacePlan, w: PlanWeek, done: Int, total: Int, doneMin: Int): String {
+        val sessions = if (total == 1) "1 gentle session" else "$total gentle sessions"
+        return when {
+            total == 0 -> "Nothing planned: rest up. Week 1 starts ${shortDay(plan.start)}."
+            done == 0 -> "$sessions, ${w.plannedMinutes} planned minutes, ${weekRange(w)}. Week 1 starts ${shortDay(plan.start)}."
+            done >= total -> "Kick-off done: $doneMin of ${w.plannedMinutes} minutes. Week 1 starts ${shortDay(plan.start)}."
+            else -> "Nice work: $done of $total done, $doneMin of ${w.plannedMinutes} planned minutes. The rest are optional."
+        }
+    }
+
+    /** What is next in the kick-off, for the Home card when nothing is planned for today. */
+    fun nextKickoffText(plan: RacePlan, w: PlanWeek, done: Set<PlannedSession>, today: LocalDate): String {
+        val next = nextSession(w, done, today)
+        return if (next != null) "Next up: ${next.title}, ${next.minutes} min, ${shortDay(next.date)}."
+        else "Kick-off is done. Week 1 starts ${shortDay(plan.start)}."
     }
 
     /** "23-29 Nov" or "30 Nov - 6 Dec". */
@@ -80,6 +121,7 @@ internal object RacePlanFormat {
 
     /** One calm line on what a phase is for. */
     fun phasePurpose(phase: RacePhase): String = when (phase) {
+        RacePhase.KICKOFF -> "A few gentle sessions sized to what you are doing now, so week 1 starts from where you really are."
         RacePhase.BASE -> "Building the easy aerobic base and calming the knee. Most of it should feel comfortable."
         RacePhase.BUILD -> "Adding aerobic power and heavier station work, with running back only as the knee allows."
         RacePhase.SPECIFIC -> "Practising the race itself: stations at race standard, run legs after them."
@@ -133,7 +175,7 @@ internal object RacePlanFormat {
 
     /** Today's planned session when it is still to do (null on a rest day, before the plan, after it, or once done). */
     fun todaysOpenSession(plan: RacePlan, records: List<SessionRecord>, today: LocalDate): PlannedSession? {
-        val w = plan.weekOf(today) ?: return null
+        val w = plan.segmentOf(today) ?: return null
         val s = RacePlanner.today(plan, today) ?: return null
         if (s.isRaceDay || s.kind == SessionKind.REST) return null
         return if (s in doneSessions(w, records, today)) null else s

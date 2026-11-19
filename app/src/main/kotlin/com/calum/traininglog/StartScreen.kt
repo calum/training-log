@@ -137,11 +137,12 @@ fun StartScreen(vm: AppViewModel) {
     val data by vm.data.collectAsState()
     val today = LocalToday.current ?: LocalDate.now()
     val restDay = RestDays.isRestDay(data.profile, today)
-    val planned = remember(data.profile, data.records, today) {
-        data.profile.settings.racePlan.takeIf { it.enabled }?.let { cfg ->
-            RacePlanFormat.todaysOpenSession(RacePlanner.build(cfg, data.records, today, data.profile), data.records, today)
-        }
+    val racePlan = remember(data.profile, data.records, today) {
+        data.profile.settings.racePlan.takeIf { it.enabled }?.let { cfg -> RacePlanner.build(cfg, data.records, today, data.profile) }
     }
+    val planned = racePlan?.let { RacePlanFormat.todaysOpenSession(it, data.records, today) }
+    // Kick-off, today already logged: say plainly that nothing more is needed.
+    val kickoffNote = if (planned == null) racePlan?.let { RacePlanFormat.kickoffTodayNote(it, today) } else null
     // Preselect the planned length (the nearest of the time chips) once, when the screen opens.
     LaunchedEffect(planned?.date, planned?.title) {
         planned?.let { p -> vm.setInputs { it.copy(minutes = START_MINUTES.minBy { m -> Math.abs(m - p.minutes) }) } }
@@ -171,6 +172,17 @@ fun StartScreen(vm: AppViewModel) {
                 BigActionButton("Start the planned session", onClick = { vm.launchPlanned(p) })
                 Text(
                     "Or work out something different below. The plan will be here either way.",
+                    style = MaterialTheme.typography.bodySmall, color = AppColors.textMuted,
+                )
+            }
+        }
+
+        kickoffNote?.let {
+            SectionCard {
+                Text("HYROX SIM · KICK-OFF", style = AppType.eyebrow, color = AppColors.energy)
+                Text(it, style = MaterialTheme.typography.titleMedium, color = AppColors.textPrimary)
+                Text(
+                    "Anything else you fancy below is a bonus.",
                     style = MaterialTheme.typography.bodySmall, color = AppColors.textMuted,
                 )
             }

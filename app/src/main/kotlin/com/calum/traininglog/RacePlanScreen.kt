@@ -150,6 +150,7 @@ private fun phaseColor(p: RacePhase): Color = when (p) {
     RacePhase.SHARPEN -> AppColors.reward
     RacePhase.TAPER -> AppColors.rewardDeep
     RacePhase.RACE -> AppColors.textPrimary
+    RacePhase.KICKOFF -> AppColors.textMuted
 }
 
 @Composable
@@ -312,6 +313,7 @@ private fun PhaseTimeline(plan: RacePlan, week: PlanWeek?, today: LocalDate) {
         }
         Text(
             if (week == null) "The plan has finished."
+            else if (today < plan.start && plan.leadIn != null) "Kick-off first (${RacePlanFormat.weekRange(plan.leadIn!!)}), then week 1 starts on ${RacePlanFormat.shortDay(plan.start)}."
             else if (today < plan.start) "Week 1 starts on ${RacePlanFormat.shortDay(plan.start)}. Until then, rest up and look around."
             else "You are in week ${week.index} (${RacePlanFormat.weekRange(week)}). The outlined week is this one.",
             style = MaterialTheme.typography.bodySmall, color = AppColors.textMuted,
@@ -337,17 +339,24 @@ private fun ThisWeekCard(plan: RacePlan, week: PlanWeek, records: List<SessionRe
     val next = RacePlanFormat.nextSession(week, done, today)
     var open by remember(week.index) { mutableStateOf(setOfNotNull(next?.date)) }
     val progress = RacePlanner.weekProgress(plan, records, today)
+    val kick = week.isLeadIn
     val started = today >= week.start
     val doneMin = counted.filter { it in done }.sumOf { it.minutes }
     val weekOver = week.end < today
 
-    SectionCard(Modifier.testTag("week"), title = if (started) "This week" else "Coming up: week ${week.index}") {
-        Text(week.label, style = MaterialTheme.typography.titleMedium, color = AppColors.textPrimary)
+    SectionCard(Modifier.testTag("week"), title = if (kick) "Kick-off" else if (started) "This week" else "Coming up: week ${week.index}") {
+        Text(if (kick) week.headline else week.label, style = MaterialTheme.typography.titleMedium, color = AppColors.textPrimary)
         Text(week.focus, style = MaterialTheme.typography.bodyMedium, color = AppColors.textMuted)
         week.adjustment?.let {
             Text(it, style = MaterialTheme.typography.bodyMedium, color = AppColors.info)
         }
-        if (started) {
+        if (kick) {
+            ProgressBar((progress?.fraction ?: 0.0).toFloat())
+            Text(
+                RacePlanFormat.kickoffProgressText(plan, week, done.size, counted.size, doneMin),
+                style = MaterialTheme.typography.bodyMedium, color = AppColors.textPrimary,
+            )
+        } else if (started) {
             ProgressBar((progress?.fraction ?: 0.0).toFloat())
             Text(
                 RacePlanFormat.weekProgressText(done.size, counted.size, doneMin, week.plannedMinutes, weekOver),
@@ -358,6 +367,9 @@ private fun ThisWeekCard(plan: RacePlan, week: PlanWeek, records: List<SessionRe
                 "${counted.size} sessions, ${week.plannedMinutes} planned minutes.",
                 style = MaterialTheme.typography.bodyMedium, color = AppColors.textPrimary,
             )
+        }
+        if (week.index <= 1) plan.startNote?.let {
+            Text(it, style = MaterialTheme.typography.bodySmall, color = AppColors.textMuted)
         }
         Column(verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
             week.sessions.sortedBy { it.date }.forEach { s ->
@@ -600,6 +612,27 @@ private fun AllWeeksCard(plan: RacePlan, week: PlanWeek?, openInitially: Boolean
             )
         } else {
             Column(verticalArrangement = Arrangement.spacedBy(Spacing.xs)) {
+                plan.startNote?.let {
+                    Text(it, style = MaterialTheme.typography.bodySmall, color = AppColors.textMuted)
+                }
+                plan.leadIn?.let { li ->
+                    val current = week != null && week.isLeadIn
+                    Row(
+                        Modifier.fillMaxWidth().clip(AppShapes.small)
+                            .background(if (current) AppColors.primary.copy(alpha = 0.14f) else AppColors.surfaceRaised)
+                            .padding(horizontal = Spacing.md, vertical = Spacing.sm),
+                        horizontalArrangement = Arrangement.spacedBy(Spacing.md),
+                    ) {
+                        Column(Modifier.width(76.dp)) {
+                            Text("KICK-OFF", style = AppType.eyebrow, color = if (current) AppColors.primary else AppColors.textMuted)
+                            Text(RacePlanFormat.weekRange(li), style = MaterialTheme.typography.labelMedium, color = AppColors.textPrimary)
+                        }
+                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Text("Easing in · ${li.plannedMinutes} min", style = MaterialTheme.typography.titleSmall, color = AppColors.textPrimary)
+                            Text(li.sessions.joinToString(", ") { "${it.minutes} min ${if (it.kind == SessionKind.STRENGTH) "strength" else "easy"}" }, style = MaterialTheme.typography.bodySmall, color = AppColors.textMuted)
+                        }
+                    }
+                }
                 plan.weeks.forEach { w ->
                     val current = week != null && w.index == week.index
                     Row(

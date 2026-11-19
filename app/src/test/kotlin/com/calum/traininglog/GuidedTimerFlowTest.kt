@@ -149,7 +149,7 @@ class GuidedTimerFlowTest {
         val vm = newVm()
         val plan = RacePlanner.build(RacePlanSettings(), emptyList(), LocalDate.of(2026, 11, 19))
         val seen = mutableSetOf<String>()
-        for (w in plan.weeks) for (s in w.sessions) {
+        for (w in plan.weeks + listOfNotNull(plan.leadIn)) for (s in w.sessions) {
             vm.hyrox.reset(); vm.guided.reset(); TreadmillEngine.stop()
             vm.go(Screen.Home)
             vm.launchPlanned(s)
