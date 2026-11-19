@@ -29,7 +29,8 @@ data class Calibration(val speedKmh: Double = 5.5, val inclinePct: Double = 8.0)
 
 const val MAX_INCLINE = 12.0
 
-data class TreadmillPlan(val style: TreadmillStyle, val segments: List<Segment>) {
+/** [title] overrides the style's name on the setup screen (planned sessions, e.g. run-walk). */
+data class TreadmillPlan(val style: TreadmillStyle, val segments: List<Segment>, val title: String? = null) {
     val totalSec get() = segments.sumOf { it.seconds }
 }
 

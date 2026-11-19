@@ -141,6 +141,7 @@ fun GymScreen(vm: AppViewModel) {
             verticalArrangement = Arrangement.spacedBy(Spacing.md),
         ) {
             GymHeader(live.plan.dayLabel, live.plan.deload, doneSets, totalSets, progress)
+            if (live.finisher.isNotEmpty()) FinisherCard(live.finisher)
             live.plan.rebaseline?.takeIf { it.active }?.let { Pill(it.headline, color = AppColors.info) }
             if (live.plan.dropped.isNotEmpty()) {
                 Text(
@@ -208,6 +209,15 @@ private fun SessionClockBar(startedAt: Long, windowMinutes: Int, plannedMinutes:
             if (over) "+${(elapsedSec - windowSec + 59) / 60} min" else "of ${windowSec / 60} min",
             style = MaterialTheme.typography.labelMedium, color = if (over) AppColors.energy else AppColors.textMuted,
         )
+    }
+}
+
+/** Race-plan strength day: the Hyrox-station finisher to do after the lifts, as plain lines (header first). */
+@Composable
+private fun FinisherCard(lines: List<String>) {
+    com.calum.traininglog.ui.SectionCard(title = "Station finisher") {
+        Text(lines.first(), style = MaterialTheme.typography.bodyMedium, color = AppColors.textMuted)
+        lines.drop(1).forEach { Text(it, style = MaterialTheme.typography.titleSmall, color = AppColors.textPrimary) }
     }
 }
 

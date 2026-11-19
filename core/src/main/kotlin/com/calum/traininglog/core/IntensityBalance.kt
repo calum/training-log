@@ -50,6 +50,8 @@ data class IntensityBalanceResult(
  *  - TREADMILL: steady and long rolling are easy; pyramids and ladders count [HARD_FRACTION] of the main time
  *    as hard, intervals and long intervals about half (the rest is recovery); warm-up and cool-down
  *    ([WARM_COOL_MIN] min) are easy.
+ *  - Guided race-plan records (dayLabel 'Race plan', HYROX or HIKE type): the logged seconds at RPE 7 or more are hard,
+ *    the rest easy (exact, no warm-up allowance).
  *  - HYROX: station RPE where logged. Blocks at RPE 7 or more are 'hard', weighted by their logged seconds
  *    (equal weights when seconds are missing); blocks with no RPE count as easy.
  * An RPE of 7 or more is used as the 'hard' line; real intensity zones depend on the athlete. Use the numbers as
@@ -76,7 +78,7 @@ object IntensityBalance {
     /** One session's split (approximate, see the class comment). */
     fun classify(r: SessionRecord): TimeSplit = when (r.type) {
         SessionType.GYM, SessionType.CORE -> TimeSplit(0, 0, r.minutesActual)
-        SessionType.HIKE -> TimeSplit(r.minutesActual, 0, 0)
+        SessionType.HIKE -> if (isGuided(r)) guided(r) else TimeSplit(r.minutesActual, 0, 0)
         SessionType.TREADMILL -> {
             val t = r.treadmill
             val minutes = t?.let { it.completedSec / 60 } ?: r.minutesActual
@@ -84,7 +86,7 @@ object IntensityBalance {
             val hard = ((minutes - WARM_COOL_MIN).coerceAtLeast(0) * frac).roundToInt()
             TimeSplit(minutes - hard, hard, 0)
         }
-        SessionType.HYROX -> {
+        SessionType.HYROX -> if (isGuided(r)) guided(r) else {
             val blocks = r.stations
             val weights = if (blocks.isNotEmpty() && blocks.all { (it.seconds ?: 0) > 0 }) blocks.map { it.seconds!!.toDouble() } else blocks.map { 1.0 }
             val total = weights.sum()
@@ -93,6 +95,17 @@ object IntensityBalance {
             val hard = if (total > 0) (workMin * hardW / total).roundToInt() else 0
             TimeSplit(r.minutesActual - hard, hard, 0)
         }
+    }
+
+    /** A guided race-plan record (rower, SkiErg, bike ...) whose logs cover the session in seconds. */
+    private fun isGuided(r: SessionRecord) =
+        r.dayLabel == GuidedRecord.DAY_LABEL && r.stations.isNotEmpty() && r.stations.all { (it.seconds ?: 0) > 0 }
+
+    /** Exact split for a guided record: the seconds logged at RPE 7 or more are hard, everything else is easy. */
+    private fun guided(r: SessionRecord): TimeSplit {
+        val hardSec = r.stations.filter { (it.rpe ?: 0) >= HARD_RPE }.sumOf { it.seconds ?: 0 }
+        val hard = (hardSec / 60.0).roundToInt().coerceAtMost(r.minutesActual)
+        return TimeSplit(r.minutesActual - hard, hard, 0)
     }
 
     fun split(records: List<SessionRecord>, from: LocalDate, toInclusive: LocalDate): TimeSplit =

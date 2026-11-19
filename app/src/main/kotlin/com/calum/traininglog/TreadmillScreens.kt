@@ -85,7 +85,7 @@ fun TreadmillSetupScreen(vm: AppViewModel) {
     val plan by vm.pendingTreadmill.collectAsState()
     val p = plan ?: run { vm.home(); return }
     TreadmillSetupContent(
-        p, onStart = { vm.startTreadmill() }, onOtherStyle = { vm.otherStyle() }, onBack = { vm.go(Screen.Start) },
+        p, onStart = { vm.startTreadmill() }, onOtherStyle = { vm.otherStyle() }, onBack = { vm.go(if (p.title != null) Screen.RacePlan else Screen.Start) },
     )
 }
 
@@ -97,7 +97,7 @@ private fun TreadmillSetupContent(p: TreadmillPlan, onStart: () -> Unit, onOther
         verticalArrangement = Arrangement.spacedBy(Spacing.lg),
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(Spacing.xs)) {
-            Text(p.style.label, style = MaterialTheme.typography.headlineLarge, color = AppColors.textPrimary)
+            Text(p.title ?: p.style.label, style = MaterialTheme.typography.headlineLarge, color = AppColors.textPrimary)
             Text("${p.totalSec / 60} minutes", style = MaterialTheme.typography.titleMedium, color = AppColors.textMuted)
         }
         SectionCard(title = "Your session") {
@@ -132,7 +132,7 @@ private fun TreadmillSetupContent(p: TreadmillPlan, onStart: () -> Unit, onOther
             style = MaterialTheme.typography.bodyMedium, color = AppColors.textMuted,
         )
         BigActionButton("Start", onStart, Modifier.heightIn(min = 96.dp))
-        SecondaryButton("Different style", onOtherStyle, Modifier.fillMaxWidth())
+        if (p.title == null) SecondaryButton("Different style", onOtherStyle, Modifier.fillMaxWidth())
         SecondaryButton("Back", onBack, Modifier.fillMaxWidth(), accent = AppColors.textMuted)
     }
 }

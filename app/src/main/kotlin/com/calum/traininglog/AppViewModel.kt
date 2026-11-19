@@ -18,6 +18,12 @@ import com.calum.traininglog.core.Feeling
 import com.calum.traininglog.core.GymBuilder
 import com.calum.traininglog.core.GymPlan
 import com.calum.traininglog.core.Rebaseline
+import com.calum.traininglog.core.GuidedPlan
+import com.calum.traininglog.core.GuidedRecord
+import com.calum.traininglog.core.Modality
+import com.calum.traininglog.core.PlannedSession
+import com.calum.traininglog.core.PlannedTreadmill
+import com.calum.traininglog.core.SessionKind
 import com.calum.traininglog.core.LoggedSet
 import com.calum.traininglog.core.MissReason
 import com.calum.traininglog.core.PlannedExercise
@@ -101,6 +107,8 @@ data class GymLive(
     val rest: Rest? = null,
     val startedAt: Long = 0L,
     val windowMinutes: Int = 0,
+    /** 'Station finisher: ...' lines from a race-plan strength session (header first); empty for a normal session. */
+    val finisher: List<String> = emptyList(),
 )
 
 class AppViewModel @JvmOverloads constructor(
@@ -319,8 +327,12 @@ class AppViewModel @JvmOverloads constructor(
         val mins = minutes.coerceIn(20, 120)
         val style = forced ?: TreadmillPlanner.chooseStyle(mins, lastTreadmillStyle(), exciting = mins >= 60, seed = styleSeed)
         _pendingTreadmill.value = TreadmillPlanner.build(style, mins, _data.value.profile.treadmill, _data.value.profile.settings)
+        treadmillDayLabel = null
         go(Screen.TreadmillSetup)
     }
+
+    /** `dayLabel` for the treadmill record about to run: "Run-walk" / "Run" so the knee-gated run stage counts it. */
+    private var treadmillDayLabel: String? = null
 
     fun otherStyle() {
         val plan = _pendingTreadmill.value ?: return
@@ -357,7 +369,7 @@ class AppViewModel @JvmOverloads constructor(
         return SessionRecord(
             id = id, date = today, type = SessionType.TREADMILL,
             minutesAvailable = _inputs.value.minutes, minutesActual = completedSec / 60,
-            feeling = _inputs.value.feeling, kneePain = _inputs.value.knee,
+            feeling = _inputs.value.feeling, kneePain = _inputs.value.knee, dayLabel = treadmillDayLabel,
             treadmill = TreadmillLog(plan.style, plan.totalSec, completedSec, effort, stats.distanceM, stats.climbM, stats.kcal),
         )
     }
@@ -533,9 +545,84 @@ class AppViewModel @JvmOverloads constructor(
     /** Rest days, headline targets and other profile settings. */
     fun updateProfile(f: (Profile) -> Profile) = persist { it.copy(profile = f(it.profile)) }
 
-    /** Open the right flow for a planned race-plan session (treadmill, gym, Hyrox session or guided timer). */
-    fun launchPlanned(session: com.calum.traininglog.core.PlannedSession) {
-        home() // placeholder: replaced by the real routing
+    // ---- Race plan: start and track a planned session ----
+
+    val guided = GuidedTimerController()
+
+    /**
+     * Open the right flow for a planned race-plan session. [modality] is the one the user picked (the session's
+     * first option when null): strength opens the gym builder (with the station finisher shown), Hyrox stations the
+     * guided Hyrox session, the treadmill modalities the treadmill setup with a plan built for the planned minutes,
+     * and rower / SkiErg / bike the guided timer. A rest day goes home.
+     */
+    fun launchPlanned(session: PlannedSession, modality: Modality? = null) {
+        val mod = modality ?: GuidedPlan.defaultModality(session)
+        when {
+            session.kind == SessionKind.REST || mod == Modality.REST -> home()
+            session.kind == SessionKind.STRENGTH || mod == Modality.GYM -> {
+                setInputs { it.copy(minutes = session.minutes.coerceAtLeast(20)) }
+                startGym(session.minutes.coerceAtLeast(20))
+                val finisher = GuidedPlan.finisherLines(session)
+                if (finisher.isNotEmpty()) _gym.update { it?.copy(finisher = finisher) }
+            }
+            mod == Modality.HYROX_STATIONS -> {
+                val focus = session.launch.hyroxFocus
+                hyrox.prepare(hyroxInput(), session.minutes, focus, withRuns = session.includesRunning)
+                go(Screen.HyroxSession(focus))
+            }
+            mod == Modality.TREADMILL_WALK || mod == Modality.TREADMILL_RUN || mod == Modality.RUN_WALK -> {
+                val p = _data.value.profile
+                val plan = PlannedTreadmill.build(session, mod, p.treadmill, p.settings)
+                _pendingTreadmill.value = plan.copy(title = plan.title ?: session.title)
+                treadmillDayLabel = when (mod) { Modality.RUN_WALK -> "Run-walk"; Modality.TREADMILL_RUN -> "Run"; else -> null }
+                go(Screen.TreadmillSetup)
+            }
+            else -> {
+                guided.prepare(session, mod)
+                go(Screen.GuidedTimer(session))
+            }
+        }
+    }
+
+    /**
+     * Saves the finished guided session the moment it ends (and when it is ended early), so nothing is lost if the
+     * screen freezes or the app closes. The rating card then only edits that record. Under a minute logs nothing.
+     */
+    private fun autosaveGuided(ui: GuidedUi) {
+        if (ui.phase != GuidedPhase.DONE || ui.savedId != null) return
+        val run = ui.run ?: return
+        val s = ui.session ?: return
+        runCatching {
+            val record = GuidedRecord.build(
+                UUID.randomUUID().toString(), today, s.minutes, ui.modality, run.completedSec, run.workSec, ui.distanceM, ui.rpe, ui.feeling,
+            ) ?: return
+            guided.markSaved(record.id)
+            persist { it.copy(records = it.records + record) }
+        }
+    }
+
+    /** Rating card "Save": attaches distance, effort and feeling to the already saved record, then returns to the plan. */
+    fun saveGuided() {
+        autosaveGuided(guided.ui.value)
+        val ui = guided.ui.value
+        val id = ui.savedId
+        val run = ui.run
+        val s = ui.session
+        if (id != null && run != null && s != null) {
+            val old = _data.value.records.firstOrNull { it.id == id }
+            val edited = old?.let {
+                GuidedRecord.build(id, it.date, s.minutes, ui.modality, run.completedSec, run.workSec, ui.distanceM, ui.rpe, ui.feeling)
+            }
+            if (edited != null) persist { d -> d.copy(records = d.records.map { r -> if (r.id == id) edited else r }) }
+        }
+        guided.reset()
+        home()
+    }
+
+    /** Leaves the guided timer setup without starting. */
+    fun guidedBack() {
+        if (guided.ui.value.phase != GuidedPhase.RUNNING) guided.reset()
+        go(Screen.RacePlan)
     }
 
     fun dismissCelebration() { _celebration.value = null }
@@ -567,5 +654,7 @@ class AppViewModel @JvmOverloads constructor(
         // A finished treadmill session is saved the moment it finishes, before any screen is involved,
         // so nothing the user did can be lost to a stuck or closed screen. The effort question just edits it.
         viewModelScope.launch { TreadmillEngine.ui.collect { autosaveFinishedTreadmill(it) } }
+        // Same for the guided timer: saved when its last step ends, the rating card just edits it.
+        viewModelScope.launch { guided.ui.collect { autosaveGuided(it) } }
     }
 }
