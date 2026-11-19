@@ -2,6 +2,14 @@
 
 What changed in each release, in plain language, newest first. The release workflow copies the matching `## vX.Y.Z` section into the GitHub release, and the app shows it as "What's new" before you tap Update.
 
+## v0.11.0
+
+- Guided gym sessions, now the default: one set at a time with a huge "5 reps", the load and your last time's numbers, small buttons to correct the weight or reps, and one large "Done, next" button. Then an optional effort row, a rest countdown with a beep and a "Next up" preview. Warm-up sets are steps too, there is a short "Next exercise" screen between exercises, and if you miss reps, "Rough day" and "At my limit" are two large buttons. Swap, skip, add and reorder live in a small More menu, and Overview opens the old list. A guided session saves exactly the same record as the list, so your progression is unchanged. You can switch it off in Settings.
+- The mat/core routine is now progressive: planks and other holds grow by 5 seconds (up to 60) after sessions that feel easy, or move to a harder variant, and step back after a hard or skipped session. The setup card shows it, for example "plank 30 s to 35 s". Core sessions and hikes now save the moment they end.
+- A guided timer for hikes and walks: a big stopwatch with Pause and Finish, optional halfway and finish beeps, distance and climb at the end, and a gentle offer for how long to go next time (never more than about 10% more).
+- Rep-based steps in Hyrox sessions read "Do 25 reps, then press Done" with a large button.
+- A written audit of every kind of session is in docs/guidance-audit.md: how it is guided, recorded, tracked and progressive.
+
 ## v0.10.0
 
 - Knee care: a guided 15-minute routine for the hips and calves, from Home or the Race plan. Hip abductor and glute work, then weighted calf raises, then a cool-down. You can do it any day, even a rest day or after another session. It is not counted as one of your workouts, never uses up a rest day, and skipping it never affects your plan.
