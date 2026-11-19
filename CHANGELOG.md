@@ -2,6 +2,12 @@
 
 What changed in each release, in plain language, newest first. The release workflow copies the matching `## vX.Y.Z` section into the GitHub release, and the app shows it as "What's new" before you tap Update.
 
+## v0.8.1
+
+- The race plan now starts from tomorrow. A short Kick-off covers Friday to Sunday (one easy session and one light strength session), so "This week" is no longer next week's sessions. Week 1 still starts on Monday 23 Nov, and the 14-week structure and the race-week timing are unchanged.
+- The plan now starts from the minutes you have really been training (about 115 a week) instead of a fixed minimum, and builds about 10% a week from there. Your first week is about 125 minutes. The peak is lower than before (about 240 minutes) because it follows your real starting point, which is the safer way to rebuild with a knee to protect.
+- If you have already trained today, the plan says so plainly: nothing more needed today, it starts tomorrow.
+
 ## v0.8.0
 
 - A Hyrox race plan for your simulation on Saturday 27 February 2027: 14 weeks of base, build, specific work, a sharpening week, a two-week taper and race week. It is mostly easy work with about 20% hard and Hyrox-specific sessions, strength on separate days, and a taper that cuts volume while keeping intensity. It starts from what you actually do, never asks you to catch up, and repeats a week if it was a light one.
