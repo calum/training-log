@@ -2,6 +2,15 @@
 
 What changed in each release, in plain language, newest first. The release workflow copies the matching `## vX.Y.Z` section into the GitHub release, and the app shows it as "What's new" before you tap Update.
 
+## v0.8.0
+
+- A Hyrox race plan for your simulation on Saturday 27 February 2027: 14 weeks of base, build, specific work, a sharpening week, a two-week taper and race week. It is mostly easy work with about 20% hard and Hyrox-specific sessions, strength on separate days, and a taper that cuts volume while keeping intensity. It starts from what you actually do, never asks you to catch up, and repeats a week if it was a light one.
+- Set for you: 4 sessions a week and at most about 5 hours (300 minutes) in any week. You can change the race date, sessions (3 to 6) and the weekly cap on the Race plan screen.
+- Your knee comes first: running returns in stages (run-walk, continuous, intervals, runs between stations) and only moves on after two calm runs in a row (knee 2 out of 10 or less). The rower, SkiErg, incline walking and bike carry the aerobic work meanwhile. If pain persists, it suggests seeing your physio.
+- The Race plan screen: a countdown, a 14-week timeline, this week's sessions with a Start button for each, an easy/hard balance gauge and the running stages. The same session shows on Home and as the first suggestion when you start a session.
+- Every planned session can be started: strength opens the gym (with a station finisher card), Hyrox sessions open the guided Hyrox session, treadmill sessions (including run-walk) open the treadmill setup, and rower, SkiErg and bike sessions open a new guided timer with beeps. They are all saved and counted towards your balance automatically.
+- The evidence and its limits are written up in docs/hyrox-plan-evidence.md.
+
 ## v0.7.1
 
 - Hyrox at home: choose Gym or Home & garden when you set up a session. Tick the equipment you have in each place on the Hyrox page (the gym defaults to everything; at home you start with just the treadmill, so tick the wall ball or sandbag when you buy them). Home sessions only use stations you can do there, and tell you what is missing with a substitute.

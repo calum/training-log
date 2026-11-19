@@ -59,7 +59,8 @@ data class UserSettings(
     val hyroxRunSpeedKmh: Double = 9.0,
     val hyroxRunInclinePct: Double = 1.0,
     /** Race-preparation plan (event date, sessions per week, on/off). */
-    val racePlan: RacePlanSettings = RacePlanSettings(),
+    /** Calum's answers: 4 sessions a week and about 5 hours (300 min) at most in any week. The planner's own defaults are unchanged. */
+    val racePlan: RacePlanSettings = RacePlanSettings(sessionsPerWeek = 4, maxWeeklyMinutes = 300),
 ) {
     /** The kit ticked for [place]. */
     fun hyroxGearAt(place: HyroxPlace): Set<HyroxGear> = if (place == HyroxPlace.GYM) hyroxGymGear else hyroxHomeGear

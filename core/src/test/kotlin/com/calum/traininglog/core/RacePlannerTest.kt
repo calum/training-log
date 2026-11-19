@@ -542,11 +542,14 @@ class RacePlannerTest {
         assertEquals(u, json.decodeFromString<UserSettings>(json.encodeToString(u)))
         // Old JSON without the field.
         val old = json.decodeFromString<UserSettings>("""{"gymTarget":4}""")
-        assertEquals(RacePlanSettings(), old.racePlan)
+        // The app's own default is Calum's answers (4 sessions, 300 min cap); the planner's defaults are unchanged.
+        assertEquals(RacePlanSettings(sessionsPerWeek = 4, maxWeeklyMinutes = 300), old.racePlan)
         assertEquals(LocalDate.of(2027, 2, 27), old.racePlan.raceDate)
-        assertEquals(5, old.racePlan.sessionsPerWeek)
+        assertEquals(4, old.racePlan.sessionsPerWeek)
+        assertEquals(300, old.racePlan.maxWeeklyMinutes)
+        assertEquals(5, RacePlanSettings().sessionsPerWeek)
         assertTrue(old.racePlan.enabled)
-        assertEquals(RacePlanSettings(), json.decodeFromString<Profile>("{}").settings.racePlan)
+        assertEquals(UserSettings().racePlan, json.decodeFromString<Profile>("{}").settings.racePlan)
         assertEquals(6, RacePlanSettings(sessionsPerWeek = 9).sanitized().sessionsPerWeek)
         assertEquals(3, UserSettings(racePlan = RacePlanSettings(sessionsPerWeek = 1)).sanitized().racePlan.sessionsPerWeek)
     }

@@ -50,6 +50,10 @@ Personal progressive training app for Android (Pixel 6a). Asks how much time and
 
 - **Hyrox**: hub with the 8 stations by division, per-station technique, mistakes, knee notes, alternatives and a 6-level progression, a guided station session with lap timer and ratings, quick logging, PRs, badges and export. Standards are third-party figures (confirm at hyrox.com) and editable. See `core/.../Hyrox.kt`. Pick Gym or Home & garden per session (tick your kit under My equipment; home plans only use ticked kit), and optionally add treadmill runs between stations (counted-down time at your set speed, logged as `run` entries).
 
+## Added in v0.8
+
+- **Hyrox race plan** (14 weeks to 27 Feb 2027): periodised, mostly easy with ~20% hard, knee-gated running return, adaptive and guilt-free, with guided timers and launch routing for every planned session. Evidence and caveats in `docs/hyrox-plan-evidence.md`.
+
 Not yet built: training blocks, in-app settings for increments and starting weights.
 
 ## Starting weights are placeholders
