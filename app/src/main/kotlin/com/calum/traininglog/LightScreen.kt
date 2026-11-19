@@ -17,10 +17,13 @@ import com.calum.traininglog.ui.BigNumberStepper
 import com.calum.traininglog.ui.SecondaryButton
 import com.calum.traininglog.ui.SectionCard
 
-// ---------------- Hike / walk (core has its own guided screen, see CoreSessionScreen) ----------------
+// ---------------- Hike / walk quick log (the guided stopwatch is HikeScreen; core has its own guided screen) ----------------
 
 @Composable
 fun LightScreen(vm: AppViewModel, type: SessionType) {
+    // A hike or walk is a guided stopwatch; the quick log below is one tap away for one already done.
+    var manual by remember { mutableStateOf(false) }
+    if (type == SessionType.HIKE && !manual) { HikeScreen(vm, onManual = { manual = true }); return }
     val inputs by vm.inputs.collectAsState()
     var minutes by remember { mutableIntStateOf(inputs.minutes) }
     var note by remember { mutableStateOf("") }

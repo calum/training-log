@@ -516,6 +516,9 @@ private fun LegTimer(
             Text("LEG TIME", style = AppType.eyebrow, color = AppColors.textMuted)
             Text(HyroxText.clock(legSec), style = AppType.numberHero.copy(fontSize = 96.sp, lineHeight = 100.sp), color = if (paused) AppColors.textMuted else AppColors.primary)
         }
+        if (leg.reps != null && lead == 0 && countdown == null) {
+            Text("Do ${leg.reps} reps, then press Done", style = MaterialTheme.typography.headlineSmall, color = AppColors.textPrimary, textAlign = TextAlign.Center)
+        }
         BigActionButton(
             if (countdown != null) "Done early" else "Done", onDone, Modifier.heightIn(min = 96.dp),
             enabled = !paused && lead == 0, brush = AppColors.gradientReward,

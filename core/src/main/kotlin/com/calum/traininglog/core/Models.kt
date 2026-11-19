@@ -122,6 +122,8 @@ data class Profile(
     val blocks: BlockState = BlockState(),
     /** Race plan: moved and skipped sessions, and the replan alert snooze (see [PlanAdjustments]). */
     val planAdjustments: PlanAdjustments = PlanAdjustments(),
+    /** Mat routine progression: the seconds and variant last done per exercise id, and how it went (see [CoreProgression]). */
+    val coreProgress: Map<String, CoreProgressEntry> = emptyMap(),
 )
 
 /** Rest weekdays a new (or older, field-less) profile starts with: Tuesday and Friday. */

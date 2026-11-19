@@ -9,6 +9,7 @@ import androidx.lifecycle.viewModelScope
 import com.calum.traininglog.core.TreadmillStatsCalc
 import kotlinx.coroutines.launch
 import com.calum.traininglog.core.CalfMode
+import com.calum.traininglog.core.workResults
 import com.calum.traininglog.core.Effort
 import com.calum.traininglog.core.KneeCare
 import com.calum.traininglog.core.KneeCareLibrary
@@ -110,9 +111,14 @@ data class LiveExercise(
     val sets: List<LiveSet>,
     val missReason: MissReason? = null,
     val askMiss: Boolean = false,
+    /** Guided mode: "Start" was pressed on this exercise's intro card. Has no effect on what is saved. */
+    val started: Boolean = false,
+    /** Guided mode: the rest of this exercise was skipped (sets not done are simply not logged). */
+    val closed: Boolean = false,
 )
 
-data class Rest(val endsAt: Long, val totalSec: Int)
+/** [ei] and [si] say which set started the rest (-1 when unknown); the guided screen puts the effort row on it. */
+data class Rest(val endsAt: Long, val totalSec: Int, val ei: Int = -1, val si: Int = -1)
 
 /** Fired when a session is saved; the Home screen shows it once, then calls [AppViewModel.dismissCelebration]. */
 data class Celebration(val record: SessionRecord, val messages: List<String>)
@@ -174,6 +180,11 @@ class AppViewModel @JvmOverloads constructor(
 
     private var styleSeed = 0L
     private var gymStartedAt = 0L
+
+    private val _gymGuided = MutableStateFlow(true)
+    /** True while the gym screen shows one set at a time; false for the whole list. Starts from the "Guided gym mode" setting. */
+    val gymGuided: StateFlow<Boolean> = _gymGuided.asStateFlow()
+    fun setGymGuided(on: Boolean) { _gymGuided.value = on }
 
     /** Screens left behind, oldest first. Only screens that can be re-entered are ever pushed (see [pushable]). */
     private val backStack = ArrayDeque<Screen>()
@@ -257,7 +268,7 @@ class AppViewModel @JvmOverloads constructor(
             SessionType.GYM -> startGym(minutes)
             SessionType.TREADMILL -> prepareTreadmill(minutes, style)
             SessionType.CORE -> prepareCore(minutes)
-            SessionType.HIKE -> go(Screen.Light(type))
+            SessionType.HIKE -> { hikePrepare(); go(Screen.Light(type)) }
             SessionType.HYROX -> { hyroxPrepare(emptySet(), minutes); go(Screen.HyroxSession(emptySet())) }
             null -> home()
         }
@@ -272,6 +283,7 @@ class AppViewModel @JvmOverloads constructor(
         val deload = Progression.deloadDue(gymDates, _data.value.profile.lastDeload, today, settings = _data.value.profile.settings)
         val plan = GymBuilder.build(lifting, records, today, deload, rebaseline = Rebaseline.status(records, today), settings = _data.value.profile.settings)
         gymStartedAt = SystemClock.elapsedRealtime()
+        _gymGuided.value = _data.value.profile.settings.guidedGym
         _gym.value = GymLive(plan, plan.exercises.map { live(it) }, startedAt = gymStartedAt, windowMinutes = lifting)
         go(Screen.Gym)
     }
@@ -309,7 +321,7 @@ class AppViewModel @JvmOverloads constructor(
         }
         if (nowDone) {
             val rest = ex.planned.exercise.restSec
-            editGym { it.copy(rest = Rest(SystemClock.elapsedRealtime() + rest * 1000L, rest)) }
+            editGym { it.copy(rest = Rest(SystemClock.elapsedRealtime() + rest * 1000L, rest, ei, si)) }
         }
     }
 
@@ -320,6 +332,33 @@ class AppViewModel @JvmOverloads constructor(
     fun setMiss(ei: Int, reason: MissReason) = editExercise(ei) { it.copy(missReason = reason, askMiss = false) }
 
     fun clearRest() = editGym { it.copy(rest = null) }
+
+    // ---- Guided gym helpers (the saved record is built from the same sets as in the list, see finishGym) ----
+
+    /** Guided "Done, next": marks the set done through [doneSet] (rest timer included), but a second quick tap never un-does it. */
+    fun completeSet(ei: Int, si: Int) {
+        if (_gym.value?.exercises?.getOrNull(ei)?.sets?.getOrNull(si)?.done == false) doneSet(ei, si)
+    }
+
+    /** Guided "Done, next" on a warm-up: ticks it (a second tap does not un-tick it). */
+    fun completeWarmup(ei: Int, wi: Int) {
+        if (_gym.value?.exercises?.getOrNull(ei)?.warmups?.getOrNull(wi)?.done == false) toggleWarmup(ei, wi)
+    }
+
+    /** "Start" on an exercise's intro card. */
+    fun startExercise(ei: Int) = editExercise(ei) { it.copy(started = true) }
+
+    /** "Skip the rest of this exercise": sets not done stay out of the record. */
+    fun closeExercise(ei: Int) = editExercise(ei) { it.copy(closed = true, askMiss = false) }
+
+    /** Ticks every warm-up of exercise [ei] (guided "Skip warm-ups"); warm-ups are never saved. */
+    fun finishWarmups(ei: Int) = editExercise(ei) { e -> e.copy(warmups = e.warmups.map { it.copy(done = true) }) }
+
+    /** "Last time: 72.5 kg x 5, 5, 5" for an exercise, or null when it was never logged. */
+    fun lastTimeLine(exerciseId: String): String? {
+        val last = GymBuilder.history(exerciseId, _data.value.records).firstOrNull()?.log?.sets?.takeIf { it.isNotEmpty() } ?: return null
+        return GymGuide.lastTime(last)
+    }
 
     /** Replace exercise [ei] with another one (any exercise in the same movement group, incl. deadlift <-> RDL). */
     fun swap(ei: Int, newId: String) {
@@ -530,12 +569,12 @@ class AppViewModel @JvmOverloads constructor(
         ((_inputs.value.knee ?: _data.value.records.filter { it.kneePain != null }.maxByOrNull { it.date }?.kneePain) ?: 0) >= 4
 
     private fun prepareCore(minutes: Int) {
-        core.prepare(minutes, lastCoreIds(), kneeDefault())
+        core.prepare(minutes, lastCoreIds(), kneeDefault(), _data.value.profile.coreProgress)
         go(Screen.Core)
     }
 
     fun coreSetup(minutes: Int? = null, kneeSensitive: Boolean? = null, reshuffle: Boolean = false) =
-        core.rebuild(lastCoreIds(), minutes, kneeSensitive, reshuffle)
+        core.rebuild(lastCoreIds(), minutes, kneeSensitive, reshuffle, _data.value.profile.coreProgress)
 
     /** Saves the finished (or ended) core session as a normal record, then goes home. Under a minute logs nothing. */
     fun saveCore(effort: Effort?) {
@@ -543,6 +582,11 @@ class AppViewModel @JvmOverloads constructor(
         val minutes = (run?.completedSec ?: 0) / 60
         core.reset()
         if (run == null || minutes < 1) { home(); return }
+        // What was done decides the next targets (see CoreProgression): finished and fine moves up, skipped or too hard eases off.
+        val results = run.workResults()
+        if (results.isNotEmpty()) {
+            updateProfile { it.copy(coreProgress = com.calum.traininglog.core.CoreProgression.update(it.coreProgress, results, effort, _inputs.value.feeling, today)) }
+        }
         val names = run.doneWorkNames()
         val felt = when (effort) { Effort.TOO_EASY -> "too easy"; Effort.JUST_RIGHT -> "just right"; Effort.TOO_HARD -> "too hard"; null -> null }
         saveLight(SessionType.CORE, minutes, if (names.isEmpty()) "Core: warm-up and stretching" else com.calum.traininglog.core.CoreRoutine.note(names, felt))
@@ -801,7 +845,61 @@ class AppViewModel @JvmOverloads constructor(
         home()
     }
 
-    // ---- Hike (and the old core log) ----
+    // ---- Hike (guided stopwatch, and the quick log for one already done) ----
+
+    val hike = HikeController()
+
+    /** Opens the hike setup with the next-length offer from the last hike (a running one is resumed, not replaced). */
+    fun hikePrepare() {
+        val d = _data.value
+        hike.prepare(com.calum.traininglog.core.Hike.suggest(d.records, today), _inputs.value.feeling)
+    }
+
+    private fun hikeRecord(u: HikeUi, id: String, date: LocalDate): SessionRecord? {
+        val minutes = (hike.elapsedMs(u) / 60_000).toInt()
+        if (minutes < 1) return null
+        return SessionRecord(
+            id = id, date = date, type = SessionType.HIKE,
+            minutesAvailable = u.targetMin ?: minutes, minutesActual = minutes, feeling = u.feeling,
+            kneePain = _inputs.value.knee, note = com.calum.traininglog.core.Hike.note(u.distanceKm, u.climbM, u.note).ifBlank { null },
+        )
+    }
+
+    /** Saves the hike the moment Finish is pressed, so nothing is lost if the screen freezes. The finish card only edits it. */
+    private fun autosaveHike(u: HikeUi) {
+        if (u.phase != HikePhase.DONE || u.savedId != null) return
+        runCatching {
+            val record = hikeRecord(u, UUID.randomUUID().toString(), today) ?: return
+            hike.markSaved(record.id)
+            persist { it.copy(records = it.records + record) }
+        }
+    }
+
+    /** Finish card "Done": puts distance, climb, feeling and note on the already saved record (no duplicate), then goes home. */
+    fun saveHike() {
+        autosaveHike(hike.ui.value)
+        val u = hike.ui.value
+        val id = u.savedId
+        if (id != null) {
+            val old = _data.value.records.firstOrNull { it.id == id }
+            val edited = old?.let { hikeRecord(u, id, it.date) }
+            if (edited != null) persist { d -> d.copy(records = d.records.map { r -> if (r.id == id) edited else r }) }
+        }
+        hike.reset()
+        home()
+    }
+
+    /** Drops a running hike without saving. */
+    fun hikeDiscard() {
+        hike.reset()
+        home()
+    }
+
+    /** Leaves the hike setup without starting. */
+    fun hikeBack() {
+        if (hike.ui.value.phase == HikePhase.SETUP) hike.reset()
+        backOr(Screen.Start)
+    }
 
     fun saveLight(type: SessionType, minutes: Int, note: String) {
         val record = SessionRecord(
@@ -967,5 +1065,7 @@ class AppViewModel @JvmOverloads constructor(
         viewModelScope.launch { sim.ui.collect { autosaveSim(it) } }
         // And knee care: saved when its last step ends (or it is ended early), the finish card just edits it.
         viewModelScope.launch { kneeCare.ui.collect { autosaveKneeCare(it) } }
+        // And the hike: saved when Finish is pressed, the finish card just edits it.
+        viewModelScope.launch { hike.ui.collect { autosaveHike(it) } }
     }
 }

@@ -39,6 +39,7 @@ internal fun backActionFor(vm: AppViewModel, screen: Screen): BackAction {
     val core by vm.core.ui.collectAsState()
     val guided by vm.guided.ui.collectAsState()
     val knee by vm.kneeCare.ui.collectAsState()
+    val hike by vm.hike.ui.collectAsState()
     val hyrox by vm.hyrox.ui.collectAsState()
     val sim by vm.sim.ui.collectAsState()
     val inputs by vm.inputs.collectAsState()
@@ -102,6 +103,17 @@ internal fun backActionFor(vm: AppViewModel, screen: Screen): BackAction {
                 ),
             )
             GuidedPhase.DONE -> BackAction.Do { vm.saveGuided() }
+        }
+        is Screen.Light -> when (hike.phase) {
+            HikePhase.SETUP -> BackAction.Pop
+            HikePhase.RUNNING -> BackAction.Ask(
+                "End and save keeps the time so far (under a minute is not logged). Discard drops this hike and nothing is saved.",
+                listOf(
+                    LeaveOption("End and save", { vm.hike.finish(); vm.saveHike() }),
+                    LeaveOption("Discard", { vm.hikeDiscard() }, muted = true),
+                ),
+            )
+            HikePhase.DONE -> BackAction.Do { vm.saveHike() }
         }
         is Screen.HyroxSession -> when (hyrox.phase) {
             HyroxPhase.SETUP -> BackAction.Pop

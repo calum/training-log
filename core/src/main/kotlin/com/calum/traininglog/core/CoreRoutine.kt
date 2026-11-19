@@ -40,6 +40,8 @@ data class CoreStep(
     val nextName: String? = null,
     val exerciseId: String? = null,
     val reps: Int? = null,
+    /** Variant level of a work step (0 = the base exercise; see [CoreVariants]). */
+    val level: Int = 0,
 )
 
 /** A block of the work section: a circuit of [exercises] done [rounds] times. */
@@ -53,6 +55,8 @@ data class CoreSession(
     val blocks: List<CoreBlock>,
     val cooldown: List<CoreStep>,
     val steps: List<CoreStep>,
+    /** What moved up (or eased off) since last time, from [Profile.coreProgress]; empty when nothing changed. */
+    val progress: List<CoreProgressNote> = emptyList(),
 ) {
     val totalSec: Int get() = steps.sumOf { it.seconds }
 
@@ -102,7 +106,7 @@ object CoreLibrary {
     )
 
     private val byId = all.associateBy { it.id }
-    private val byName = all.associateBy { it.name }
+    private val byName = all.associateBy { it.name }.mapValues { it.value.id } + CoreVariants.namesToIds
 
     fun get(id: String): CoreExercise? = byId[id]
 
@@ -110,7 +114,7 @@ object CoreLibrary {
     fun idsFromNote(note: String?): List<String> {
         val t = note?.trim() ?: return emptyList()
         if (!t.startsWith("Core:")) return emptyList()
-        return t.removePrefix("Core:").split(",").mapNotNull { byName[it.trim().substringBefore(" (felt")]?.id }
+        return t.removePrefix("Core:").split(",").mapNotNull { byName[it.trim().substringBefore(" (felt")] }
     }
 
     internal val warmupMoves = listOf(
@@ -144,6 +148,7 @@ object CoreRoutine {
         last: List<String>? = null,
         seed: Long = 0,
         kneeSensitive: Boolean = false,
+        progress: Map<String, CoreProgressEntry> = emptyMap(),
     ): CoreSession {
         val mins = minutes.coerceIn(MIN_MINUTES, MAX_MINUTES)
         val total = mins * 60
@@ -173,15 +178,29 @@ object CoreRoutine {
         val rest = maxOf(5, plan.cycle - work)
 
         val blocks = plan.blocks.map { CoreBlock(it, plan.rounds, work, rest) }
+        // Progression: an exercise done before gets its own target seconds (and variant); the work + rest pair keeps its length.
+        val cycle = work + rest
+        val notes = mutableListOf<CoreProgressNote>()
+        val targets = mutableMapOf<String, CoreProgression.Target>()
+        blocks.flatMap { it.exercises }.forEach { e ->
+            val entry = progress[e.id]?.takeIf { it.workSec > 0 } ?: return@forEach
+            val t = CoreProgression.target(e.id, entry, cycle - 5, kneeSensitive)
+            targets[e.id] = t
+            CoreProgression.note(e.id, entry, t)?.let { notes += it }
+        }
         val raw = mutableListOf<CoreStep>()
         CoreLibrary.warmupMoves.forEach { (id, n, cue) -> raw += CoreStep(n, cue, warmEach, CoreKind.WARMUP, exerciseId = id) }
         blocks.forEach { b ->
             repeat(b.rounds) {
                 b.exercises.forEach { e ->
                     val sides: List<CoreSide?> = if (e.unilateral) listOf(CoreSide.LEFT, CoreSide.RIGHT) else listOf(null)
+                    val t = targets[e.id]
+                    val variant = t?.let { CoreVariants.variant(e.id, it.level) }
+                    val sec = t?.sec ?: b.workSec
+                    val reps = e.reps?.let { r -> if (t == null) r else maxOf(1, Math.round(r * sec / b.workSec.toFloat())) }
                     sides.forEach { s ->
-                        raw += CoreStep(e.name, e.cue, b.workSec, CoreKind.WORK, s, exerciseId = e.id, reps = e.reps)
-                        raw += CoreStep("Rest", "Shake out and breathe.", b.restSec, CoreKind.REST)
+                        raw += CoreStep(variant?.name ?: e.name, variant?.cue ?: e.cue, sec, CoreKind.WORK, s, exerciseId = e.id, reps = reps, level = t?.level ?: 0)
+                        raw += CoreStep("Rest", "Shake out and breathe.", maxOf(5, cycle - sec), CoreKind.REST)
                     }
                 }
             }
@@ -202,6 +221,7 @@ object CoreRoutine {
             blocks = blocks,
             cooldown = steps.filter { it.kind == CoreKind.COOLDOWN },
             steps = steps,
+            progress = notes,
         )
     }
 

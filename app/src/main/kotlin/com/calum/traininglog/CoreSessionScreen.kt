@@ -53,7 +53,9 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.calum.traininglog.core.CoreEvent
 import com.calum.traininglog.core.CueType
 import com.calum.traininglog.core.CoreKind
+import com.calum.traininglog.core.CoreProgressEntry
 import com.calum.traininglog.core.CoreRoutine
+import com.calum.traininglog.core.workResults
 import com.calum.traininglog.core.CoreRun
 import com.calum.traininglog.core.CoreSession
 import com.calum.traininglog.core.CoreSide
@@ -102,17 +104,20 @@ class CoreController {
     private val _ui = MutableStateFlow(CoreUi())
     val ui: StateFlow<CoreUi> = _ui.asStateFlow()
 
-    fun prepare(minutes: Int, last: List<String>, kneeSensitive: Boolean) {
+    fun prepare(minutes: Int, last: List<String>, kneeSensitive: Boolean, progress: Map<String, CoreProgressEntry> = emptyMap()) {
         val m = (minutes.coerceIn(CoreRoutine.MIN_MINUTES, CoreRoutine.MAX_MINUTES) + 2) / 5 * 5
         val seed = System.currentTimeMillis() / 1000
-        _ui.value = CoreUi(minutes = m, kneeSensitive = kneeSensitive, seed = seed, session = CoreRoutine.build(m, last = last, seed = seed, kneeSensitive = kneeSensitive))
+        _ui.value = CoreUi(minutes = m, kneeSensitive = kneeSensitive, seed = seed, session = CoreRoutine.build(m, last = last, seed = seed, kneeSensitive = kneeSensitive, progress = progress))
     }
 
-    fun rebuild(last: List<String>, minutes: Int? = null, kneeSensitive: Boolean? = null, reshuffle: Boolean = false) = _ui.update {
+    fun rebuild(
+        last: List<String>, minutes: Int? = null, kneeSensitive: Boolean? = null, reshuffle: Boolean = false,
+        progress: Map<String, CoreProgressEntry> = emptyMap(),
+    ) = _ui.update {
         val m = minutes ?: it.minutes
         val k = kneeSensitive ?: it.kneeSensitive
         val seed = if (reshuffle) it.seed + 1 else it.seed
-        it.copy(minutes = m, kneeSensitive = k, seed = seed, session = CoreRoutine.build(m, last = last, seed = seed, kneeSensitive = k))
+        it.copy(minutes = m, kneeSensitive = k, seed = seed, session = CoreRoutine.build(m, last = last, seed = seed, kneeSensitive = k, progress = progress))
     }
 
     fun start() = _ui.update { u ->
@@ -350,7 +355,7 @@ private fun NextUpCard(next: String) {
 // ---------------- Setup ----------------
 
 @Composable
-private fun CoreSetupContent(
+internal fun CoreSetupContent(
     ui: CoreUi,
     onMinutes: (Int) -> Unit,
     onKnee: (Boolean) -> Unit,
@@ -383,6 +388,22 @@ private fun CoreSetupContent(
                 ui.kneeSensitive, onKnee,
                 colors = SwitchDefaults.colors(checkedTrackColor = AppColors.primary, checkedThumbColor = AppColors.onPrimary),
             )
+        }
+        if (s != null && s.progress.isNotEmpty()) {
+            Column(
+                Modifier.fillMaxWidth().clip(AppShapes.medium).background(AppColors.reward.copy(alpha = 0.12f))
+                    .border(1.dp, AppColors.reward.copy(alpha = 0.45f), AppShapes.medium).padding(Spacing.lg),
+                verticalArrangement = Arrangement.spacedBy(Spacing.xs),
+            ) {
+                Text("PROGRESS SINCE LAST TIME", style = AppType.eyebrow, color = AppColors.reward)
+                s.progress.forEach {
+                    Text(
+                        (if (it.up) "Progress: " else "A touch easier today: ") + it.text,
+                        style = MaterialTheme.typography.titleSmall, color = AppColors.textPrimary,
+                    )
+                }
+                Text("Finish them all without skipping and it goes up again. Skip or call it too hard and it eases off. No pressure either way.", style = MaterialTheme.typography.bodySmall, color = AppColors.textMuted)
+            }
         }
         if (s != null) {
             val moves = s.blocks.sumOf { it.exercises.size }
@@ -441,7 +462,7 @@ internal fun StepLine(lead: String, name: String, tail: String?) {
 // ---------------- Done ----------------
 
 @Composable
-private fun CoreDoneScreen(ui: CoreUi, onSave: (Effort?) -> Unit) {
+internal fun CoreDoneScreen(ui: CoreUi, onSave: (Effort?) -> Unit) {
     var burst by remember { mutableIntStateOf(0) }
     LaunchedEffect(Unit) { burst = 1 }
     val minutes = (ui.run?.completedSec ?: 0) / 60
@@ -461,6 +482,16 @@ private fun CoreDoneScreen(ui: CoreUi, onSave: (Effort?) -> Unit) {
                     StatTile("Time", "$minutes", Modifier.weight(1f), unit = "min", compact = true)
                     StatTile("Moves", "${ui.run?.doneWorkNames()?.size ?: 0}", Modifier.weight(1f), accent = AppColors.reward, compact = true)
                 }
+                progressed(ui).takeIf { it.isNotEmpty() }?.let { list ->
+                    Column(
+                        Modifier.fillMaxWidth().clip(AppShapes.medium).background(AppColors.reward.copy(alpha = 0.12f))
+                            .border(1.dp, AppColors.reward.copy(alpha = 0.45f), AppShapes.medium).padding(Spacing.md),
+                        verticalArrangement = Arrangement.spacedBy(Spacing.xs),
+                    ) {
+                        Text("YOU PROGRESSED", style = AppType.eyebrow, color = AppColors.reward)
+                        list.forEach { Text(it.text, style = MaterialTheme.typography.titleSmall, color = AppColors.textPrimary) }
+                    }
+                }
                 Text("How did that feel? (optional)", style = MaterialTheme.typography.headlineSmall, color = AppColors.textPrimary)
                 DoneTile("Too easy", "Next time push harder", AppColors.energy) { onSave(Effort.TOO_EASY) }
                 DoneTile("Just right", "Keep it like this", AppColors.primary) { onSave(Effort.JUST_RIGHT) }
@@ -470,6 +501,12 @@ private fun CoreDoneScreen(ui: CoreUi, onSave: (Effort?) -> Unit) {
         }
         ConfettiBurst(burst, Modifier.fillMaxSize(), particleCount = 120)
     }
+}
+
+/** What moved up this session: targets above last time's that were finished without skipping. */
+private fun progressed(ui: CoreUi): List<com.calum.traininglog.core.CoreProgressNote> {
+    val done = ui.run?.workResults()?.filter { it.completed }?.map { it.exerciseId }.orEmpty().toSet()
+    return ui.session?.progress.orEmpty().filter { it.up && it.exerciseId in done }
 }
 
 @Composable

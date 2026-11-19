@@ -261,6 +261,15 @@ fun SettingsScreen(vm: AppViewModel) {
             ResetButton(Group.PROGRESSION)
         }
 
+        // ---- Gym screen ----
+        GroupCard("Gym screen", if (settings.guidedGym) "Guided, one set at a time" else "Full list", open = "gymscreen" in openGroups, onToggle = { toggleGroup("gymscreen") }) {
+            Muted("Guided shows one set at a time with a big Done, next button, then the rest timer. Off shows every exercise as a list. Either way the same record is saved, and you can switch during a session.")
+            Row(Modifier.fillMaxWidth().heightIn(min = Spacing.minTap), verticalAlignment = Alignment.CenterVertically) {
+                Text("Guided gym mode", color = AppColors.textPrimary, fontSize = 17.sp, modifier = Modifier.weight(1f))
+                Switch(checked = settings.guidedGym, onCheckedChange = { on -> update { it.copy(guidedGym = on) } })
+            }
+        }
+
         // ---- Gentle reminder ----
         GroupCard("Gentle reminder", if (settings.reminderEnabled) "On, around ${String.format("%02d:%02d", settings.reminderHour, settings.reminderMinute)}" else "Off", open = "reminder" in openGroups, onToggle = { toggleGroup("reminder") }) {
             Muted("Totally optional and off by default. One quiet evening nudge on days you haven't trained, never on rest days, and never about missed sessions. Nothing is lost if you ignore it.")

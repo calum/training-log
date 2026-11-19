@@ -429,6 +429,15 @@ private fun LapStopwatch(ui: HyroxUi, nowMs: Long, onGo: () -> Unit, onDone: () 
         horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(Spacing.md),
     ) {
         Text(if (running) "LAP TIME" else "READY", style = AppType.eyebrow, color = AppColors.textMuted)
+        // Rep stations (wall balls): say what to do and when to press, in plain words.
+        val block = ui.block
+        val reps = block?.takeIf { it.station.kind == com.calum.traininglog.core.StationKind.REPS }?.prescription?.reps
+        if (reps != null) {
+            Text(
+                if (running) "Do $reps reps, then press Done" else "Press Go, then do $reps reps",
+                style = MaterialTheme.typography.headlineSmall, color = AppColors.textPrimary, textAlign = TextAlign.Center,
+            )
+        }
         Text(
             HyroxText.clock(sec), color = if (running) AppColors.primary else AppColors.textMuted,
             style = AppType.numberHero.copy(fontSize = 96.sp, lineHeight = 100.sp),

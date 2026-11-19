@@ -63,6 +63,8 @@ data class UserSettings(
     val racePlan: RacePlanSettings = RacePlanSettings(sessionsPerWeek = 4, maxWeeklyMinutes = 300),
     /** Time allowed for each transition (the "Roxzone") in a Hyrox simulation: 10 to 180 s in steps of 5. 45 s suits the gym. */
     val hyroxTransitionSec: Int = HyroxSim.DEFAULT_TRANSITION_SEC,
+    /** Gym sessions show one set at a time with big buttons (on by default); off shows the whole list. */
+    val guidedGym: Boolean = true,
 ) {
     /** The kit ticked for [place]. */
     fun hyroxGearAt(place: HyroxPlace): Set<HyroxGear> = if (place == HyroxPlace.GYM) hyroxGymGear else hyroxHomeGear

@@ -130,10 +130,21 @@ fun GymScreen(vm: AppViewModel) {
         if (flash) AppColors.primary.copy(alpha = 0.22f) else AppColors.background, tween(200), label = "flashBg",
     )
     val rest = live.rest
+    val guided by vm.gymGuided.collectAsState()
+    val finishNow = {
+        bigBurst++
+        scope.launch { delay(900); vm.finishGym() }
+        Unit
+    }
 
     var barHeight by remember { mutableStateOf(0.dp) }
     val density = LocalDensity.current
     Box(Modifier.fillMaxSize().background(flashBg)) {
+        if (guided) {
+            Column(Modifier.fillMaxSize().statusBarsPadding()) {
+                GuidedGymBody(vm, live, remaining, onFinish = finishNow, onAdd = { showAdd = true })
+            }
+        } else {
         Column(Modifier.fillMaxSize().statusBarsPadding()) {
         if (live.startedAt > 0L) SessionClockBar(live.startedAt, live.windowMinutes, live.plan.estimatedMinutes)
         Column(
@@ -143,6 +154,7 @@ fun GymScreen(vm: AppViewModel) {
             verticalArrangement = Arrangement.spacedBy(Spacing.md),
         ) {
             GymHeader(live.plan.dayLabel, live.plan.deload, doneSets, totalSets, progress)
+            SecondaryButton("Guided mode: one set at a time", onClick = { vm.setGymGuided(true) }, Modifier.fillMaxWidth(), accent = AppColors.info)
             if (live.finisher.isNotEmpty()) FinisherCard(live.finisher)
             live.plan.rebaseline?.takeIf { it.active }?.let { Pill(it.headline, color = AppColors.info) }
             if (live.plan.dropped.isNotEmpty()) {
@@ -155,10 +167,7 @@ fun GymScreen(vm: AppViewModel) {
                 ExerciseCard(vm, ei, e, count = live.exercises.size, optional = e.planned.exercise.id in live.plan.optionalIds, targetRir = live.plan.rebaseline?.takeIf { it.active && it.stage < 3 }?.targetRir)
             }
             SecondaryButton("Add exercise", onClick = { showAdd = true }, Modifier.fillMaxWidth(), accent = AppColors.info)
-            BigActionButton("Finish session", onClick = {
-                bigBurst++
-                scope.launch { delay(900); vm.finishGym() }
-            })
+            BigActionButton("Finish session", onClick = finishNow)
             SecondaryButton("Discard", onClick = { vm.discardGym() }, Modifier.fillMaxWidth())
             Spacer(Modifier.height(Spacing.lg).navigationBarsPadding())
         }
@@ -173,6 +182,7 @@ fun GymScreen(vm: AppViewModel) {
                 RestTimerBar(remainingSec = remaining, totalSec = rest.totalSec, onSkip = { vm.clearRest() })
             }
         }
+        }
         if (showAdd) AddExerciseDialog(vm, onDismiss = { showAdd = false })
         ConfettiBurst(smallBurst, Modifier.fillMaxSize(), particleCount = 60)
         ConfettiBurst(bigBurst, Modifier.fillMaxSize(), particleCount = 220, durationMillis = 2400)
@@ -184,7 +194,7 @@ fun GymScreen(vm: AppViewModel) {
  * Going over just turns the bar amber and says '+N min'; it is information, never a warning.
  */
 @Composable
-private fun SessionClockBar(startedAt: Long, windowMinutes: Int, plannedMinutes: Int) {
+internal fun SessionClockBar(startedAt: Long, windowMinutes: Int, plannedMinutes: Int) {
     var elapsedSec by remember { mutableIntStateOf(((SystemClock.elapsedRealtime() - startedAt) / 1000).toInt().coerceAtLeast(0)) }
     LaunchedEffect(startedAt) {
         while (true) {
@@ -435,7 +445,7 @@ private fun CompactStepper(value: String, unit: String, valueWidth: Dp, onMinus:
 
 /** Pick a library exercise (grouped by movement, plus your earlier own ones) or type "Something else". */
 @Composable
-private fun AddExerciseDialog(vm: AppViewModel, onDismiss: () -> Unit) {
+internal fun AddExerciseDialog(vm: AppViewModel, onDismiss: () -> Unit) {
     val groups = remember { vm.addOptions() }
     var name by remember { mutableStateOf("") }
     var movement by remember { mutableStateOf<String?>(null) }

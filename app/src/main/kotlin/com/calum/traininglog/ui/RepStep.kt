@@ -35,7 +35,7 @@ import androidx.compose.ui.unit.dp
 
 /*
  * Rep-based steps ("do 8 reps, then press Next"), built to be reused by any screen with sets: the knee care calf
- * sets use them now, the gym screen can later. Three pieces, used in this order for each set:
+ * sets use them now, the guided gym screen uses them too. Three pieces, used in this order for each set:
  *
  *   [RepStepCard]  the set itself: name, "Set 2 of 4", the target reps as huge numerals, the tempo, the load, and ONE
  *                  very large "Done, next" button at the bottom. Small -/+ steppers correct the load and the reps done.
@@ -77,9 +77,14 @@ fun RepStepCard(
     nextUp: String? = null,
     doneLabel: String = "Done, next",
     pinDone: Boolean = false,
+    /** Replaces the "SET 2 OF 4" pill (for example "WARM-UP 2 OF 5"). */
+    badge: String? = null,
+    /** False hides the "REPS DONE" stepper (a warm-up set has nothing to correct). */
+    repsStepper: Boolean = true,
 ) {
     Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(Spacing.md), horizontalAlignment = Alignment.CenterHorizontally) {
-        if (setCount > 0) Pill("SET $setNumber OF $setCount", color = AppColors.primary, filled = true)
+        if (badge != null) Pill(badge, color = AppColors.primary, filled = true)
+        else if (setCount > 0) Pill("SET $setNumber OF $setCount", color = AppColors.primary, filled = true)
         Text(name, style = MaterialTheme.typography.headlineMedium, color = AppColors.textPrimary, textAlign = TextAlign.Center)
 
         Column(
@@ -91,7 +96,7 @@ fun RepStepCard(
                 Text("$targetReps", style = AppType.numberHero, color = AppColors.primary)
                 Text(if (targetReps == 1) "rep" else "reps", style = MaterialTheme.typography.headlineMedium, color = AppColors.textPrimary, modifier = Modifier.padding(bottom = 18.dp))
             }
-            Text(tempo, style = MaterialTheme.typography.titleMedium, color = AppColors.textPrimary, textAlign = TextAlign.Center)
+            if (tempo.isNotBlank()) Text(tempo, style = MaterialTheme.typography.titleMedium, color = AppColors.textPrimary, textAlign = TextAlign.Center)
             if (weightKg != null || onWeightChange != null) {
                 Spacer(Modifier.size(Spacing.xs))
                 Text(
@@ -112,11 +117,13 @@ fun RepStepCard(
                     onPlus = { onWeightChange((weightKg ?: 0.0) + weightStepKg) },
                 )
             }
-            MiniStepper(
-                "REPS DONE", "$reps", "reps",
-                onMinus = { onRepsChange((reps - 1).coerceAtLeast(0)) },
-                onPlus = { onRepsChange(reps + 1) },
-            )
+            if (repsStepper) {
+                MiniStepper(
+                    "REPS DONE", "$reps", "reps",
+                    onMinus = { onRepsChange((reps - 1).coerceAtLeast(0)) },
+                    onPlus = { onRepsChange(reps + 1) },
+                )
+            }
         }
         nextUp?.let { NextUpLine(it) }
         if (pinDone) Spacer(Modifier.weight(1f))
