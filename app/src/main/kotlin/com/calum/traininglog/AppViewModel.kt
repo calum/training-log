@@ -66,6 +66,10 @@ sealed interface Screen {
     data class HyroxSession(val focus: Set<com.calum.traininglog.core.HyroxStation> = emptySet()) : Screen
     /** Quick log of a station already done; [station] pre-selects it. */
     data class HyroxLog(val station: com.calum.traininglog.core.HyroxStation? = null) : Screen
+    /** Evidence-based Hyrox race plan: countdown, weeks, sessions, balance. */
+    data object RacePlan : Screen
+    /** Guided timer for an easy or interval session from the race plan (rower, SkiErg, bike, ...). */
+    data class GuidedTimer(val session: com.calum.traininglog.core.PlannedSession) : Screen
 }
 
 data class Inputs(
@@ -528,6 +532,11 @@ class AppViewModel @JvmOverloads constructor(
 
     /** Rest days, headline targets and other profile settings. */
     fun updateProfile(f: (Profile) -> Profile) = persist { it.copy(profile = f(it.profile)) }
+
+    /** Open the right flow for a planned race-plan session (treadmill, gym, Hyrox session or guided timer). */
+    fun launchPlanned(session: com.calum.traininglog.core.PlannedSession) {
+        home() // placeholder: replaced by the real routing
+    }
 
     fun dismissCelebration() { _celebration.value = null }
 
