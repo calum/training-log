@@ -32,6 +32,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import com.calum.traininglog.core.Effort
 
 /*
  * Rep-based steps ("do 8 reps, then press Next"), built to be reused by any screen with sets: the knee care calf
@@ -40,6 +41,8 @@ import androidx.compose.ui.unit.dp
  *   [RepStepCard]  the set itself: name, "Set 2 of 4", the target reps as huge numerals, the tempo, the load, and ONE
  *                  very large "Done, next" button at the bottom. Small -/+ steppers correct the load and the reps done.
  *   [RirRow]       an optional one-tap effort row (reps left in the tank). It never blocks: ignore it and carry on.
+ *   [FeelRow]      the friendlier three-button version (Too easy / Just right / Too hard); pass [effort] and [onEffort] to
+ *                  [RepStepCard] to show it above the Done button. Knee care uses it; other flows can opt in the same way.
  *   [RestStepCard] the rest between sets: a countdown ring, "Skip rest", and a "Next up" preview.
  */
 
@@ -81,11 +84,17 @@ fun RepStepCard(
     badge: String? = null,
     /** False hides the "REPS DONE" stepper (a warm-up set has nothing to correct). */
     repsStepper: Boolean = true,
+    /** A line above the name such as "Level 4 of 6: single-leg with kettlebell, slow lowering". */
+    levelLine: String? = null,
+    /** The optional Too easy / Just right / Too hard row: shown when [onEffort] is given (it never blocks Done). */
+    effort: Effort? = null,
+    onEffort: ((Effort?) -> Unit)? = null,
 ) {
     Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(Spacing.md), horizontalAlignment = Alignment.CenterHorizontally) {
         if (badge != null) Pill(badge, color = AppColors.primary, filled = true)
         else if (setCount > 0) Pill("SET $setNumber OF $setCount", color = AppColors.primary, filled = true)
         Text(name, style = MaterialTheme.typography.headlineMedium, color = AppColors.textPrimary, textAlign = TextAlign.Center)
+        levelLine?.let { Text(it, style = MaterialTheme.typography.titleSmall, color = AppColors.reward, textAlign = TextAlign.Center) }
 
         Column(
             Modifier.fillMaxWidth().clip(AppShapes.large).background(AppColors.surfaceRaised).padding(vertical = Spacing.lg, horizontal = Spacing.md),
@@ -125,6 +134,7 @@ fun RepStepCard(
                 )
             }
         }
+        if (onEffort != null) FeelRow(effort, onEffort)
         nextUp?.let { NextUpLine(it) }
         if (pinDone) Spacer(Modifier.weight(1f))
         BigActionButton(doneLabel, onDone, Modifier.fillMaxWidth().heightIn(min = 96.dp))
@@ -177,6 +187,22 @@ fun RirRow(rir: Int?, onRir: (Int?) -> Unit, modifier: Modifier = Modifier) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
             listOf(0, 1, 2, 3).forEach { v ->
                 SelectChip(if (v == 3) "3+" else "$v", rir == v, { onRir(if (rir == v) null else v) }, Modifier.weight(1f))
+            }
+        }
+    }
+}
+
+/**
+ * One tap after a set: Too easy, Just right or Too hard (tap the chosen one again to clear it). It never blocks anything:
+ * leave it alone and press Done. The caller turns the tap into the next set (see knee care) and an RIR-equivalent.
+ */
+@Composable
+fun FeelRow(effort: Effort?, onEffort: (Effort?) -> Unit, modifier: Modifier = Modifier) {
+    Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(Spacing.xs)) {
+        Text("How did that set feel? (optional)", style = MaterialTheme.typography.labelLarge, color = AppColors.textMuted)
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+            listOf(Effort.TOO_EASY to "Too easy", Effort.JUST_RIGHT to "Just right", Effort.TOO_HARD to "Too hard").forEach { (e, label) ->
+                SelectChip(label, effort == e, { onEffort(if (effort == e) null else e) }, Modifier.weight(1f))
             }
         }
     }

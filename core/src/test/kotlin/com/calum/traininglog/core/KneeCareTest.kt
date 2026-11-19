@@ -40,7 +40,9 @@ class KneeCareTest {
     fun totalsMatchTheMinutesExactlyAndEveryStepHasLengthAndCue() {
         for (mode in CalfMode.entries) for (m in 12..20) for (seed in 0L..5L) for (knee in listOf(null, 2, 5, 8)) {
             val s = KneeCareRoutine.build(m, seed = seed, kneePain = knee, calfMode = mode)
-            assertEquals(m * 60, s.totalSec, "m=$m seed=$seed knee=$knee mode=$mode")
+            // Exactly the minutes asked for, unless the calf block leaves the hips too little room (then whole minutes longer).
+            assertTrue(s.totalSec >= m * 60 && s.totalSec == s.minutes * 60, "m=$m seed=$seed knee=$knee mode=$mode total=${s.totalSec}")
+            if (m >= 15) assertEquals(m * 60, s.totalSec, "m=$m seed=$seed knee=$knee mode=$mode")
             assertEquals(s.totalSec, s.steps.sumOf { it.seconds })
             for (st in s.steps) {
                 assertTrue(st.seconds >= 5, "${st.name} ${st.seconds}")
@@ -125,8 +127,10 @@ class KneeCareTest {
             assertTrue(five.steps.any { it.exerciseId == ExerciseLibrary.CALF_HOME_ID }, "calf work stays at 5-6")
             assertTrue(full.steps.size > 5)
         }
-        // At least one variant normally includes the step-down.
-        assertTrue((0L..2L).any { v -> KneeCareRoutine.build(15, seed = v).steps.any { it.exerciseId == "kc_step_down" } })
+        // With a step, at least one variant includes the step-down; without one, never.
+        val withStep = KneeCareKit(hasStep = true)
+        assertTrue((0L..2L).any { v -> KneeCareRoutine.build(15, seed = v, kit = withStep).steps.any { it.exerciseId == "kc_step_down" } })
+        assertTrue((0L..2L).all { v -> KneeCareRoutine.build(15, seed = v, kit = withStep, kneePain = 5).steps.none { it.exerciseId == "kc_step_down" || it.exerciseId == "kc_pistol" } })
         val gentle = KneeCareRoutine.build(15, kneePain = 7)
         assertEquals(KneeGate.GENTLE_ONLY, gentle.gate)
         assertNotNull(gentle.physioLine)
@@ -137,34 +141,32 @@ class KneeCareTest {
     }
 
     @Test
-    fun calfBlockIsRepBasedAndHeavyByDefault() {
-        val heavy = KneeCareRoutine.build(15, calfStartKg = 25.0, calfReps = 8)
+    fun calfBlockIsRepBasedAndFollowsTheLadderLevel() {
+        val heavy = KneeCareRoutine.build(15, calfStartKg = 6.0, calfLevel = 4)
         assertEquals(CalfMode.HEAVY, heavy.calfMode)
         val calf = heavy.steps.filter { it.kind == CoreKind.WORK && it.exerciseId == ExerciseLibrary.CALF_HOME_ID }
-        assertTrue(calf.size in 3..4)
-        assertTrue(calf.all { it.reps == 8 && KneeCareRoutine.isRepStep(it) })
-        assertTrue(calf.all { it.cue.contains("3 s") }, "heavy tempo is 3 s up, 3 s down")
-        assertEquals(25.0, heavy.calfStartKg)
+        assertEquals(3, calf.size)
+        assertTrue(calf.all { it.reps == 10 && KneeCareRoutine.isRepStep(it) && it.level == 4 })
+        assertEquals(6.0, heavy.calfStartKg)
         assertEquals(listOf(0, 1, 2), calf.map { heavy.calfSetAt(heavy.steps.indexOf(it)) }.map { it!! })
-        val stamina = KneeCareRoutine.build(15, calfMode = CalfMode.STAMINA, calfReps = 13)
+        val stamina = KneeCareRoutine.build(15, calfMode = CalfMode.STAMINA, calfLevel = 2)
         assertEquals(3, stamina.steps.count { it.kind == CoreKind.WORK && it.exerciseId == ExerciseLibrary.CALF_HOME_ID })
-        assertEquals(13, stamina.calfReps)
-        // 18+ minutes in heavy mode has 4 sets.
-        assertEquals(4, KneeCareRoutine.build(18).calfSets)
+        assertEquals(15 + CalfLadder.STAMINA_EXTRA, stamina.calfReps, "higher reps sit above the level's top")
+        assertEquals(3, KneeCareRoutine.build(18).calfSets)
         // Hip steps stay timed.
         assertTrue(heavy.steps.filter { it.exerciseId?.startsWith("kc_") == true }.none { KneeCareRoutine.isRepStep(it) })
     }
 
     @Test
-    fun justCalfRaisesIsAboutEightMinutesWithAWarmUpSet() {
-        val s = KneeCareRoutine.buildCalfOnly(calfStartKg = 30.0, calfReps = 7)
+    fun justCalfRaisesHasAWarmUpSetAndGrowsWithTheLevel() {
+        val s = KneeCareRoutine.buildCalfOnly(calfLevel = 1)
         assertTrue(s.calfOnly)
-        assertEquals(8, s.minutes)
         assertTrue(s.steps.none { it.exerciseId?.startsWith("kc_") == true && it.kind != CoreKind.WORK || (it.kind == CoreKind.COOLDOWN) })
         val repSteps = s.steps.filter { KneeCareRoutine.isRepStep(it) }
         assertEquals(KneeCareRoutine.CALF_WARMUP_ID, repSteps.first().exerciseId)
-        assertEquals(4, repSteps.count { it.exerciseId == ExerciseLibrary.CALF_HOME_ID })
-        assertTrue(kotlin.math.abs(s.totalSec - 480) <= 30, "total ${s.totalSec}")
+        assertEquals(3, repSteps.count { it.exerciseId == ExerciseLibrary.CALF_HOME_ID })
+        assertTrue(s.totalSec in 360..540, "total ${s.totalSec}")
+        assertTrue(KneeCareRoutine.buildCalfOnly(calfLevel = 4).totalSec > s.totalSec)
         // The warm-up set is not a working set.
         assertNull(s.calfSetAt(s.steps.indexOf(repSteps.first())))
     }
@@ -172,56 +174,36 @@ class KneeCareTest {
     // ------------------------------------------------------------------------------------- calf_home track
 
     @Test
-    fun homeCalfHasItsOwnWeightTrackAndNeverTouchesTheGymCalf() {
+    fun homeCalfHasItsOwnTrackAndNeverTouchesTheGymCalf() {
         val gymOnly = listOf(gym(mon.minusDays(30), calfKg = 60.0))
         val gymPlan = GymBuilder.plan(ExerciseLibrary.calf, gymOnly, wed, deload = false)
-        val withHome = gymOnly + kneeCare(mon.minusDays(20), kg = 8.0, reps = intArrayOf(8, 8, 8)) + kneeCare(mon.minusDays(10), kg = 8.0, reps = intArrayOf(9, 8, 8))
+        val withHome = gymOnly + kneeCare(mon.minusDays(20), kg = 6.0, reps = intArrayOf(8, 8, 8)) + kneeCare(mon.minusDays(10), kg = 6.0, reps = intArrayOf(9, 8, 8))
         val gymPlanAfter = GymBuilder.plan(ExerciseLibrary.calf, withHome, wed, deload = false)
         assertEquals(gymPlan.prescription, gymPlanAfter.prescription, "a light home set must not change the gym calf")
         assertEquals(1, GymBuilder.history("calf", withHome).size)
         assertEquals(2, GymBuilder.history(ExerciseLibrary.CALF_HOME_ID, withHome).size)
-        // ... and the gym calf does not feed the home track either.
-        assertNull(KneeCare.calfStartKg(gymOnly, wed))
-        assertEquals(0.0, KneeCare.calfPrescription(gymOnly, wed).weightKg)
+        // The gym calf is only read for the start level of a new home user.
+        assertEquals(3, KneeCare.calfPlan(gymOnly).level)
         assertEquals("Calf raise (home)", ExerciseLibrary.nameOf(ExerciseLibrary.CALF_HOME_ID))
     }
 
     @Test
-    fun homeCalfDoubleProgressionHeavyAndLight() {
-        // Blank when never logged.
-        assertNull(KneeCare.calfStartKg(emptyList(), wed))
-        // Top of the range on every set -> add weight (2.5 kg for a heavy load), reps back to the bottom.
-        val top = listOf(kneeCare(mon.minusDays(3), kg = 25.0, reps = intArrayOf(10, 10, 10), target = 10))
-        val up = KneeCare.calfPrescription(top, wed)
-        assertEquals(27.5, up.weightKg)
-        assertEquals(6, up.reps)
-        // Not at the top: same weight, one more rep.
-        val mid = listOf(kneeCare(mon.minusDays(3), kg = 25.0, reps = intArrayOf(8, 8, 7), target = 8))
-        val same = KneeCare.calfPrescription(mid, wed)
-        assertEquals(25.0, same.weightKg)
-        assertEquals(8, same.reps)
-        // A light load steps by 1 kg.
-        val light = listOf(kneeCare(mon.minusDays(3), kg = 6.0, reps = intArrayOf(10, 10, 10), target = 10))
-        assertEquals(7.0, KneeCare.calfPrescription(light, wed).weightKg)
-        // After a long gap it carries on from the last weight (no gym-style 90% restart).
-        val old = listOf(kneeCare(mon.minusDays(60), kg = 25.0, reps = intArrayOf(8, 8, 8), target = 8))
-        assertEquals(25.0, KneeCare.calfPrescription(old, wed).weightKg)
-        assertEquals(25.0, KneeCare.calfStartKg(old, wed))
-        // Stamina keeps its own track: a light higher-reps day never lowers the heavy load.
+    fun lastModeAndLastTimeKeepTheModesApart() {
         val both = listOf(
-            kneeCare(mon.minusDays(8), kg = 25.0, reps = intArrayOf(8, 8, 8), target = 8),
-            kneeCare(mon.minusDays(3), kg = 8.0, reps = intArrayOf(13, 13, 12), target = 12),
+            ladder(mon.minusDays(8), 3, 6.0, intArrayOf(12, 12, 12), target = 12),
+            ladder(mon.minusDays(3), 3, 6.0, intArrayOf(18, 17, 17), target = 18),
         )
-        assertEquals(25.0, KneeCare.calfPrescription(both, wed, mode = CalfMode.HEAVY).weightKg)
-        assertEquals(8.0, KneeCare.calfPrescription(both, wed, mode = CalfMode.STAMINA).weightKg)
         assertEquals(CalfMode.STAMINA, KneeCare.lastMode(both))
-        assertEquals("Last time: 25 kg x 8, 8, 8", KneeCare.lastTime(both, CalfMode.HEAVY))
-        assertEquals("Last time: 8 kg x 13, 13, 12", KneeCare.lastTime(both, CalfMode.STAMINA))
+        assertEquals("Last time (level 3): 6 kg x 12, 12, 12", KneeCare.lastTime(both, CalfMode.HEAVY))
+        assertEquals("Last time (level 3): 6 kg x 18, 17, 17", KneeCare.lastTime(both, CalfMode.STAMINA))
         assertNull(KneeCare.lastTime(emptyList(), CalfMode.HEAVY))
         assertEquals(CalfMode.HEAVY, KneeCare.lastMode(emptyList()))
+        // Older logs (no level) keep the old rule.
+        assertEquals(CalfMode.STAMINA, KneeCare.lastMode(listOf(kneeCare(mon, kg = 8.0, reps = intArrayOf(13, 13, 12), target = 12))))
     }
 
-    // ------------------------------------------------------------------------------------------- the record
+    private fun ladder(date: LocalDate, level: Int, kg: Double, reps: IntArray, target: Int, rir: Int? = 2) =
+        KneeCareRecord.build("l${n++}", date, 15, 900, listOf("Hip circles"), reps.map { LoggedSet(kg, it, target, rir, level) })!!
 
     @Test
     fun recordShapeAndMinimum() {

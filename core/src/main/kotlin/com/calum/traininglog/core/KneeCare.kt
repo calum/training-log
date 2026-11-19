@@ -42,8 +42,9 @@ data class KneeCareStatus(
 }
 
 /**
- * HEAVY (the default): 3-4 slow sets of 6-10 (3 s up, a brief pause, 3 s down) at a challenging load, the way the user
- * already gets on with. STAMINA: 3 sets of 12-15. Both double-progress on the `calf_home` track (see [KneeCare.calfPlan]).
+ * HEAVY (the default): the home calf ladder level as it stands, the hardest the kit allows (single-leg, kettlebell, slow
+ * lowering as the levels go up, see [CalfLadder]). STAMINA ("Higher reps"): the same exercise at higher reps. Both
+ * work on the `calf_home` track; the reps and tempo here are the legacy defaults, the ladder level sets the real ones.
  */
 enum class CalfMode(val label: String, val repsLow: Int, val repsHigh: Int, val tempo: String, val setSec: Int, val restSec: Int) {
     HEAVY("Heavy", 6, 10, "3 s up, brief pause, 3 s down", 60, 75),
@@ -80,7 +81,18 @@ data class KneeCareSession(
     val lastTime: String? = null,
     /** True for "Just calf raises": the calf block only, with a warm-up set. */
     val calfOnly: Boolean = false,
+    /** What he owns; the routine uses nothing outside it. */
+    val kit: KneeCareKit = KneeCareKit(),
+    /** The home calf ladder level (1-6) this session starts at. */
+    val calfLevel: Int = 1,
+    /** True when the last session took him up a level ("You moved up a level"). */
+    val levelMoved: Boolean = false,
 ) {
+    val calfSpec: CalfSpec get() = CalfLadder.spec(calfLevel, kit)
+
+    /** Everything to have to hand before step 1 (derived from the steps and the kit). */
+    val gear: List<GearItem> get() = KneeCareRoutine.gear(steps, kit, calfLevel)
+
     val totalSec: Int get() = steps.sumOf { it.seconds }
 
     /** Ids of the work steps' exercises, in order, no repeats: pass as `last` for the next session. */
@@ -99,7 +111,9 @@ data class KneeCareSession(
 }
 
 object KneeCareLibrary {
-    class Move(val id: String, val name: String, val cue: String, val unilateral: Boolean = false, val kneeLoad: Boolean = false)
+    enum class Need { STEP, BAND, CHAIR }
+
+    class Move(val id: String, val name: String, val cue: String, val unilateral: Boolean = false, val kneeLoad: Boolean = false, val needs: Need? = null)
 
     val hipCircles = Move("kc_hip_circles", "Hip circles", "Hands on hips, feet planted. Slow, easy circles with your pelvis, then reverse halfway.")
     val legSwings = Move("kc_leg_swings", "Leg swings", "Hold a wall. Swing one leg gently forward and back, small and relaxed. No kicking.", unilateral = true)
@@ -108,9 +122,13 @@ object KneeCareLibrary {
     val clamshell = Move("kc_clamshell", "Clamshell", "Side-lying, knees bent, heels together. Open the top knee, pelvis still. A light band if bodyweight is easy.", unilateral = true)
     val sidePlank = Move("kc_side_plank", "Side plank", "Elbow under shoulder, hips lifted in one line. Bottom knee down is fine. Breathe.", unilateral = true)
     val slBridge = Move("kc_sl_bridge", "Single-leg glute bridge", "One foot planted, the other leg long. Lift the hips level, pause, lower slowly.", unilateral = true)
-    val lateralWalk = Move("kc_lateral_walk", "Lateral band walk", "Light band above the knees, soft knees, toes forward. Small steps sideways, then back. No band: bodyweight.")
-    val hipHike = Move("kc_hip_hike", "Standing hip hike", "Stand on one leg on a step edge. Let the other hip drop, then lift it level. Slow, knee soft.", unilateral = true)
-    val stepDown = Move("kc_step_down", "Slow step-down", "From a low step, lower the other heel for 3 s. Small height. Stop if the knee pinches.", unilateral = true, kneeLoad = true)
+    val lateralWalk = Move("kc_lateral_walk", "Lateral band walk", "Light band above the knees, soft knees, toes forward. Small steps sideways, then back.", needs = Need.BAND)
+    val hipHike = Move("kc_hip_hike", "Standing hip hike", "Stand on one leg on a step edge. Let the other hip drop, then lift it level. Slow, knee soft.", unilateral = true, needs = Need.STEP)
+    val stepDown = Move("kc_step_down", "Slow step-down", "From a low step, lower the other heel for 3 s. Small height. Stop if the knee pinches.", unilateral = true, kneeLoad = true, needs = Need.STEP)
+
+    /** The no-step knee control block: hip stability (single-leg RDL) and a slow single-leg squat to a chair. */
+    val slRdl = Move("kc_sl_rdl", "Single-leg Romanian deadlift", "Hinge on one leg, back flat, lower for 3 s. 3 x 8 each side.", unilateral = true)
+    val pistol = Move("kc_pistol", "Slow single-leg squat to chair", "Lower 3 s to a light chair touch, knee over middle toes. 3 x 5 per leg. Stop if it pinches.", unilateral = true, kneeLoad = true, needs = Need.CHAIR)
 
     val calfStraight = Move("kc_calf_straight", "Calf raise (straight knee)", "Weight in one hand, other hand on a wall. Up for 2 s, down for 3 s. Knees straight.")
     val calfBent = Move("kc_calf_bent", "Calf raise (bent knee)", "Knees softly bent, weight held at your hips. Up for 2 s, down for 3 s. Works the deeper calf.")
@@ -120,7 +138,7 @@ object KneeCareLibrary {
     val kneeHug = Move("kc_knee_hug", "Knee hug", "On your back, hug one knee towards the chest. Keep the other leg long and relaxed.", unilateral = true)
 
     val all: List<Move> = listOf(
-        hipCircles, legSwings, abduction, clamshell, sidePlank, slBridge, lateralWalk, hipHike, stepDown,
+        hipCircles, legSwings, abduction, clamshell, sidePlank, slBridge, lateralWalk, hipHike, stepDown, slRdl, pistol,
         calfStraight, calfBent, hipFlexor, figure4, kneeHug,
     )
     private val byId = all.associateBy { it.id }
@@ -143,6 +161,16 @@ object KneeCareLibrary {
         listOf(sidePlank, abduction, slBridge, lateralWalk, stepDown, clamshell, hipHike),
         listOf(slBridge, clamshell, hipHike, abduction, sidePlank, stepDown, lateralWalk),
     )
+
+    /** The knee control moves, in the order the sessions rotate through them (the step-down only with a step). */
+    val control: List<Move> = listOf(slRdl, pistol, stepDown)
+
+    fun allowed(m: Move, kit: KneeCareKit): Boolean = when (m.needs) {
+        Need.STEP -> kit.hasStep
+        Need.BAND -> kit.hasBand
+        Need.CHAIR -> kit.hasChair
+        null -> true
+    }
 }
 
 object KneeCareRoutine {
@@ -156,6 +184,7 @@ object KneeCareRoutine {
     private const val HIP_REST_SEC = 10
     private const val GET_SET_SEC = 15
     private const val MIN_HIP_STEP_SEC = 30
+    const val CALF_SETS = 3
     const val STEP_DOWN_OFF_KNEE = 5
     const val GENTLE_ONLY_KNEE = 7
 
@@ -195,7 +224,8 @@ object KneeCareRoutine {
     private fun variantFor(last: List<String>?, seed: Long): Int {
         val prev = last?.takeIf { l -> l.any { it.startsWith("kc_") } }?.let { l ->
             val hip = l.toSet()
-            KneeCareLibrary.variants.indices.maxByOrNull { v -> KneeCareLibrary.variants[v].take(5).count { it.id in hip } * 10 - v }
+            // The leading hip moves tell the variants apart, the first one most.
+            KneeCareLibrary.variants.indices.maxByOrNull { v -> KneeCareLibrary.variants[v].take(3).withIndex().sumOf { (i, m) -> if (m.id in hip) 3 - i else 0 } * 10 - v }
         }
         val base = if (prev == null) 0 else prev + 1
         return Math.floorMod(base + seed, VARIANTS.toLong()).toInt()
@@ -211,25 +241,86 @@ object KneeCareRoutine {
 
     private fun calfMove(v: CalfVariant) = if (v == CalfVariant.STRAIGHT) KneeCareLibrary.calfStraight else KneeCareLibrary.calfBent
 
-    private fun calfCue(base: String, mode: CalfMode) = if (mode == CalfMode.HEAVY) base.replace("Up for 2 s, down for 3 s.", "Up 3 s, pause, down 3 s.") else base
-
-    /** The weighted calf steps: [sets] rep-based sets with a timed rest between them (none after the last set). */
-    private fun calfBlock(move: KneeCareLibrary.Move, sets: Int, mode: CalfMode, reps: Int, restSec: Int = mode.restSec): List<CoreStep> = buildList {
+    /** The calf steps: [sets] rep-based sets with a timed rest between them (none after the last set). */
+    private fun calfBlock(move: KneeCareLibrary.Move, sets: Int, spec: CalfSpec, reps: Int, restSec: Int): List<CoreStep> = buildList {
         repeat(sets) { n ->
-            add(CoreStep(move.name, calfCue(move.cue, mode), mode.setSec, CoreKind.WORK, exerciseId = ExerciseLibrary.CALF_HOME_ID, reps = reps))
-            if (n < sets - 1) add(rest(restSec, "Rest", "Shake the legs out. Rate the set below if you like.", ExerciseLibrary.CALF_HOME_ID))
+            add(CoreStep(move.name, spec.cue(), spec.setSec(reps), CoreKind.WORK, exerciseId = ExerciseLibrary.CALF_HOME_ID, reps = reps, level = spec.level))
+            if (n < sets - 1) add(rest(restSec, "Rest", "Shake the legs out. Tell us how the set felt if you like.", ExerciseLibrary.CALF_HOME_ID))
+        }
+    }
+
+    private fun getSetStep(spec: CalfSpec, kit: KneeCareKit): CoreStep =
+        if (spec.loaded) rest(GET_SET_SEC, "Pick up your kettlebell", "The ${kgText(kit.kettlebellKg ?: 0.0)} kettlebell in one hand. Stand by a wall or chair.")
+        else rest(GET_SET_SEC, "Get set for calf raises", "Stand by a wall or chair. A kettlebell is only needed if a set feels too easy.")
+
+    private fun kgText(kg: Double) = if (kg % 1.0 == 0.0) "${kg.toInt()} kg" else "$kg kg"
+
+    /** The cue of a knee control move at [level] (0 = the challenging start; slower lowering, the kettlebell and reps follow). */
+    fun controlCue(m: KneeCareLibrary.Move, level: Int, kit: KneeCareKit): String {
+        val l = level.coerceIn(0, 3)
+        return when (m.id) {
+            KneeCareLibrary.slRdl.id -> {
+                val hold = kit.kettlebellKg?.let { "Hold the ${kgText(it)} kettlebell. " } ?: ""
+                "${hold}Hinge on one leg, back flat, ${if (l >= 1) 4 else 3} s down. 3 x ${if (l >= 2) 10 else 8} each side."
+            }
+            KneeCareLibrary.pistol.id -> {
+                val chest = if (l >= 1 && kit.hasKettlebell) "Kettlebell at your chest. " else ""
+                "${chest}Lower ${if (l >= 2) 4 else 3} s to a light chair touch, knee over middle toes. 3 x ${if (l >= 3) 6 else 5} per leg. Stop if it pinches."
+            }
+            else -> m.cue
         }
     }
 
     /**
-     * Builds the routine for [minutes] (12..20, default 15): an easy warm-up, a hip abductor and glute block, the
-     * weighted calf block, and a short cool-down. Low impact only, nothing jumps. The calf block is HEAVY by default
-     * (3-4 slow sets of 6-10) or [calfMode] STAMINA (3 x 12-15); its sets are rep-based (the user presses Done), the rest
-     * is timed. The straight and bent knee variants alternate between sessions. [last] holds the exercise ids of the
-     * previous session so this one differs; [kneePain] (0-10) at 5 or more drops the step-down and shows the physio
-     * line, at 7 or more offers gentle mobility only; [calfStartKg] is the weight to prefill (null: blank for the user
-     * to type), [calfReps] the reps aimed for per set and [lastTime] the "Last time" line. The steps add up to exactly
-     * [minutes] x 60 seconds (rep-based sets count their usual time). Same inputs, same routine.
+     * What to have to hand for [steps]: one item per piece of kit (mat or towel, kettlebell with its weight, chair or wall,
+     * band, step) with the exercises that use it, so nothing has to be fetched mid-routine. The kettlebell for the calf raises
+     * is optional until the calf level holds it (a set that feels easy may need it next).
+     */
+    fun gear(steps: List<CoreStep>, kit: KneeCareKit = KneeCareKit(), calfLevel: Int = 1): List<GearItem> {
+        val uses = LinkedHashMap<String, MutableList<String>>()
+        val required = HashMap<String, Boolean>()
+        fun add(item: String, step: String, optional: Boolean = false) {
+            val l = uses.getOrPut(item) { mutableListOf() }
+            if (step !in l) l += step
+            required[item] = (required[item] ?: false) || !optional
+        }
+        val floor = if (kit.hasMat) "Mat" else "Towel or carpet to lie on"
+        val kb = kit.kettlebellKg?.let { "Kettlebell (${kgText(it)})" }
+        val calf = CalfLadder.spec(calfLevel, kit)
+        for (st in steps) {
+            val id = st.exerciseId ?: continue
+            if (st.kind == CoreKind.REST) continue
+            val name = KneeCareLibrary.get(id)?.name ?: "Calf raises"
+            when (id) {
+                KneeCareLibrary.legSwings.id -> add("Wall or chair for balance", name)
+                KneeCareLibrary.abduction.id, KneeCareLibrary.sidePlank.id, KneeCareLibrary.slBridge.id,
+                KneeCareLibrary.hipFlexor.id, KneeCareLibrary.figure4.id, KneeCareLibrary.kneeHug.id -> add(floor, name)
+                KneeCareLibrary.clamshell.id -> { add(floor, name); if (kit.hasBand) add("Light band", name, optional = true) }
+                KneeCareLibrary.lateralWalk.id -> add("Light band", name)
+                KneeCareLibrary.hipHike.id, KneeCareLibrary.stepDown.id -> add("Low step", name)
+                KneeCareLibrary.slRdl.id -> if (kb != null) add(kb, name)
+                KneeCareLibrary.pistol.id -> { add("Chair", name); if (kb != null && st.level >= 1) add(kb, name) }
+                ExerciseLibrary.CALF_HOME_ID, CALF_WARMUP_ID -> {
+                    add("Wall or chair for balance", name)
+                    if (kb != null) add(kb, name, optional = !calf.loaded)
+                    if (calf.stepEdge) add("Step or stair edge", name, optional = true)
+                }
+            }
+        }
+        return uses.map { (item, l) -> GearItem(item, l.joinToString(", "), optional = required[item] != true) }
+    }
+
+    /**
+     * Builds the routine for [minutes] (12..20, default 15): an easy warm-up, a hip abductor and glute block with the knee
+     * control moves, the calf block and a short cool-down. Low impact only, nothing jumps. It uses only the gear in [kit]:
+     * no step means the single-leg Romanian deadlift and the slow single-leg squat to a chair replace the step-down; no
+     * band or chair drops the moves that need them. The calf block follows [calfLevel] of the home ladder ([CalfLadder]),
+     * 3 sets, rep-based (the user presses Done), the rest is timed. [calfMode] STAMINA aims for higher reps. The straight and
+     * bent knee variants alternate between sessions. [last] holds the exercise ids of the previous session so this one
+     * differs; [kneePain] (0-10) at 5 or more drops the squat variants and the step-down and shows the physio line, at 7 or
+     * more offers gentle mobility only. [controlLevels] maps a control move id to its level (0 = the challenging start).
+     * Same inputs, same routine. The steps add up to exactly [minutes] x 60 seconds, unless the calf block is so long that
+     * the hips would be squeezed: the routine then runs longer, in whole minutes ([KneeCareSession.minutes] says so).
      */
     fun build(
         minutes: Int = DEFAULT_MINUTES,
@@ -240,9 +331,12 @@ object KneeCareRoutine {
         calfMode: CalfMode = CalfMode.HEAVY,
         calfReps: Int? = null,
         lastTime: String? = null,
+        kit: KneeCareKit = KneeCareKit(),
+        calfLevel: Int = 1,
+        controlLevels: Map<String, Int> = emptyMap(),
+        levelMoved: Boolean = false,
     ): KneeCareSession {
-        val m = minutes.coerceIn(MIN_MINUTES, MAX_MINUTES)
-        val total = m * 60
+        val requested = minutes.coerceIn(MIN_MINUTES, MAX_MINUTES)
         val gate = when {
             (kneePain ?: 0) >= GENTLE_ONLY_KNEE -> KneeGate.GENTLE_ONLY
             (kneePain ?: 0) >= STEP_DOWN_OFF_KNEE -> KneeGate.NO_STEP_DOWN
@@ -250,45 +344,64 @@ object KneeCareRoutine {
         }
         val physio = if (gate == KneeGate.FULL) null else PHYSIO_LINE
         val variant = variantFor(last, seed)
-        if (gate == KneeGate.GENTLE_ONLY) return gentle(m, total, variant, physio)
+        if (gate == KneeGate.GENTLE_ONLY) return gentle(requested, requested * 60, variant, physio, kit)
 
-        val reps = (calfReps ?: calfMode.repsLow).coerceIn(calfMode.repsLow, calfMode.repsHigh)
-        val warmEach = when { m < 13 -> 30; m < 18 -> 40; else -> 50 }
-        val coolEach = when { m < 13 -> 20; m < 18 -> 25; else -> 35 }
-        val calfSets = if (calfMode == CalfMode.HEAVY && m >= 18) 4 else 3
+        val spec = CalfLadder.spec(calfLevel, kit)
+        val reps = calfReps ?: CalfLadder.targetReps(spec, calfMode)
+        val warmEach = when { requested < 13 -> 30; requested < 18 -> 40; else -> 50 }
+        val coolEach = when { requested < 13 -> 20; requested < 18 -> 25; else -> 35 }
+        val calfSets = CALF_SETS
         val calfVariant = calfVariantFor(last)
-        val calfSteps = calfBlock(calfMove(calfVariant), calfSets, calfMode, reps)
+        val calfSteps = calfBlock(calfMove(calfVariant), calfSets, spec, reps, CalfLadder.baseRestSec(spec.level, calfMode))
         val calfSec = calfSteps.sumOf { it.seconds }
 
-        val pool = KneeCareLibrary.variants[variant].filter { gate == KneeGate.FULL || !it.kneeLoad }
+        fun ok(mv: KneeCareLibrary.Move) = KneeCareLibrary.allowed(mv, kit) && (gate == KneeGate.FULL || !mv.kneeLoad)
+        val controls = KneeCareLibrary.control.filter(::ok).let { c -> if (c.isEmpty()) c else List(c.size) { c[Math.floorMod(it + variant, c.size)] } }
+        val others = KneeCareLibrary.variants[variant].filter { it !in KneeCareLibrary.control && ok(it) }
+        // Two hip moves lead, then the knee control moves, then the rest.
+        val pool = others.take(2) + controls + others.drop(2)
+        fun weight(mv: KneeCareLibrary.Move) = if (mv in controls) 2 else 1
+        fun units(l: List<KneeCareLibrary.Move>) = l.sumOf { mv -> (if (mv.unilateral) 2 else 1) * weight(mv) }
         fun fixed(hc: Int) = 3 * warmEach + 4 * coolEach + GET_SET_SEC + calfSec + (hc - 1) * HIP_REST_SEC
-        fun work(hc: Int): Int = pool.take(hc).let { l -> l.size + l.count { it.unilateral } }
-        // As many hip exercises as fit with each step at least 30 s (at most 6, at least 2).
-        val hipCount = (6 downTo 2).firstOrNull { hc -> (total - fixed(hc)) / work(hc) >= MIN_HIP_STEP_SEC } ?: 2
+        val minHip = minOf(3, pool.size)
+        var total = requested * 60
+        var hipCount = (6 downTo minHip).firstOrNull { hc -> hc <= pool.size && (total - fixed(hc)) / units(pool.take(hc)) >= MIN_HIP_STEP_SEC }
+        if (hipCount == null) {
+            hipCount = minHip
+            val need = fixed(hipCount) + units(pool.take(hipCount)) * MIN_HIP_STEP_SEC
+            total = (need + 59) / 60 * 60
+        }
+        val m = total / 60
         val hip = pool.take(hipCount)
-        val nWork: Int = work(hipCount)
+        val nUnits = units(hip)
         val room = total - fixed(hipCount)
-        val baseWork = (room / nWork / 5 * 5).coerceAtLeast(25)
+        val baseWork = (room / nUnits / 5 * 5).coerceAtLeast(25)
         // Whole 5 s extras go to the first hip steps; the last few seconds (under 5) go to the final stretch.
-        var extra = (room - baseWork * nWork).coerceAtLeast(0) / 5
+        var extra = (room - baseWork * nUnits).coerceAtLeast(0) / 5
 
         val raw = mutableListOf<CoreStep>()
         raw += step(KneeCareLibrary.hipCircles, warmEach, CoreKind.WARMUP)
         raw += sides(KneeCareLibrary.legSwings, warmEach, CoreKind.WARMUP)
         hip.forEachIndexed { hi, mv ->
-            raw += sides(mv, baseWork, CoreKind.WORK).map { s -> if (extra > 0) { extra--; s.copy(seconds = s.seconds + 5) } else s }
+            val w = weight(mv)
+            val lvl = controlLevels[mv.id] ?: 0
+            raw += sides(mv, baseWork * w, CoreKind.WORK).map { st ->
+                val withCue = if (w == 2) st.copy(cue = controlCue(mv, lvl, kit), level = lvl.coerceIn(0, 3)) else st
+                if (extra > 0) { extra--; withCue.copy(seconds = withCue.seconds + 5) } else withCue
+            }
             if (hi < hip.lastIndex) raw += rest(HIP_REST_SEC)
         }
-        raw += rest(GET_SET_SEC, "Pick up your weight", "A dumbbell or kettlebell in one hand, or a loaded backpack. Stand by a wall.")
+        raw += getSetStep(spec, kit)
         raw += calfSteps
         raw += sides(KneeCareLibrary.hipFlexor, coolEach, CoreKind.COOLDOWN)
         raw += sides(KneeCareLibrary.figure4, coolEach, CoreKind.COOLDOWN)
-        return finish(m, total, variant, calfVariant, gate, physio, calfSets, calfStartKg, raw, calfMode, reps, lastTime, exact = true)
+        val startKg = calfStartKg ?: CalfLadder.loadKg(spec, kit)
+        return finish(m, total, variant, calfVariant, gate, physio, calfSets, startKg, raw, calfMode, reps, lastTime, exact = true, kit = kit, calfLevel = spec.level, levelMoved = levelMoved)
     }
 
     /**
-     * "Just calf raises": only the calf block, after a light warm-up set (about 8 minutes in heavy mode). For days the
-     * user only wants that. The total is the sum of its parts rather than a fixed length.
+     * "Just calf raises": only the calf block, after a light warm-up set. For days the user only wants that. The total is
+     * the sum of its parts rather than a fixed length (it grows with the ladder level: single-leg sets take both legs).
      */
     fun buildCalfOnly(
         last: List<String>? = null,
@@ -296,23 +409,27 @@ object KneeCareRoutine {
         calfMode: CalfMode = CalfMode.HEAVY,
         calfReps: Int? = null,
         lastTime: String? = null,
+        kit: KneeCareKit = KneeCareKit(),
+        calfLevel: Int = 1,
+        levelMoved: Boolean = false,
     ): KneeCareSession {
-        val reps = (calfReps ?: calfMode.repsLow).coerceIn(calfMode.repsLow, calfMode.repsHigh)
-        val sets = if (calfMode == CalfMode.HEAVY) 4 else 3
+        val spec = CalfLadder.spec(calfLevel, kit)
+        val reps = calfReps ?: CalfLadder.targetReps(spec, calfMode)
         val v = calfVariantFor(last)
         val raw = mutableListOf<CoreStep>()
-        raw += rest(15, "Pick up your weight", "A dumbbell or kettlebell in one hand, or a loaded backpack. Stand by a wall.")
+        raw += getSetStep(spec, kit)
         raw += CoreStep(
-            "Calf raise warm-up set", "Bodyweight or a light load, about 10 easy reps. Up 2 s, down 2 s. Then add your working weight.",
+            "Calf raise warm-up set", "Two legs, bodyweight, about 10 easy reps. Up 2 s, down 2 s. Then the working sets.",
             40, CoreKind.WORK, exerciseId = CALF_WARMUP_ID, reps = 10,
         )
-        raw += rest(30, "Rest", "Pick up your working weight.", CALF_WARMUP_ID)
-        raw += calfBlock(calfMove(v), sets, calfMode, reps, minOf(calfMode.restSec, 60))
+        raw += rest(30, "Rest", "Get ready for your first working set.", CALF_WARMUP_ID)
+        raw += calfBlock(calfMove(v), CALF_SETS, spec, reps, minOf(CalfLadder.baseRestSec(spec.level, calfMode), 60))
         val total = raw.sumOf { it.seconds }
-        return finish((total + 30) / 60, total, 0, v, KneeGate.FULL, null, sets, calfStartKg, raw, calfMode, reps, lastTime, exact = false, calfOnly = true)
+        val startKg = calfStartKg ?: CalfLadder.loadKg(spec, kit)
+        return finish((total + 30) / 60, total, 0, v, KneeGate.FULL, null, CALF_SETS, startKg, raw, calfMode, reps, lastTime, exact = false, calfOnly = true, kit = kit, calfLevel = spec.level, levelMoved = levelMoved)
     }
 
-    private fun gentle(m: Int, total: Int, variant: Int, physio: String?): KneeCareSession {
+    private fun gentle(m: Int, total: Int, variant: Int, physio: String?, kit: KneeCareKit): KneeCareSession {
         val moves = listOf(
             step(KneeCareLibrary.hipCircles, 0, CoreKind.WARMUP),
             *sides(KneeCareLibrary.legSwings, 0, CoreKind.WARMUP).toTypedArray(),
@@ -321,19 +438,20 @@ object KneeCareRoutine {
             *sides(KneeCareLibrary.hipFlexor, 0, CoreKind.COOLDOWN).toTypedArray(),
         )
         val each = (total / moves.size / 5 * 5).coerceAtLeast(20)
-        return finish(m, total, variant, null, KneeGate.GENTLE_ONLY, physio, 0, null, moves.map { it.copy(seconds = each) }.toMutableList(), CalfMode.HEAVY, CalfMode.HEAVY.repsLow, null, exact = true)
+        return finish(m, total, variant, null, KneeGate.GENTLE_ONLY, physio, 0, null, moves.map { it.copy(seconds = each) }.toMutableList(), CalfMode.HEAVY, CalfMode.HEAVY.repsLow, null, exact = true, kit = kit)
     }
 
     /** Sets next-up names and (when [exact]) hands any seconds left over to the last step, so the total is exactly [total]. */
     private fun finish(
         m: Int, total: Int, variant: Int, calfVariant: CalfVariant?, gate: KneeGate, physio: String?, calfSets: Int,
         calfStartKg: Double?, raw: MutableList<CoreStep>, mode: CalfMode, reps: Int, lastTime: String?, exact: Boolean, calfOnly: Boolean = false,
+        kit: KneeCareKit = KneeCareKit(), calfLevel: Int = 1, levelMoved: Boolean = false,
     ): KneeCareSession {
         val steps = raw.mapIndexed { i, s ->
             s.copy(nextName = raw.indices.drop(i + 1).firstOrNull { raw[it].kind != CoreKind.REST }?.let { label(raw[it], raw, it) })
         }.toMutableList()
         if (exact) steps[steps.lastIndex] = steps.last().copy(seconds = max(5, steps.last().seconds + total - steps.sumOf { it.seconds }))
-        return KneeCareSession(m, variant, calfVariant, gate, physio, steps, calfSets, calfStartKg, mode, reps, lastTime, calfOnly)
+        return KneeCareSession(m, variant, calfVariant, gate, physio, steps, calfSets, calfStartKg, mode, reps, lastTime, calfOnly, kit, calfLevel, levelMoved)
     }
 }
 
@@ -377,9 +495,13 @@ object KneeCare {
     /** Loads below this step by 1 kg, heavier ones by 2.5 kg. */
     const val LIGHT_LOAD_KG = 10.0
 
-    /** What a logged home calf set was: heavy sets aim for 10 or fewer reps. */
+    /** The plain statement shown with the ladder: why the home work progresses the way it does. */
+    const val HOME_NOTE = "At home the load is limited, so we make it harder with one leg, a slower lowering and more reps. Your heavy calf raises at the gym stay the strength work."
+
+    /** What a logged home calf set was: HIGHER REPS when aimed above the top of its level's range (older logs: over 10 reps). */
     fun modeOf(log: ExerciseLog): CalfMode =
-        if ((log.sets.maxOfOrNull { it.targetReps } ?: 0) <= CalfMode.HEAVY.repsHigh) CalfMode.HEAVY else CalfMode.STAMINA
+        if (log.sets.any { it.level != null }) (if (CalfLadder.isStamina(log.sets)) CalfMode.STAMINA else CalfMode.HEAVY)
+        else if ((log.sets.maxOfOrNull { it.targetReps } ?: 0) <= CalfMode.HEAVY.repsHigh) CalfMode.HEAVY else CalfMode.STAMINA
 
     /** The mode of the most recent home calf log (what the setup card remembers), else HEAVY. */
     fun lastMode(records: List<SessionRecord>): CalfMode =
@@ -390,39 +512,80 @@ object KneeCare {
 
     private fun fmt(x: Double) = if (x % 1.0 == 0.0) x.toInt().toString() else x.toString()
 
-    /** "Last time: 25 kg x 8, 8, 7" for the most recent log in [mode]; null when there is none. */
+    /** "Last time: 6 kg x 12, 12, 11" for the most recent log in [mode]; null when there is none. */
     fun lastTime(records: List<SessionRecord>, mode: CalfMode): String? {
         val log = modeHistory(records, mode).firstOrNull()?.log ?: return null
         val kg = log.sets.maxOf { it.weightKg }
         val load = if (kg <= 0.0) "bodyweight" else "${fmt(kg)} kg"
-        return "Last time: $load x ${log.sets.joinToString(", ") { it.reps.toString() }}"
+        val level = CalfLadder.startedAt(log.sets)?.let { " (level $it)" } ?: ""
+        return "Last time$level: $load x ${log.sets.joinToString(", ") { it.reps.toString() }}"
+    }
+
+    /** What the next home calf session is: the ladder level, its reps and load, and whether the last session moved him up. */
+    data class CalfPlan(
+        val level: Int,
+        val spec: CalfSpec,
+        val reps: Int,
+        val kg: Double,
+        val movedUp: Boolean,
+        /** True when there is no ladder history and the level came from his signals (gym calf work). */
+        val fromStart: Boolean,
+    )
+
+    /**
+     * The home calf plan on the `calf_home` track only (the gym `calf` history is read once, for the start level of a new
+     * user). The level comes from the last ladder session ([CalfLadder.nextLevel]), else [CalfLadder.startLevel]; [adjust]
+     * moves it by hand from the setup card. HEAVY aims for the bottom of the level's range and adds a rep each session it
+     * was reached; HIGHER REPS aims above the top. A kettlebell over [CalfLadder.LOAD_FIRST_KG] lets the load rise first.
+     */
+    fun calfPlan(records: List<SessionRecord>, settings: UserSettings = UserSettings(), mode: CalfMode = CalfMode.HEAVY, adjust: Int = 0, reportedEasy: Boolean = false): CalfPlan {
+        val kit = settings.kneeKit
+        val lastLog = GymBuilder.history(ExerciseLibrary.CALF_HOME_ID, records).map { it.log }.firstOrNull { l -> l.sets.any { it.level != null } }
+        val start = CalfLadder.startLevel(records, reportedEasy)
+        var level = lastLog?.let { CalfLadder.nextLevel(it.sets) } ?: start
+        val movedUp = lastLog != null && CalfLadder.movedUp(lastLog.sets)
+        val lastSpecLevel = lastLog?.let { l -> l.sets.maxOf { CalfLadder.clamp(it.level ?: 1) } }
+        var extraKg = 0.0
+        val lastKg = lastLog?.sets?.maxOfOrNull { it.weightKg } ?: 0.0
+        // Heavier kit: raise the load before the tempo (up to LOAD_ROOM_KG over the kit weight), then go up a level.
+        val kb = kit.kettlebellKg
+        if (lastLog != null && kb != null && kb > CalfLadder.LOAD_FIRST_KG && lastSpecLevel != null && level > lastSpecLevel &&
+            CalfLadder.spec(lastSpecLevel, kit).loaded && lastKg < kb + CalfLadder.LOAD_ROOM_KG
+        ) {
+            level = lastSpecLevel
+            extraKg = max(lastKg, kb) + CalfLadder.LOAD_STEP_KG
+        }
+        level = CalfLadder.clamp(level + adjust)
+        val spec = CalfLadder.spec(level, kit)
+        val sameLevel = lastLog != null && lastSpecLevel == level && !CalfLadder.isStamina(lastLog.sets)
+        val lastTarget = lastLog?.takeIf { sameLevel }?.let { l ->
+            val here = l.sets.filter { CalfLadder.clamp(it.level ?: 1) == level }
+            val t = here.maxOf { it.targetReps }
+            if (here.all { it.reps >= t && (it.rir ?: 2) >= 1 }) t + 1 else t
+        }
+        val reps = CalfLadder.targetReps(spec, mode, lastTarget)
+        val base = CalfLadder.loadKg(spec, kit)
+        val kg = if (!spec.loaded) 0.0 else max(base, if (extraKg > 0) extraKg else if (sameLevel) lastKg else 0.0)
+        return CalfPlan(level, spec, reps, kg, movedUp, fromStart = lastLog == null)
     }
 
     /**
-     * The home calf prescription for [mode]: the accessory double-progression rule on the `calf_home` track only (the gym
-     * `calf` history is never read). Reach the top of the range on every set and the weight goes up (2.5 kg, or 1 kg when
-     * the load is light) with reps back at the bottom; otherwise the same weight and one more rep. The start weight is the
-     * last log in this mode, else blank (0.0) for the user to type. Both modes keep their own history, so a light
-     * higher-reps day never lowers the heavy load.
+     * The level of a knee control move (0 = the challenging start, up to 3): one level for every two sessions it was done,
+     * nudged up when the last session's calf sets felt too easy and down when they felt too hard or the knee was sore after.
      */
-    fun calfPrescription(records: List<SessionRecord>, today: LocalDate, settings: UserSettings = UserSettings(), mode: CalfMode = CalfMode.HEAVY): Prescription {
-        val history = modeHistory(records, mode)
-        if (history.isEmpty()) {
-            val how = if (mode == CalfMode.HEAVY) "Pick a load you can lift about 8 times with a couple of reps to spare." else "A light load you can lift 12-15 times."
-            return Prescription(0.0, 3, mode.repsLow, "Type the weight you use (a dumbbell, kettlebell or loaded backpack). $how")
-        }
-        val lastKg = history.first().log.sets.maxOf { it.weightKg }
-        val ex = ExerciseLibrary.calfHome.copy(
-            repsLow = mode.repsLow, repsHigh = mode.repsHigh, sets = 3,
-            incrementKg = if (lastKg < LIGHT_LOAD_KG) 1.0 else 2.5,
-        )
-        // A home set after a gap carries on from the last weight: the 90% restart is for the gym lifts.
-        return Progression.next(ex, history, today, settings = settings.copy(restartAfterDays = Int.MAX_VALUE))
+    fun controlLevel(records: List<SessionRecord>, moveId: String): Int {
+        val knee = records.filter { it.isKneeCare }.sortedBy { it.date }
+        val times = knee.count { moveId in KneeCareLibrary.idsFromNote(it.note) }
+        var level = times / 2
+        val sets = knee.lastOrNull()?.exercises?.firstOrNull { it.exerciseId == ExerciseLibrary.CALF_HOME_ID }?.sets.orEmpty()
+        val rated = sets.mapNotNull { it.rir }
+        if (rated.isNotEmpty() && rated.count { it >= 3 } * 2 > rated.size) level++
+        if ((rated.isNotEmpty() && rated.count { it == 0 } * 2 > rated.size) || (knee.lastOrNull()?.kneePain ?: 0) >= KneeCareRoutine.STEP_DOWN_OFF_KNEE) level--
+        return level.coerceIn(0, 3)
     }
 
-    /** Weight to prefill for [mode]: the prescription's weight, or null (blank) when never logged in this mode. */
-    fun calfStartKg(records: List<SessionRecord>, today: LocalDate, settings: UserSettings = UserSettings(), mode: CalfMode = CalfMode.HEAVY): Double? =
-        if (modeHistory(records, mode).isEmpty()) null else calfPrescription(records, today, settings, mode).weightKg
+    /** The control levels for the moves in the library (those the routine can pick). */
+    fun controlLevels(records: List<SessionRecord>): Map<String, Int> = KneeCareLibrary.control.associate { it.id to controlLevel(records, it.id) }
 
     /** Knee care sessions logged in [from]..[to]. */
     fun doneIn(records: List<SessionRecord>, from: LocalDate, to: LocalDate): Int = records.count { it.isKneeCare && it.date in from..to }
@@ -459,7 +622,7 @@ object KneeCare {
     fun session(date: LocalDate, minutes: Int = KneeCareRoutine.DEFAULT_MINUTES): PlannedSession = PlannedSession(
         date = date, kind = SessionKind.EASY, title = "Knee care", minutes = minutes, intensity = Intensity.STRENGTH,
         hardMinutes = 0, rpeTarget = 2..3, modalityOptions = listOf(Modality.GYM), detail = emptyList(),
-        why = "Hip abductor and glute work, then weighted calf raises, then gentle stretches.",
+        why = "Hip abductor and glute work, a single-leg knee control block, calf raises, then gentle stretches.",
         launch = LaunchHint(SessionType.CORE, minutes = minutes, kneeCare = true),
     )
 }

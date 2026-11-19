@@ -16,7 +16,9 @@ import androidx.test.core.app.ApplicationProvider
 import com.calum.traininglog.core.CalfMode
 import com.calum.traininglog.core.CoreKind
 import com.calum.traininglog.core.CoreRun
+import com.calum.traininglog.core.Effort
 import com.calum.traininglog.core.ExerciseLibrary
+import com.calum.traininglog.core.KneeCareKit
 import com.calum.traininglog.core.ExerciseLog
 import com.calum.traininglog.core.Feeling
 import com.calum.traininglog.core.KneeCareRecord
@@ -81,15 +83,21 @@ private object KneeCareFixtures {
     /** Home with last time's heavy calf log. */
     fun homeHistory(): List<SessionRecord> = base() + gym(d(11, 23)) + home(d(11, 24), 25.0, 8, 8, 7)
 
+    /** Calum's kit (6 kg kettlebell, chair, mat; no step), level 4 after moving up from 3. */
     fun session(): KneeCareSession = KneeCareRoutine.build(
-        15, last = null, kneePain = 1, calfStartKg = 25.0, seed = 0, calfMode = CalfMode.HEAVY, calfReps = 8, lastTime = "Last time: 25 kg x 8, 8, 7",
+        15, last = null, kneePain = 1, seed = 0, calfMode = CalfMode.HEAVY, calfReps = 10, lastTime = "Last time (level 3): 6 kg x 15, 15, 15",
+        kit = KneeCareKit(), calfLevel = 4, controlLevels = mapOf("kc_sl_rdl" to 0, "kc_pistol" to 1), levelMoved = true,
     )
 
-    fun ui(session: KneeCareSession, index: Int, elapsedMs: Long = 0, calf: List<CalfEntry> = emptyList(), phase: KneeCarePhase = KneeCarePhase.RUNNING): KneeCareUi {
+    fun entries(effort0: Effort? = null) = listOf(
+        CalfEntry(6.0, 10, effort0?.let { if (it == Effort.TOO_EASY) 3 else 2 }, 4, 10, effort0), CalfEntry(6.0, 10, null, 4, 10), CalfEntry(6.0, 10, null, 4, 10),
+    )
+
+    fun ui(session: KneeCareSession, index: Int, elapsedMs: Long = 0, calf: List<CalfEntry> = emptyList(), phase: KneeCarePhase = KneeCarePhase.RUNNING, steps: List<com.calum.traininglog.core.CoreStep> = session.steps): KneeCareUi {
         val before = session.steps.take(index).sumOf { it.seconds } * 1000L
         return KneeCareUi(
             phase = phase, session = session, knee = 1, mode = CalfMode.HEAVY, calf = calf,
-            run = CoreRun(session.steps, index = index, elapsedMs = elapsedMs, totalElapsedMs = before + elapsedMs),
+            run = CoreRun(steps, index = index, elapsedMs = elapsedMs, totalElapsedMs = before + elapsedMs),
         )
     }
 }
@@ -131,9 +139,12 @@ class KneeCareScreenshotTest(private val s: Case) {
         private val mine = RacePlanSettings(sessionsPerWeek = 4, maxWeeklyMinutes = 300)
 
         private fun setup(knee: Int?) = @Composable { _: LocalDate ->
-            val session = KneeCareRoutine.build(15, kneePain = knee, calfStartKg = 25.0, calfReps = 8, lastTime = "Last time: 25 kg x 8, 8, 7")
+            val session = KneeCareRoutine.build(
+                15, kneePain = knee, calfReps = 10, lastTime = "Last time (level 3): 6 kg x 15, 15, 15", calfLevel = 4, levelMoved = true,
+                controlLevels = mapOf("kc_sl_rdl" to 0, "kc_pistol" to 1),
+            )
             KneeCareSetupContent(
-                KneeCareUi(knee = knee, session = session), {}, {}, {}, {}, {}, {},
+                KneeCareUi(knee = knee, session = session, checked = setOf("Mat", "Wall or chair for balance")), {}, {}, {}, {}, {}, {},
             )
         }
 
@@ -155,28 +166,36 @@ class KneeCareScreenshotTest(private val s: Case) {
             Case("kneeCare-setup", content = setup(1)),
             Case("kneeCare-setup-full", tallDp = 2600, content = setup(1)),
             Case("kneeCare-setup-gated", tallDp = 1500, content = setup(5)),
+            Case("kneeCare-get-ready", content = { _ ->
+                val sess = fx.session()
+                KneeCareReadyContent(fx.ui(sess, 0, 0, fx.entries(), KneeCarePhase.GET_READY), {}, {})
+            }),
             Case("kneeCare-hip-step", content = { _ ->
                 val sess = fx.session()
-                val i = sess.steps.indexOfFirst { it.kind == CoreKind.WORK && !KneeCareRoutine.isRepStep(it) }
+                val i = sess.steps.indexOfFirst { it.kind == CoreKind.WORK && !KneeCareRoutine.isRepStep(it) && it.exerciseId?.startsWith("kc_sl_") != true && it.exerciseId != "kc_pistol" }
+                KneeCarePlayerBody(fx.ui(sess, i, 12_000), false, {}, {}, {}, {}, {}, {}, {})
+            }),
+            Case("kneeCare-rdl-step", content = { _ ->
+                val sess = fx.session()
+                val i = sess.steps.indexOfFirst { it.exerciseId == "kc_sl_rdl" }
                 KneeCarePlayerBody(fx.ui(sess, i, 12_000), false, {}, {}, {}, {}, {}, {}, {})
             }),
             Case("kneeCare-calf-step", content = { _ ->
                 val sess = fx.session()
                 val i = sess.steps.indices.filter { sess.steps[it].kind == CoreKind.WORK && KneeCareRoutine.isRepStep(sess.steps[it]) }[1]
-                val calf = listOf(CalfEntry(25.0, 8, 2), CalfEntry(25.0, 8), CalfEntry(25.0, 8))
-                KneeCarePlayerBody(fx.ui(sess, i, 20_000, calf), false, {}, {}, {}, {}, {}, {}, {})
+                KneeCarePlayerBody(fx.ui(sess, i, 20_000, fx.entries()), false, {}, {}, {}, {}, {}, {}, {})
             }),
             Case("kneeCare-rest-step", content = { _ ->
                 val sess = fx.session()
                 val i = sess.steps.indices.first { sess.steps[it].kind == CoreKind.REST && sess.steps[it].exerciseId == ExerciseLibrary.CALF_HOME_ID }
-                val calf = listOf(CalfEntry(25.0, 8, 2), CalfEntry(25.0, 8), CalfEntry(25.0, 8))
-                KneeCarePlayerBody(fx.ui(sess, i, 27_000, calf), false, {}, {}, {}, {}, {}, {}, {})
+                val short = sess.steps.mapIndexed { n, st -> if (n == i) st.copy(seconds = 30) else st }
+                KneeCarePlayerBody(fx.ui(sess, i, 9_000, fx.entries(Effort.TOO_EASY), steps = short), false, {}, {}, {}, {}, {}, {}, {})
             }),
             Case("kneeCare-finish", content = { _ ->
                 val sess = fx.session()
-                val u = fx.ui(sess, sess.steps.size, 0, listOf(CalfEntry(25.0, 8, 2), CalfEntry(25.0, 8, 1), CalfEntry(25.0, 7, 0)), KneeCarePhase.DONE)
-                    .copy(kneeAfter = 1, feeling = Feeling.GOOD)
-                KneeCareDoneContent(u, listOf(LoggedSet(25.0, 8, 8, 2), LoggedSet(25.0, 8, 8, 1), LoggedSet(25.0, 7, 8, 0)), {}, {}, {})
+                val sets = listOf(LoggedSet(6.0, 12, 12, 2, 4), LoggedSet(6.0, 12, 12, 3, 4), LoggedSet(6.0, 12, 12, 2, 4))
+                val u = fx.ui(sess, sess.steps.size, 0, fx.entries(), KneeCarePhase.DONE).copy(kneeAfter = 1, feeling = Feeling.GOOD)
+                KneeCareDoneContent(u, sets, {}, {}, {})
             }),
             Case("kneeCare-home", tallDp = 2300, content = home(fx::homeHistory, LocalDate.of(2026, 11, 26))),
             Case("kneeCare-plan-nudge", scrollTo = "kneeCare", tallDp = 1700, content = plan(fx::week1Nudge)),

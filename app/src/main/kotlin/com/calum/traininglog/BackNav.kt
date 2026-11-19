@@ -84,6 +84,7 @@ internal fun backActionFor(vm: AppViewModel, screen: Screen): BackAction {
         }
         Screen.KneeCare -> when (knee.phase) {
             KneeCarePhase.SETUP -> BackAction.Do { vm.kneeCareBack() }
+            KneeCarePhase.GET_READY -> BackAction.Do { vm.kneeCare.backToSetup() }
             KneeCarePhase.RUNNING -> BackAction.Ask(
                 "End and save keeps what you have done so far (under a minute is not logged). Discard drops this session.",
                 listOf(

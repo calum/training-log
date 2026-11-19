@@ -65,6 +65,8 @@ data class UserSettings(
     val hyroxTransitionSec: Int = HyroxSim.DEFAULT_TRANSITION_SEC,
     /** Gym sessions show one set at a time with big buttons (on by default); off shows the whole list. */
     val guidedGym: Boolean = true,
+    /** What he owns at home for knee care: the routine never uses gear that is not ticked here. */
+    val kneeKit: KneeCareKit = KneeCareKit(),
 ) {
     /** The kit ticked for [place]. */
     fun hyroxGearAt(place: HyroxPlace): Set<HyroxGear> = if (place == HyroxPlace.GYM) hyroxGymGear else hyroxHomeGear
@@ -138,6 +140,7 @@ data class UserSettings(
         hyroxRunSpeedKmh = HyroxRuns.snapSpeed(hyroxRunSpeedKmh),
         hyroxRunInclinePct = roundTo(hyroxRunInclinePct.coerceIn(HyroxRuns.INCLINE_RANGE), 0.5),
         racePlan = racePlan.sanitized(),
+        kneeKit = kneeKit.sanitized(),
         hyroxGymGear = hyroxGymGear.toSet(),
         hyroxHomeGear = hyroxHomeGear.toSet(),
         hyroxWeightOverrides = hyroxWeightOverrides

@@ -652,17 +652,25 @@ class AppViewModel @JvmOverloads constructor(
     private fun buildKneeCare(u: KneeCareUi): KneeCareSession {
         val d = _data.value
         val settings = d.profile.settings
-        val rx = KneeCare.calfPrescription(d.records, today, settings, u.mode)
-        val kg = KneeCare.calfStartKg(d.records, today, settings, u.mode)
+        val plan = KneeCare.calfPlan(d.records, settings, u.mode, u.levelAdjust)
         val last = lastKneeCareIds().ifEmpty { null }
         val lastTime = KneeCare.lastTime(d.records, u.mode)
-        return if (u.calfOnly) KneeCareRoutine.buildCalfOnly(last, kg, u.mode, rx.reps, lastTime)
-        else KneeCareRoutine.build(u.minutes, last, u.knee, kg, u.seed, u.mode, rx.reps, lastTime)
+        return if (u.calfOnly) KneeCareRoutine.buildCalfOnly(last, plan.kg, u.mode, plan.reps, lastTime, settings.kneeKit, plan.level, plan.movedUp)
+        else KneeCareRoutine.build(
+            u.minutes, last, u.knee, plan.kg, u.seed, u.mode, plan.reps, lastTime,
+            settings.kneeKit, plan.level, KneeCare.controlLevels(d.records), plan.movedUp,
+        )
+    }
+
+    /** Saves the home kit (tick boxes and kettlebell weight on the setup card) and rebuilds the routine from it. */
+    fun setKneeKit(kit: com.calum.traininglog.core.KneeCareKit) {
+        updateProfile { it.copy(settings = it.settings.copy(kneeKit = kit.sanitized())) }
+        kneeCare.setSession(buildKneeCare(kneeCare.ui.value))
     }
 
     /** Opens the knee care setup: the full routine, or [calfOnly] for just the calf raises. A running session is resumed. */
     fun launchKneeCare(calfOnly: Boolean = false) {
-        if (kneeCare.ui.value.phase == KneeCarePhase.RUNNING) { go(Screen.KneeCare); return }
+        if (kneeCare.ui.value.phase.let { it == KneeCarePhase.RUNNING || it == KneeCarePhase.GET_READY }) { go(Screen.KneeCare); return }
         val mode = KneeCare.lastMode(_data.value.records)
         val knee = _inputs.value.knee ?: lastKneeScore()
         val u = KneeCareUi(minutes = KneeCareRoutine.DEFAULT_MINUTES, calfOnly = calfOnly, mode = mode, knee = knee)
@@ -671,9 +679,9 @@ class AppViewModel @JvmOverloads constructor(
     }
 
     fun kneeCareSetup(
-        mode: CalfMode? = null, knee: Int? = null, clearKnee: Boolean = false, calfOnly: Boolean? = null, reshuffle: Boolean = false,
+        mode: CalfMode? = null, knee: Int? = null, clearKnee: Boolean = false, calfOnly: Boolean? = null, reshuffle: Boolean = false, levelStep: Int = 0,
     ) {
-        kneeCare.configure(mode = mode, knee = knee, clearKnee = clearKnee, calfOnly = calfOnly, reshuffle = reshuffle)
+        kneeCare.configure(mode = mode, knee = knee, clearKnee = clearKnee, calfOnly = calfOnly, reshuffle = reshuffle, levelStep = levelStep)
         kneeCare.setSession(buildKneeCare(kneeCare.ui.value))
     }
 
@@ -716,7 +724,7 @@ class AppViewModel @JvmOverloads constructor(
 
     /** Leaves the knee care setup without starting. */
     fun kneeCareBack() {
-        if (kneeCare.ui.value.phase != KneeCarePhase.RUNNING) kneeCare.reset()
+        if (kneeCare.ui.value.phase.let { it != KneeCarePhase.RUNNING && it != KneeCarePhase.GET_READY }) kneeCare.reset()
         backOr(Screen.Home)
     }
 

@@ -384,7 +384,7 @@ class BackNavTest {
         assertEquals(KneeCarePhase.SETUP, vm.kneeCare.ui.value.phase)
 
         vm.launchKneeCare()
-        vm.kneeCare.start()
+        vm.kneeCare.start(); vm.kneeCare.ready()
         repeat(5 * 60) { vm.kneeCare.tick(1000) }
         rule.waitForIdle()
         systemBack()
@@ -399,7 +399,7 @@ class BackNavTest {
         assertEquals(emptyList(), onDisk().records)
 
         vm.launchKneeCare()
-        vm.kneeCare.start()
+        vm.kneeCare.start(); vm.kneeCare.ready()
         repeat(5 * 60) { vm.kneeCare.tick(1000) }
         rule.waitForIdle()
         systemBack()

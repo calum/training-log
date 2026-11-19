@@ -38,7 +38,14 @@ enum class MissReason { ROUGH_DAY, AT_LIMIT }
 enum class Effort { TOO_EASY, JUST_RIGHT, TOO_HARD }
 
 @Serializable
-data class LoggedSet(val weightKg: Double, val reps: Int, val targetReps: Int, val rir: Int? = null)
+data class LoggedSet(
+    val weightKg: Double,
+    val reps: Int,
+    val targetReps: Int,
+    val rir: Int? = null,
+    /** Home calf ladder level (1-6) this set was done at; null for every other exercise and for older logs. */
+    val level: Int? = null,
+)
 
 @Serializable
 data class ExerciseLog(

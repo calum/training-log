@@ -1,6 +1,8 @@
 package com.calum.traininglog
 
+import com.calum.traininglog.core.CalfLadder
 import com.calum.traininglog.core.CalfMode
+import com.calum.traininglog.core.Effort
 import com.calum.traininglog.core.CoreEvent
 import com.calum.traininglog.core.CoreKind
 import com.calum.traininglog.core.CoreRun
@@ -9,15 +11,23 @@ import com.calum.traininglog.core.Feeling
 import com.calum.traininglog.core.KneeCareRoutine
 import com.calum.traininglog.core.KneeCareSession
 import com.calum.traininglog.core.LoggedSet
+import com.calum.traininglog.core.rir
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 
-enum class KneeCarePhase { SETUP, RUNNING, DONE }
+/** SETUP card, then the GET_READY interstitial (grab the gear, press Ready), then RUNNING, then DONE. */
+enum class KneeCarePhase { SETUP, GET_READY, RUNNING, DONE }
 
-/** The load, reps done and optional reps-in-reserve for one working calf set (kg null = blank, to be typed). */
-data class CalfEntry(val kg: Double?, val reps: Int, val rir: Int? = null)
+/**
+ * One working calf set: the load, reps done, the reps in reserve (from the feel tap), the ladder [level] and the reps aimed
+ * for ([targetReps], 0 = use the session's) and the feel tap itself. A too easy tap upgrades the sets still to come.
+ */
+data class CalfEntry(
+    val kg: Double?, val reps: Int, val rir: Int? = null,
+    val level: Int = 1, val targetReps: Int = 0, val effort: Effort? = null,
+)
 
 /**
  * Everything the knee care screen shows. [calf] has one entry per working calf set; [savedId] is the id of the record that
@@ -40,6 +50,10 @@ data class KneeCareUi(
     /** Optional knee score after the session (feeds the knee-gated running stage like other sessions). */
     val kneeAfter: Int? = null,
     val savedId: String? = null,
+    /** Level changed by hand on the setup card (-1 easier, +1 harder). */
+    val levelAdjust: Int = 0,
+    /** Gear ticked on the checklist: memory only, never required. */
+    val checked: Set<String> = emptySet(),
 )
 
 /**
@@ -57,22 +71,34 @@ class KneeCareController {
         _ui.value = KneeCareUi(minutes = minutes, calfOnly = calfOnly, mode = mode, knee = knee, session = session)
     }
 
-    fun configure(minutes: Int? = null, mode: CalfMode? = null, knee: Int? = null, clearKnee: Boolean = false, calfOnly: Boolean? = null, reshuffle: Boolean = false) =
+    fun configure(minutes: Int? = null, mode: CalfMode? = null, knee: Int? = null, clearKnee: Boolean = false, calfOnly: Boolean? = null, reshuffle: Boolean = false, levelStep: Int = 0) =
         _ui.update { u ->
             if (u.phase != KneeCarePhase.SETUP) return@update u
             u.copy(
                 minutes = minutes ?: u.minutes, mode = mode ?: u.mode, knee = if (clearKnee) null else knee ?: u.knee,
                 calfOnly = calfOnly ?: u.calfOnly, seed = if (reshuffle) u.seed + 1 else u.seed,
+                levelAdjust = u.levelAdjust + levelStep,
             )
         }
 
     fun setSession(s: KneeCareSession) = _ui.update { if (it.phase == KneeCarePhase.SETUP) it.copy(session = s) else it }
 
+    /** Ticking gear on the checklist (optional memory only). */
+    fun toggleGear(name: String) = _ui.update { u -> u.copy(checked = if (name in u.checked) u.checked - name else u.checked + name) }
+
+    /** "Start": opens the Get ready step. Nothing runs and no time passes until [ready]. */
     fun start() = _ui.update { u ->
         val s = u.session ?: return@update u
-        val entries = List(s.calfSets) { CalfEntry(s.calfStartKg, s.calfReps) }
-        u.copy(phase = KneeCarePhase.RUNNING, run = CoreRun(s.steps), changes = 0, calf = entries, savedId = null)
+        if (u.phase != KneeCarePhase.SETUP) return@update u
+        val entries = List(s.calfSets) { CalfEntry(s.calfStartKg, s.calfReps, level = s.calfLevel, targetReps = s.calfReps) }
+        u.copy(phase = KneeCarePhase.GET_READY, run = CoreRun(s.steps), changes = 0, calf = entries, savedId = null)
     }
+
+    /** "Ready": the warm-up starts now. */
+    fun ready() = _ui.update { if (it.phase == KneeCarePhase.GET_READY) it.copy(phase = KneeCarePhase.RUNNING) else it }
+
+    /** Back from the Get ready step to the setup card. */
+    fun backToSetup() = _ui.update { if (it.phase == KneeCarePhase.GET_READY) it.copy(phase = KneeCarePhase.SETUP, run = null, calf = emptyList()) else it }
 
     /** Advances the clock; returns the cue to play, if any. A rep-based step only lets time pass (it ends on [next]). */
     fun tick(deltaMs: Long): CoreEvent? {
@@ -138,6 +164,40 @@ class KneeCareController {
         if (index !in u.calf.indices) u else u.copy(calf = u.calf.mapIndexed { i, e -> if (i >= index) e.copy(kg = kg) else e })
     }
 
+    /**
+     * The one-tap effort row after a calf set (null clears it). It never blocks. It stores an RIR-equivalent, upgrades (too
+     * easy) or keeps (just right, too hard) the sets still to come, and shortens or lengthens the rests still to come: after
+     * a too easy set the rest is 30 s, after a too hard one a little longer. A rest in progress is changed too (never to less
+     * than it has already run). Skipped rests change nothing else.
+     */
+    fun rate(index: Int, effort: Effort?) = _ui.update { u ->
+        val s = u.session ?: return@update u
+        val run = u.run ?: return@update u
+        if (index !in u.calf.indices) return@update u
+        val entries = u.calf.toMutableList()
+        entries[index] = entries[index].copy(effort = effort, rir = effort?.rir)
+        val e = entries[index]
+        val (level, target) = CalfLadder.follower(e.level, e.targetReps, effort, entries.getOrNull(index - 1)?.effort, s.kit, s.calfMode)
+        for (j in index + 1 until entries.size) {
+            val old = entries[j]
+            val spec = CalfLadder.spec(level, s.kit)
+            entries[j] = old.copy(
+                level = level, targetReps = target, reps = target,
+                kg = if (level != old.level) CalfLadder.loadKg(spec, s.kit) else old.kg, effort = null, rir = null,
+            )
+        }
+        val steps = run.steps.mapIndexed { i, st ->
+            val set = if (st.kind == CoreKind.REST && st.exerciseId == ExerciseLibrary.CALF_HOME_ID && i >= run.index) s.calfSetAt(i) else null
+            if (set == null) st else {
+                val eff = entries.take(set + 1).lastOrNull { it.effort != null }?.effort
+                var sec = CalfLadder.restSec(s.steps[i].seconds, eff)
+                if (i == run.index) sec = maxOf(sec, (run.elapsedMs / 1000).toInt() + 1)
+                st.copy(seconds = sec)
+            }
+        }
+        u.copy(calf = entries, run = run.copy(steps = steps))
+    }
+
     // ---- finish card
 
     fun setFeeling(f: Feeling) = _ui.update { it.copy(feeling = f) }
@@ -155,7 +215,7 @@ class KneeCareController {
             s.steps[i].kind == CoreKind.WORK && s.steps[i].exerciseId == ExerciseLibrary.CALF_HOME_ID && i < run.index && i !in run.skipped
         }.mapNotNull { i ->
             val e = u.calf.getOrNull(s.calfSetAt(i) ?: return@mapNotNull null) ?: return@mapNotNull null
-            LoggedSet(e.kg ?: 0.0, e.reps, s.calfReps, e.rir)
+            LoggedSet(e.kg ?: 0.0, e.reps, if (e.targetReps > 0) e.targetReps else s.calfReps, e.rir, e.level)
         }
     }
 

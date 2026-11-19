@@ -60,7 +60,7 @@ Personal progressive training app for Android (Pixel 6a). Asks how much time and
 
 ## Added since v0.9.1
 
-- **Knee care**: an optional guided hip and calf routine (about 15 minutes, or "Just calf raises" in about 8) for the ITB knee, with heavy slow weighted calf raises by default, large rep-based "Done, next" steps and its own calf weight track. Reusable `RepStepCard` in `app/.../ui/RepStep.kt`. Evidence and limits in `docs/hyrox-plan-evidence.md`.
+- **Knee care**: an optional guided hip and calf routine (about 15 minutes, or "Just calf raises") for the ITB knee: a "You'll need" checklist and Get ready step, a "My home kit" setting (kettlebell kg, step, band, chair, mat) that decides the exercises (single-leg RDL and chair squat without a step), a 6-level home calf ladder (one leg, kettlebell, slower lowering, more reps), a Too easy / Just right / Too hard row after each set, large rep-based "Done, next" steps and its own calf track. Reusable `RepStepCard` in `app/.../ui/RepStep.kt`. Evidence and limits in `docs/hyrox-plan-evidence.md`.
 
 Not yet built: training blocks, in-app settings for increments and starting weights.
 
