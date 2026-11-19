@@ -93,6 +93,7 @@ fun RacePlanScreen(vm: AppViewModel) {
         onStart = { vm.launchPlanned(it) },
         onBack = { vm.back() },
         onProfile = { f -> vm.updateProfile(f) },
+        onKneeCare = { calfOnly -> vm.launchKneeCare(calfOnly) },
     )
 }
 
@@ -106,6 +107,7 @@ internal fun RacePlanContent(
     onBack: () -> Unit,
     allWeeksOpen: Boolean = false,
     onProfile: ((Profile) -> Profile) -> Unit = {},
+    onKneeCare: (calfOnly: Boolean) -> Unit = {},
 ) {
     val cfg = profile.settings.racePlan
     val plan = remember(cfg, records, today, profile) { RacePlanner.build(cfg, records, today, profile) }
@@ -131,6 +133,7 @@ internal fun RacePlanContent(
             PhaseTimeline(plan, week, today)
             if (week != null) {
                 ThisWeekCard(plan, week, records, profile, today, onStart, onProfile, health)
+                KneeCareCard(week, onKneeCare)
                 BalanceCard(records, week)
             } else {
                 SectionCard(title = "Race done") {
@@ -413,6 +416,39 @@ private fun ThisWeekCard(
                     )
                 }
             }
+        }
+    }
+}
+
+/**
+ * Knee care for the week: an optional add-on (hip and calf work, about 15 minutes) with its own count. It is NOT in the
+ * sessions list and not in the planned minutes; skipping it costs nothing.
+ */
+@Composable
+private fun KneeCareCard(week: PlanWeek, onStart: (calfOnly: Boolean) -> Unit) {
+    val k = week.kneeCare
+    SectionCard(Modifier.testTag("kneeCare"), title = "Knee care") {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+            repeat(k.target) { i ->
+                val on = i < k.done
+                Box(
+                    Modifier.size(22.dp).clip(CircleShape)
+                        .then(if (on) Modifier.background(AppColors.primary) else Modifier.border(2.dp, AppColors.textMuted, CircleShape)),
+                )
+            }
+            Text(
+                if (k.done > k.target) "${k.done} done this week" else "${k.done} of ${k.target} this week",
+                style = MaterialTheme.typography.titleMedium, color = AppColors.textPrimary, modifier = Modifier.padding(start = Spacing.xs),
+            )
+        }
+        k.note?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = AppColors.info) }
+        Text(
+            "Optional hip and calf work for the knee, in addition to the sessions above. At least twice a week is the aim, and more is fine. It is not part of the planned minutes.",
+            style = MaterialTheme.typography.bodySmall, color = AppColors.textMuted,
+        )
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+            SecondaryButton("Start · 15 min", { onStart(false) }, Modifier.weight(1f), accent = AppColors.primary)
+            SecondaryButton("Calves only · 8 min", { onStart(true) }, Modifier.weight(1f), accent = AppColors.energy)
         }
     }
 }

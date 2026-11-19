@@ -237,7 +237,7 @@ private fun CoreKind.title() = when (this) {
 private fun sideText(s: CoreSide?) = when (s) { CoreSide.LEFT -> "LEFT SIDE"; CoreSide.RIGHT -> "RIGHT SIDE"; null -> null }
 
 @Composable
-private fun CorePlayerBody(run: CoreRun, flash: Boolean, onTogglePause: () -> Unit, onSkip: () -> Unit, onEnd: () -> Unit) {
+internal fun CorePlayerBody(run: CoreRun, flash: Boolean, onTogglePause: () -> Unit, onSkip: () -> Unit, onEnd: () -> Unit) {
     val step = run.current ?: return
     val dark = Color(0xFF05100B)
 
@@ -430,7 +430,7 @@ private fun CoreSetupContent(
 }
 
 @Composable
-private fun StepLine(lead: String, name: String, tail: String?) {
+internal fun StepLine(lead: String, name: String, tail: String?) {
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Text(lead, style = AppType.numberS, color = AppColors.primary, modifier = Modifier.padding(end = Spacing.md).width(56.dp))
         Text(name, style = MaterialTheme.typography.titleSmall, color = AppColors.textPrimary, modifier = Modifier.weight(1f))

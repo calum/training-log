@@ -24,7 +24,8 @@ object PublicExport {
 
     /** Path to file content, e.g. "data/gym/2026-10.csv". Deterministic: same records give the same files. */
     fun files(records: List<SessionRecord>): Map<String, String> {
-        val sorted = records.withIndex()
+        // Knee care is private (and not a workout for the public charts): it never leaves the phone.
+        val sorted = records.filter { !it.isKneeCare }.withIndex()
             .sortedWith(compareBy({ it.value.date }, { it.value.id }, { it.index }))
             .map { it.value }
 

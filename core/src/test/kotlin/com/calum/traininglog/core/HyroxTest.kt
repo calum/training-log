@@ -377,8 +377,8 @@ class HyroxTest {
         val today = day(30)
         val none = Rewards.summary(emptyList(), today)
         assertFalse(none.badges.first { it.id == "hyrox_first_station" }.unlocked)
-        assertEquals(listOf("hyrox_first_station", "hyrox_all_eight", "hyrox_race_standard", "hyrox_first_sim"), none.badges.takeLast(4).map { it.id })
-        assertEquals("streak_4", none.badges[none.badges.size - 5].id)
+        assertEquals(listOf("hyrox_first_station", "hyrox_all_eight", "hyrox_race_standard", "hyrox_first_sim"), none.badges.dropLast(1).takeLast(4).map { it.id })
+        assertEquals("streak_4", none.badges[none.badges.size - 6].id)
 
         val r1 = session("a", 0, StationLog("row", distanceM = 600, rpe = 7), StationLog("skierg", distanceM = 400, rpe = 7))
         val xp1 = Rewards.sessionXp(r1, emptyList())

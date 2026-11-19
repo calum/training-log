@@ -373,7 +373,7 @@ class HyroxSimFlowTest {
         // A PR for the format, the badge, the XP bonus.
         val summary = Rewards.summary(recs, later)
         assertTrue(summary.prs.any { it.exerciseId == "hyrox_sim:first_half" && it.sessionId == second.id })
-        assertTrue(summary.badges.last().unlocked)
+        assertTrue(summary.badges.first { it.id == "hyrox_first_sim" }.unlocked)
         assertEquals(Rewards.HYROX_SIM_BONUS, summary.sessionXp.getValue(second.id).sim)
 
         // Claude export: a readable split table. Public export: whitelisted, in its own file, and it imports back.

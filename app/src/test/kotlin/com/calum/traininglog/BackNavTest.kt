@@ -14,6 +14,7 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.test.core.app.ApplicationProvider
 import com.calum.traininglog.core.HyroxStation
+import com.calum.traininglog.core.isKneeCare
 import com.calum.traininglog.core.Intensity
 import com.calum.traininglog.core.LaunchHint
 import com.calum.traininglog.core.Modality
@@ -370,6 +371,43 @@ class BackNavTest {
         systemBack() // the rating card: like Save
         assertEquals(Screen.Home, vm.screen.value)
         assertEquals(1, onDisk().records.size)
+    }
+
+    @Test fun kneeCareSetupGoesBackAndRunningAsks() {
+        val vm = newVm()
+        show(vm)
+        vm.launchKneeCare()
+        rule.waitForIdle()
+        assertEquals(Screen.KneeCare, vm.screen.value)
+        systemBack()
+        assertEquals(Screen.Home, vm.screen.value)
+        assertEquals(KneeCarePhase.SETUP, vm.kneeCare.ui.value.phase)
+
+        vm.launchKneeCare()
+        vm.kneeCare.start()
+        repeat(5 * 60) { vm.kneeCare.tick(1000) }
+        rule.waitForIdle()
+        systemBack()
+        assertDialogShown()
+        tapDialog("Keep going")
+        assertEquals(KneeCarePhase.RUNNING, vm.kneeCare.ui.value.phase)
+        assertEquals(emptyList(), onDisk().records)
+
+        systemBack()
+        tapDialog("Discard")
+        assertEquals(Screen.Home, vm.screen.value)
+        assertEquals(emptyList(), onDisk().records)
+
+        vm.launchKneeCare()
+        vm.kneeCare.start()
+        repeat(5 * 60) { vm.kneeCare.tick(1000) }
+        rule.waitForIdle()
+        systemBack()
+        tapDialog("End and save")
+        assertEquals(Screen.Home, vm.screen.value)
+        assertEquals(1, onDisk().records.size)
+        assertTrue(onDisk().records.single().isKneeCare)
+        assertEquals(KneeCarePhase.SETUP, vm.kneeCare.ui.value.phase)
     }
 
     // ------------------------------------------------------------------------------------ hyrox session

@@ -61,7 +61,7 @@ internal fun <T> ChipFlow(options: List<T>, selected: T, label: (T) -> String, o
 
 /** Equal-width chips laid out [perRow] to a row, so rows line up and nothing wraps awkwardly. */
 @Composable
-private fun <T> ChipGrid(options: List<T>, perRow: Int, isSelected: (T) -> Boolean, label: (T) -> String, onPick: (T) -> Unit) {
+internal fun <T> ChipGrid(options: List<T>, perRow: Int, isSelected: (T) -> Boolean, label: (T) -> String, onPick: (T) -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
         options.chunked(perRow).forEach { row ->
             Row(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {

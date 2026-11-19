@@ -28,10 +28,10 @@ object Reminder {
         if (today.dayOfWeek !in s.reminderDays) return false
         if (sentThisWeek >= s.reminderMaxPerWeek) return false
         if (RestDays.isRestDay(profile, today)) return false
-        if (records.any { it.date == today }) return false
+        if (records.withoutKneeCare().any { it.date == today }) return false
         val week = Stats.week(records.filter { it.date <= today }, today)
         if (minOf(week.gym, s.gymTarget) + minOf(week.treadmill, s.treadmillTarget) >= s.gymTarget + s.treadmillTarget) return false
-        val lastFeeling = records.filter { it.date <= today && it.date >= today.minusDays(2) }.maxByOrNull { it.date }?.feeling
+        val lastFeeling = records.withoutKneeCare().filter { it.date <= today && it.date >= today.minusDays(2) }.maxByOrNull { it.date }?.feeling
         if (lastFeeling == Feeling.ILL || lastFeeling == Feeling.ROUGH) return false
         return true
     }

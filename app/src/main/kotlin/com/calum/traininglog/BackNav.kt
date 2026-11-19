@@ -38,6 +38,7 @@ internal fun backActionFor(vm: AppViewModel, screen: Screen): BackAction {
     val tread by TreadmillEngine.ui.collectAsState()
     val core by vm.core.ui.collectAsState()
     val guided by vm.guided.ui.collectAsState()
+    val knee by vm.kneeCare.ui.collectAsState()
     val hyrox by vm.hyrox.ui.collectAsState()
     val sim by vm.sim.ui.collectAsState()
     val inputs by vm.inputs.collectAsState()
@@ -79,6 +80,17 @@ internal fun backActionFor(vm: AppViewModel, screen: Screen): BackAction {
                 ),
             )
             CorePhase.DONE -> BackAction.Do { vm.saveCore(null) }
+        }
+        Screen.KneeCare -> when (knee.phase) {
+            KneeCarePhase.SETUP -> BackAction.Do { vm.kneeCareBack() }
+            KneeCarePhase.RUNNING -> BackAction.Ask(
+                "End and save keeps what you have done so far (under a minute is not logged). Discard drops this session.",
+                listOf(
+                    LeaveOption("End and save", { vm.kneeCare.end(); vm.saveKneeCare() }),
+                    LeaveOption("Discard", { vm.kneeCareDiscard() }, muted = true),
+                ),
+            )
+            KneeCarePhase.DONE -> BackAction.Do { vm.saveKneeCare() }
         }
         is Screen.GuidedTimer -> when (guided.phase) {
             GuidedPhase.SETUP -> BackAction.Do { vm.guidedBack() }

@@ -257,6 +257,7 @@ object RacePlanner {
                 easyShareTarget = EASY_TARGET, runStage = stage, runStageProjected = projected,
                 sessions = sessions, headline = headline(ctx), focus = focus(ctx),
                 stationTargets = stationTargets(ctx), adjustment = adjustment,
+                kneeCare = KneeCare.status(ws, ws.plusDays(6), records, today, ctx.phase == RacePhase.RACE),
             )
         }
         val peak = (1..11).maxOf { originalPlanned[it] }
@@ -340,6 +341,7 @@ object RacePlanner {
             sessions = sessions, headline = "Kick-off: easing in before week 1",
             focus = "A couple of short, easy sessions sized to what you are doing now (about $b minutes a week), so week 1 starts from where you really are. Nothing is hard.",
             stationTargets = stationTargets(ctx), adjustment = note, lastDay = last,
+            kneeCare = KneeCare.status(Stats.weekOf(today).start, Stats.weekOf(today).endInclusive, records, today, raceWeek = false),
         )
     }
 
@@ -349,12 +351,12 @@ object RacePlanner {
 
     /** Most recent ILL or ROUGH feeling in the last 3 days, if any. */
     private fun recentRough(records: List<SessionRecord>, today: LocalDate): Feeling? =
-        records.filter { it.date <= today && ChronoUnit.DAYS.between(it.date, today) <= 3 && (it.feeling == Feeling.ILL || it.feeling == Feeling.ROUGH) }
+        records.withoutKneeCare().filter { it.date <= today && ChronoUnit.DAYS.between(it.date, today) <= 3 && (it.feeling == Feeling.ILL || it.feeling == Feeling.ROUGH) }
             .maxWithOrNull(compareBy({ it.date }, { it.id }))?.feeling
 
     /** Minutes of logged training in [from]..[to] (treadmill sessions use the time actually walked). */
     internal fun loggedMinutes(records: List<SessionRecord>, from: LocalDate, to: LocalDate): Int =
-        records.filter { it.date in from..to }.sumOf { r -> r.treadmill?.let { it.completedSec / 60 } ?: r.minutesActual }
+        records.filter { it.date in from..to && !it.isKneeCare }.sumOf { r -> r.treadmill?.let { it.completedSec / 60 } ?: r.minutesActual }
 
     internal class Baseline(val minutes: Int, val fromHistory: Boolean)
 
@@ -367,7 +369,7 @@ object RacePlanner {
     internal fun baseline(records: List<SessionRecord>, start: LocalDate, today: LocalDate): Baseline {
         val end = if (today < start) today else start.minusDays(1)
         val from = end.minusDays(27)
-        val recent = records.filter { it.date in from..end }
+        val recent = records.filter { it.date in from..end && !it.isKneeCare }
         if (recent.size < 4) return Baseline(DEFAULT_BASELINE_MIN, false)
         val firstDay = maxOf(from, recent.minOf { it.date })
         val weeks = max(1.0, (ChronoUnit.DAYS.between(firstDay, end) + 1) / 7.0)

@@ -381,11 +381,12 @@ class HyroxSimTest {
     @Test fun rewardsGiveSimBonusBadgeAndPrsByFormat() {
         val first = fullRecord("s1", 0, 2400)
         val none = Rewards.summary(emptyList(), day(0))
-        assertEquals("hyrox_first_sim", none.badges.last().id)
-        assertFalse(none.badges.last().unlocked)
+        // The Knee care badge is appended at the very end, after the Hyrox ones.
+        assertEquals("hyrox_first_sim", none.badges.first { it.id == "hyrox_first_sim" }.id)
+        assertFalse(none.badges.first { it.id == "hyrox_first_sim" }.unlocked)
         val sum = Rewards.summary(listOf(first), day(1))
-        assertEquals(day(0), sum.badges.last().unlockedOn)
-        assertEquals("First simulation", sum.badges.last().title)
+        assertEquals(day(0), sum.badges.first { it.id == "hyrox_first_sim" }.unlockedOn)
+        assertEquals("First simulation", sum.badges.first { it.id == "hyrox_first_sim" }.title)
         val xp = sum.sessionXp.getValue("s1")
         assertEquals(Rewards.HYROX_SIM_BONUS, xp.sim)
         assertTrue("Simulation ${Rewards.HYROX_SIM_BONUS}" in xp.lines)

@@ -8,7 +8,14 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.calum.traininglog.core.TreadmillStatsCalc
 import kotlinx.coroutines.launch
+import com.calum.traininglog.core.CalfMode
 import com.calum.traininglog.core.Effort
+import com.calum.traininglog.core.KneeCare
+import com.calum.traininglog.core.KneeCareLibrary
+import com.calum.traininglog.core.KneeCareRecord
+import com.calum.traininglog.core.KneeCareRoutine
+import com.calum.traininglog.core.KneeCareSession
+import com.calum.traininglog.core.isKneeCare
 import com.calum.traininglog.core.Exercise
 import com.calum.traininglog.core.ExerciseLibrary
 import com.calum.traininglog.core.ExerciseLog
@@ -63,6 +70,8 @@ sealed interface Screen {
     data class Light(val type: SessionType) : Screen
     /** Guided mat / core session: setup, player and finish all live behind this one route (see [CoreController]). */
     data object Core : Screen
+    /** Guided knee care (hip and calf work): setup, player and finish all live behind this one route (see [KneeCareController]). */
+    data object KneeCare : Screen
     data object Manual : Screen
     data object Plan : Screen
     data object Settings : Screen
@@ -202,7 +211,7 @@ class AppViewModel @JvmOverloads constructor(
     }
 
     private fun pushable(s: Screen) = when (s) {
-        Screen.Gym, Screen.TreadmillSetup, Screen.TreadmillPlayer, Screen.TreadmillDone, Screen.Core,
+        Screen.Gym, Screen.TreadmillSetup, Screen.TreadmillPlayer, Screen.TreadmillDone, Screen.Core, Screen.KneeCare,
         is Screen.HyroxSession, is Screen.GuidedTimer, is Screen.HyroxSim -> false
         else -> true
     }
@@ -514,7 +523,7 @@ class AppViewModel @JvmOverloads constructor(
     val core = CoreController()
 
     private fun lastCoreIds(): List<String> =
-        _data.value.records.filter { it.type == SessionType.CORE }.maxByOrNull { it.date }?.let { com.calum.traininglog.core.CoreLibrary.idsFromNote(it.note) }.orEmpty()
+        _data.value.records.filter { it.type == SessionType.CORE && !it.isKneeCare }.maxByOrNull { it.date }?.let { com.calum.traininglog.core.CoreLibrary.idsFromNote(it.note) }.orEmpty()
 
     /** Knee-sensitive by default when today's knee score, or else the last logged one, is 4 or more. */
     private fun kneeDefault(): Boolean =
@@ -537,6 +546,93 @@ class AppViewModel @JvmOverloads constructor(
         val names = run.doneWorkNames()
         val felt = when (effort) { Effort.TOO_EASY -> "too easy"; Effort.JUST_RIGHT -> "just right"; Effort.TOO_HARD -> "too hard"; null -> null }
         saveLight(SessionType.CORE, minutes, if (names.isEmpty()) "Core: warm-up and stretching" else com.calum.traininglog.core.CoreRoutine.note(names, felt))
+    }
+
+    // ---- Knee care (guided hip and calf routine, an optional add-on to the plan) ----
+
+    val kneeCare = KneeCareController()
+
+    private fun lastKneeCareIds(): List<String> =
+        _data.value.records.filter { it.isKneeCare }.sortedBy { it.date }.lastOrNull()?.let { KneeCareLibrary.idsFromNote(it.note) }.orEmpty()
+
+    /** The last knee score logged (pre-fills the setup chips). */
+    private fun lastKneeScore(): Int? = _data.value.records.filter { it.kneePain != null }.maxByOrNull { it.date }?.kneePain
+
+    private fun buildKneeCare(u: KneeCareUi): KneeCareSession {
+        val d = _data.value
+        val settings = d.profile.settings
+        val rx = KneeCare.calfPrescription(d.records, today, settings, u.mode)
+        val kg = KneeCare.calfStartKg(d.records, today, settings, u.mode)
+        val last = lastKneeCareIds().ifEmpty { null }
+        val lastTime = KneeCare.lastTime(d.records, u.mode)
+        return if (u.calfOnly) KneeCareRoutine.buildCalfOnly(last, kg, u.mode, rx.reps, lastTime)
+        else KneeCareRoutine.build(u.minutes, last, u.knee, kg, u.seed, u.mode, rx.reps, lastTime)
+    }
+
+    /** Opens the knee care setup: the full routine, or [calfOnly] for just the calf raises. A running session is resumed. */
+    fun launchKneeCare(calfOnly: Boolean = false) {
+        if (kneeCare.ui.value.phase == KneeCarePhase.RUNNING) { go(Screen.KneeCare); return }
+        val mode = KneeCare.lastMode(_data.value.records)
+        val knee = _inputs.value.knee ?: lastKneeScore()
+        val u = KneeCareUi(minutes = KneeCareRoutine.DEFAULT_MINUTES, calfOnly = calfOnly, mode = mode, knee = knee)
+        kneeCare.prepare(u.minutes, mode, knee, calfOnly, buildKneeCare(u))
+        go(Screen.KneeCare)
+    }
+
+    fun kneeCareSetup(
+        mode: CalfMode? = null, knee: Int? = null, clearKnee: Boolean = false, calfOnly: Boolean? = null, reshuffle: Boolean = false,
+    ) {
+        kneeCare.configure(mode = mode, knee = knee, clearKnee = clearKnee, calfOnly = calfOnly, reshuffle = reshuffle)
+        kneeCare.setSession(buildKneeCare(kneeCare.ui.value))
+    }
+
+    /** The record of the knee care session as it stands (null: under a minute, nothing to log). */
+    private fun kneeCareRecord(u: KneeCareUi, id: String, date: LocalDate): SessionRecord? {
+        val run = u.run ?: return null
+        val s = u.session ?: return null
+        return KneeCareRecord.build(
+            id, date, s.minutes, run.completedSec, kneeCare.doneNames(u), kneeCare.doneCalfSets(u),
+            feeling = u.feeling, kneePain = u.kneeAfter,
+        )
+    }
+
+    /**
+     * Saves the finished (or ended) knee care session the moment it ends, so nothing is lost if the screen freezes. The
+     * finish card then only edits that record. Under a minute logs nothing.
+     */
+    private fun autosaveKneeCare(u: KneeCareUi) {
+        if (u.phase != KneeCarePhase.DONE || u.savedId != null) return
+        runCatching {
+            val record = kneeCareRecord(u, UUID.randomUUID().toString(), today) ?: return
+            kneeCare.markSaved(record.id)
+            persist { it.copy(records = it.records + record) }
+        }
+    }
+
+    /** Finish card "Save": puts the feeling and knee score on the already saved record (no duplicate), then goes home. */
+    fun saveKneeCare() {
+        autosaveKneeCare(kneeCare.ui.value)
+        val u = kneeCare.ui.value
+        val id = u.savedId
+        if (id != null) {
+            val old = _data.value.records.firstOrNull { it.id == id }
+            val edited = old?.let { kneeCareRecord(u, id, it.date) }
+            if (edited != null) persist { d -> d.copy(records = d.records.map { r -> if (r.id == id) edited else r }) }
+        }
+        kneeCare.reset()
+        home()
+    }
+
+    /** Leaves the knee care setup without starting. */
+    fun kneeCareBack() {
+        if (kneeCare.ui.value.phase != KneeCarePhase.RUNNING) kneeCare.reset()
+        backOr(Screen.Home)
+    }
+
+    /** Drops a running knee care session without saving. */
+    fun kneeCareDiscard() {
+        kneeCare.reset()
+        home()
     }
 
     // ---- Hyrox (guided station session and quick log) ----
@@ -756,6 +852,7 @@ class AppViewModel @JvmOverloads constructor(
      * and rower / SkiErg / bike the guided timer. A rest day goes home.
      */
     fun launchPlanned(session: PlannedSession, modality: Modality? = null) {
+        if (session.launch.kneeCare) { launchKneeCare(); return }
         val mod = modality ?: GuidedPlan.defaultModality(session)
         when {
             session.kind == SessionKind.REST || mod == Modality.REST -> home()
@@ -868,5 +965,7 @@ class AppViewModel @JvmOverloads constructor(
         viewModelScope.launch { guided.ui.collect { autosaveGuided(it) } }
         // And the simulation: saved when its last leg ends (or it is ended early).
         viewModelScope.launch { sim.ui.collect { autosaveSim(it) } }
+        // And knee care: saved when its last step ends (or it is ended early), the finish card just edits it.
+        viewModelScope.launch { kneeCare.ui.collect { autosaveKneeCare(it) } }
     }
 }

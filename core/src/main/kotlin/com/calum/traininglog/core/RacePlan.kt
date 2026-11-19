@@ -75,6 +75,8 @@ data class LaunchHint(
     val minutes: Int,
     /** Opens the true race-order simulation (format and loads) instead of the normal guided Hyrox session. */
     val sim: SimPreset? = null,
+    /** Opens the knee care routine (an optional add-on, see [KneeCare]) instead of a plan session. */
+    val kneeCare: Boolean = false,
 )
 
 /**
@@ -131,6 +133,8 @@ data class PlanWeek(
     val adjustment: String? = null,
     /** Last day of a lead-in (the Sunday before week 1); null for the ordinary Monday-Sunday weeks. */
     val lastDay: LocalDate? = null,
+    /** Optional knee care add-ons this week (not one of the sessions, not in the planned minutes). */
+    val kneeCare: KneeCareStatus = KneeCareStatus(),
 ) {
     val end: LocalDate get() = lastDay ?: start.plusDays(6)
     /** True for the kick-off lead-in ([RacePlan.leadIn]), which has [index] 0. */

@@ -40,6 +40,14 @@ object ExerciseLibrary {
         acc("machine_shoulder", "Machine shoulder press", "vertical-push", 30.0),
     )
 
+    /**
+     * The home calf raise of a knee care session. Its own history and its own weight track: home weights are often much
+     * lighter than the gym's, so a light home set must never drag the gym `calf` prescription down. Deliberately NOT in
+     * [all] (never offered in the gym builder, swaps, settings or the public export).
+     */
+    const val CALF_HOME_ID = "calf_home"
+    val calfHome = Exercise(CALF_HOME_ID, "Calf raise (home)", Role.ACCESSORY, "calf-home", 1.0, 0.0, 3, 12, 15, 45)
+
     val all: List<Exercise> = listOf(squat, deadlift, rdl, calf) + upper
     private val byId = all.associateBy { it.id }
 
@@ -56,7 +64,7 @@ object ExerciseLibrary {
 
     /** Display name that never throws: library name, else the logged custom name, else a readable id. */
     fun nameOf(id: String, customName: String? = null): String =
-        byId[id]?.name ?: customName?.takeIf { it.isNotBlank() } ?: if (isCustom(id)) id.removePrefix(CUSTOM_PREFIX).replace('_', ' ') else id
+        byId[id]?.name ?: (if (id == CALF_HOME_ID) calfHome.name else null) ?: customName?.takeIf { it.isNotBlank() } ?: if (isCustom(id)) id.removePrefix(CUSTOM_PREFIX).replace('_', ' ') else id
 
     fun customId(name: String): String {
         val slug = name.trim().lowercase().replace(Regex("[^a-z0-9]+"), "_").trim('_')

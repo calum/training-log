@@ -88,7 +88,8 @@ object WeekPlanner {
     fun plan(records: List<SessionRecord>, profile: Profile, today: LocalDate, settings: UserSettings = profile.settings): WeekView {
         val range = Stats.weekOf(today)
         val start = range.start
-        val byDate = records.filter { it.date in range }.groupBy { it.date }
+        // A knee care add-on is not a workout: it never uses up a rest day or fills an open day.
+        val byDate = records.filter { it.date in range && !it.isKneeCare }.groupBy { it.date }
         val dates = (0L..6L).map { start.plusDays(it) }
 
         val gymDone = records.count { it.date in range && it.type == SessionType.GYM }

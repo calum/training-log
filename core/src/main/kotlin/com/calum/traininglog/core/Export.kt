@@ -137,7 +137,7 @@ object Export {
         val body = if (sameWeight) "${num(sets[0].weightKg)}kg x ${sets.joinToString("/") { it.reps.toString() }}"
         else sets.joinToString(", ") { "${num(it.weightKg)}x${it.reps}" }
         val rir = sets.lastOrNull()?.rir?.let { ", last set RIR $it" } ?: ""
-        val missed = if (sets.any { it.reps < it.targetReps }) ", MISSED reps" + (e.missReason?.let { " (${it.name.lowercase().replace('_', ' ')})" } ?: "") else ""
+        val missed = if (e.exerciseId != ExerciseLibrary.CALF_HOME_ID && sets.any { it.reps < it.targetReps }) ", MISSED reps" + (e.missReason?.let { " (${it.name.lowercase().replace('_', ' ')})" } ?: "") else ""
         return "$name $body$rir$missed"
     }
 

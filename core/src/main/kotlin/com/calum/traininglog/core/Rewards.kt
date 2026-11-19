@@ -163,7 +163,7 @@ object Rewards {
             restTokens = streak.tokens,
             badges = badges(sorted, a, streak, settings),
             sessionXp = a.xp,
-            totalSessions = sorted.size,
+            totalSessions = sorted.count { !it.isKneeCare },
         )
     }
 
@@ -259,6 +259,7 @@ object Rewards {
                 if (sets.isEmpty()) continue
                 val id = log.exerciseId
                 if (ExerciseLibrary.isCustom(id)) continue // no personal records for free-text exercises
+                if (id == ExerciseLibrary.CALF_HOME_ID) continue // home calf work is a small add-on: its progress shows in the prescription, not as PRs
                 val name = ExerciseLibrary.nameOf(id)
                 val known = bestWeight.containsKey(id)
                 val prevMax = bestWeight[id] ?: 0.0
@@ -374,7 +375,9 @@ object Rewards {
                 val minutes = rec.treadmill?.let { it.completedSec / 60 } ?: rec.minutesActual
                 XpBreakdown(OTHER_BASE, minuteXp(minutes, TREADMILL_MINUTE_CAP), 0, 0, 0)
             }
-            SessionType.CORE -> XpBreakdown(OTHER_BASE, minuteXp(rec.minutesActual, CORE_MINUTE_CAP), 0, 0, 0)
+            SessionType.CORE ->
+                if (rec.isKneeCare) XpBreakdown(KneeCareRecord.XP_BASE, minuteXp(rec.minutesActual, KneeCareRecord.XP_MINUTE_CAP, KneeCareRecord.XP_PER_MINUTE), 0, 0, 0)
+                else XpBreakdown(OTHER_BASE, minuteXp(rec.minutesActual, CORE_MINUTE_CAP), 0, 0, 0)
             SessionType.HIKE -> XpBreakdown(OTHER_BASE, minuteXp(rec.minutesActual, HIKE_MINUTE_CAP), 0, 0, 0)
             SessionType.HYROX -> XpBreakdown(
                 HYROX_BASE,
@@ -385,13 +388,16 @@ object Rewards {
         }
     }
 
-    private fun minuteXp(minutes: Int, cap: Int): Int = (min(minutes.coerceAtLeast(0), cap) * PER_MINUTE).toInt()
+    private fun minuteXp(minutes: Int, cap: Int, perMinute: Double = PER_MINUTE): Int = (min(minutes.coerceAtLeast(0), cap) * perMinute).toInt()
 
     private fun num(x: Double) = if (x % 1.0 == 0.0) x.toInt().toString() else x.toString()
 
     // ---------------------------------------------------------------- badges
 
-    private fun badges(sorted: List<SessionRecord>, a: Analysis, streak: StreakResult, settings: UserSettings): List<Badge> {
+    private fun badges(all: List<SessionRecord>, a: Analysis, streak: StreakResult, settings: UserSettings): List<Badge> {
+        // Knee care is an add-on, not a workout: it has its own badge and does not count towards the session badges.
+        val kneeCare = all.filter { it.isKneeCare }
+        val sorted = all.filter { !it.isKneeCare }
         fun nth(n: Int) = sorted.getOrNull(n - 1)?.date
         fun first(pred: (SessionRecord) -> Boolean) = sorted.firstOrNull(pred)?.date
 
@@ -454,6 +460,7 @@ object Rewards {
             Badge("hyrox_all_eight", "All eight", "Log all 8 Hyrox stations at least once", allEight),
             Badge("hyrox_race_standard", "Race standard", "Complete any Hyrox station at the full race standard for your division", raceStandard),
             Badge("hyrox_first_sim", "First simulation", "Finish a Hyrox simulation, in race order", first { it.sim != null }),
+            Badge("knee_care_10", "Knee care x ${KneeCareRecord.BADGE_COUNT}", "Do ${KneeCareRecord.BADGE_COUNT} knee care sessions", kneeCare.getOrNull(KneeCareRecord.BADGE_COUNT - 1)?.date),
         )
     }
 

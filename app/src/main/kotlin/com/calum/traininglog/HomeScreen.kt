@@ -107,6 +107,7 @@ fun HomeScreen(vm: AppViewModel) {
                 item {
                     RaceHomeCard(
                         rp, data.records, profile, today, plannedToday, { vm.go(Screen.RacePlan) }, { vm.launchPlanned(it) }, { f -> vm.updateProfile(f) },
+                        onKneeCare = { vm.launchKneeCare() },
                     )
                 }
             }
@@ -191,6 +192,10 @@ fun HomeScreen(vm: AppViewModel) {
                         SecondaryButton("Settings", onClick = { vm.go(Screen.Settings) }, modifier = Modifier.weight(1f))
                     }
                     SecondaryButton("Hyrox", onClick = { vm.go(Screen.Hyrox) }, accent = AppColors.energy, modifier = Modifier.fillMaxWidth())
+                    Row(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+                        SecondaryButton("Knee care · 15 min", onClick = { vm.launchKneeCare() }, accent = AppColors.primary, modifier = Modifier.weight(1f))
+                        SecondaryButton("Just calf raises · 8 min", onClick = { vm.launchKneeCare(calfOnly = true) }, accent = AppColors.energy, modifier = Modifier.weight(1f))
+                    }
                     SecondaryButton("Export for Claude", onClick = { vm.go(Screen.Export) }, modifier = Modifier.fillMaxWidth())
                     SecondaryButton("Backup & sync", onClick = { vm.go(Screen.Backup) }, modifier = Modifier.fillMaxWidth())
                     TextButton(onClick = { UpdateManager.check(ctx, quiet = false) }, Modifier.align(Alignment.CenterHorizontally)) {
@@ -243,7 +248,7 @@ fun HomeScreen(vm: AppViewModel) {
 @Composable
 private fun RaceHomeCard(
     plan: RacePlan, records: List<SessionRecord>, profile: Profile, today: LocalDate, plannedToday: PlannedSession?,
-    onOpen: () -> Unit, onStart: (PlannedSession) -> Unit, onProfile: ((Profile) -> Profile) -> Unit,
+    onOpen: () -> Unit, onStart: (PlannedSession) -> Unit, onProfile: ((Profile) -> Profile) -> Unit, onKneeCare: () -> Unit = {},
 ) {
     val week = RacePlanner.thisWeek(plan, today)
     val done = if (week != null) RacePlanFormat.doneSessions(week, records, today) else emptySet()
@@ -277,6 +282,10 @@ private fun RaceHomeCard(
                     color = AppColors.textMuted, modifier = Modifier.padding(start = Spacing.xs),
                 )
             }
+        }
+        week?.let { w ->
+            // An optional add-on, not one of the sessions: a small chip that opens the knee care routine.
+            Pill(w.kneeCare.label, Modifier.clickable(onClick = onKneeCare), color = AppColors.info)
         }
         val todays = week?.sessions?.firstOrNull { it.date == today }
         when {
