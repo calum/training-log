@@ -73,6 +73,8 @@ data class LaunchHint(
     val treadmillStyle: TreadmillStyle? = null,
     val hyroxFocus: Set<HyroxStation> = emptySet(),
     val minutes: Int,
+    /** Opens the true race-order simulation (format and loads) instead of the normal guided Hyrox session. */
+    val sim: SimPreset? = null,
 )
 
 /**

@@ -86,7 +86,7 @@ object IntensityBalance {
             val hard = ((minutes - WARM_COOL_MIN).coerceAtLeast(0) * frac).roundToInt()
             TimeSplit(minutes - hard, hard, 0)
         }
-        SessionType.HYROX -> if (isGuided(r)) guided(r) else {
+        SessionType.HYROX -> if (r.sim != null) simulation(r) else if (isGuided(r)) guided(r) else {
             val blocks = r.stations
             val weights = if (blocks.isNotEmpty() && blocks.all { (it.seconds ?: 0) > 0 }) blocks.map { it.seconds!!.toDouble() } else blocks.map { 1.0 }
             val total = weights.sum()
@@ -95,6 +95,27 @@ object IntensityBalance {
             val hard = if (total > 0) (workMin * hardW / total).roundToInt() else 0
             TimeSplit(r.minutesActual - hard, hard, 0)
         }
+    }
+
+    /**
+     * A Hyrox simulation, counted as a MIXED hard/moderate session (the app only has easy and hard, so 'moderate'
+     * time is easy). The minutes are shared over the legs by their logged seconds (equal when a leg has none) with
+     * no warm-up allowance, because a simulation is one continuous effort: a STATION leg is hard unless it was
+     * rated below RPE 7 (loaded work is hard by nature), a RUN leg is hard only when rated RPE 7 or more (a
+     * controlled run at RPE 6 is moderate). A skipped or unreached leg has no log and adds nothing.
+     */
+    private fun simulation(r: SessionRecord): TimeSplit {
+        val legs = r.stations
+        if (legs.isEmpty()) return TimeSplit(r.minutesActual, 0, 0)
+        val weights = if (legs.all { (it.seconds ?: 0) > 0 }) legs.map { it.seconds!!.toDouble() } else legs.map { 1.0 }
+        val total = weights.sum()
+        val hardW = legs.indices.sumOf { i ->
+            val rpe = legs[i].rpe
+            val hard = if (HyroxRuns.isRun(legs[i])) (rpe ?: 0) >= HARD_RPE else (rpe == null || rpe >= HARD_RPE)
+            if (hard) weights[i] else 0.0
+        }
+        val hard = (r.minutesActual * hardW / total).roundToInt().coerceIn(0, r.minutesActual)
+        return TimeSplit(r.minutesActual - hard, hard, 0)
     }
 
     /** A guided race-plan record (rower, SkiErg, bike ...) whose logs cover the session in seconds. */

@@ -24,8 +24,10 @@ data class XpBreakdown(
     val pr: Int,
     /** Hyrox only: a station completed at the full race standard. */
     val race: Int = 0,
+    /** Hyrox only: a simulation (a bonus for the true race-order rehearsal). */
+    val sim: Int = 0,
 ) {
-    val total: Int get() = base + effort + variety + rir + pr + race
+    val total: Int get() = base + effort + variety + rir + pr + race + sim
 
     /** Human readable parts, only the non-zero ones, e.g. "Session 100", "Sets 48", "PR 25". */
     val lines: List<String>
@@ -36,6 +38,7 @@ data class XpBreakdown(
             if (rir > 0) add("RIR logged $rir")
             if (pr > 0) add("PR $pr")
             if (race > 0) add("Race standard $race")
+            if (sim > 0) add("Simulation $sim")
         }
 }
 
@@ -108,6 +111,8 @@ object Rewards {
     /** A small bonus for each run between stations (up to [HYROX_RUN_CAP] of them). */
     const val HYROX_PER_RUN = 5
     const val HYROX_RUN_CAP = 8
+    /** A Hyrox simulation (race-order rehearsal): a flat bonus for doing it in order, however it went. */
+    const val HYROX_SIM_BONUS = 40
 
     const val TOKEN_EVERY_ACTIVE_WEEKS = 4
     const val MAX_TOKENS = 2
@@ -244,6 +249,8 @@ object Rewards {
         val xp = LinkedHashMap<String, XpBreakdown>()
         val prs = mutableListOf<PersonalRecord>()
         val stationHistory = HashMap<String, MutableList<StationLog>>()
+        // Complete simulations so far, by format: (load factor, total seconds).
+        val simHistory = HashMap<SimFormat, MutableList<Pair<Double, Int>>>()
 
         for (rec in sorted) {
             val found = mutableListOf<PersonalRecord>()
@@ -294,6 +301,8 @@ object Rewards {
                 if (rec.stations.any { HyroxStandards.meets(settings.hyroxDivision, it, settings.hyroxWeightOverrides) }) race = HYROX_RACE_STANDARD
                 for (st in rec.stations) stationHistory.getOrPut(st.stationId) { mutableListOf() }.add(st)
             }
+            rec.sim?.let { sim -> simPr(rec, sim, simHistory[sim.format].orEmpty())?.let { found += it } }
+            rec.sim?.takeIf { it.complete }?.let { simHistory.getOrPut(it.format) { mutableListOf() }.add(it.loadFactor to it.totalSec) }
             prs += found
 
             var variety = 0
@@ -304,7 +313,7 @@ object Rewards {
                     while (recentStyles.size > VARIETY_WINDOW) recentStyles.removeFirst()
                 }
             }
-            xp[rec.id] = baseXp(rec).copy(variety = variety + hyroxVariety, pr = if (found.isNotEmpty()) PR_BONUS else 0, race = race)
+            xp[rec.id] = baseXp(rec).copy(variety = variety + hyroxVariety, pr = if (found.isNotEmpty()) PR_BONUS else 0, race = race, sim = if (rec.sim != null) HYROX_SIM_BONUS else 0)
         }
         return Analysis(xp, prs)
     }
@@ -337,6 +346,21 @@ object Rewards {
     }
 
     private fun clock(sec: Int) = "${sec / 60}:${"%02d".format(sec % 60)}"
+
+    private fun longClock(sec: Int) = if (sec >= 3600) "${sec / 3600}:${"%02d".format(sec % 3600 / 60)}:${"%02d".format(sec % 60)}" else clock(sec)
+
+    /**
+     * A simulation PR: a complete simulation quicker than every earlier complete one of the same format done at the
+     * same or a lighter load (so a fast lighter first attempt never blocks a heavier one). The first never counts.
+     */
+    private fun simPr(rec: SessionRecord, sim: SimMeta, priors: List<Pair<Double, Int>>): PersonalRecord? {
+        if (!sim.complete || sim.totalSec <= 0) return null
+        val comparable = priors.filter { it.first <= sim.loadFactor + 0.001 && it.second > 0 }
+        if (comparable.isEmpty()) return null
+        val best = comparable.minOf { it.second }
+        if (sim.totalSec >= best) return null
+        return PersonalRecord(rec.date, "hyrox_sim:${sim.format.id}", "${sim.format.label} simulation: ${longClock(sim.totalSec)} (was ${longClock(best)})", rec.id)
+    }
 
     private fun baseXp(rec: SessionRecord): XpBreakdown {
         return when (rec.type) {
@@ -429,6 +453,7 @@ object Rewards {
             Badge("hyrox_first_station", "First station", "Log any Hyrox station", firstStation),
             Badge("hyrox_all_eight", "All eight", "Log all 8 Hyrox stations at least once", allEight),
             Badge("hyrox_race_standard", "Race standard", "Complete any Hyrox station at the full race standard for your division", raceStandard),
+            Badge("hyrox_first_sim", "First simulation", "Finish a Hyrox simulation, in race order", first { it.sim != null }),
         )
     }
 

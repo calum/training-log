@@ -15,6 +15,11 @@ object PublicExport {
     const val TREADMILL_HEADER = "date,style,planned_min,completed_min"
     const val OTHER_HEADER = "date,type,minutes"
     const val HYROX_HEADER = "date,station,weight_kg,distance_m,reps,seconds,rpe"
+    /**
+     * One row per simulation leg done, in a separate file: `leg` is the 1-based race-order position and
+     * `transition_s` the seconds of the transition just BEFORE that leg (blank for leg 1 or when not done).
+     */
+    const val SIM_HEADER = "date,sim_no,format,load_pct,run_mode,leg,station,weight_kg,distance_m,reps,seconds,rpe,transition_s"
     const val SUMMARY_PATH = "data/summary.json"
 
     /** Path to file content, e.g. "data/gym/2026-10.csv". Deterministic: same records give the same files. */
@@ -27,6 +32,8 @@ object PublicExport {
         val treadmill = sortedMapOf<YearMonth, MutableList<String>>()
         val other = sortedMapOf<YearMonth, MutableList<String>>()
         val hyrox = sortedMapOf<YearMonth, MutableList<String>>()
+        val sims = sortedMapOf<YearMonth, MutableList<String>>()
+        val simNo = mutableMapOf<LocalDate, Int>()
 
         for (r in sorted) {
             val month = YearMonth.from(r.date)
@@ -45,7 +52,24 @@ object PublicExport {
                         row(r.date, t.style.name.lowercase(), minutes(t.plannedSec), minutes(t.completedSec))
                     )
                 }
-                SessionType.HYROX -> for (st in r.stations) {
+                SessionType.HYROX -> if (r.sim != null) {
+                    // A simulation goes to its own file with a whitelisted marker (format, load %, run mode, leg number),
+                    // never into data/hyrox, so the older file and its header are untouched.
+                    val n = (simNo[r.date] ?: 0) + 1
+                    simNo[r.date] = n
+                    val legs = HyroxSim.assign(r.sim, r.stations)
+                    legs.forEachIndexed { i, st ->
+                        if (st == null) return@forEachIndexed
+                        val id = if (HyroxRuns.isRun(st)) HyroxRuns.ID else (HyroxStation.byId(st.stationId) ?: return@forEachIndexed).id
+                        sims.getOrPut(month) { mutableListOf() }.add(
+                            row(
+                                r.date, n, r.sim.format.id, Math.round(r.sim.loadFactor * 100), r.sim.runMode.id, i + 1, id,
+                                st.weightKg?.let { num(it) } ?: "", st.distanceM ?: "", st.reps ?: "", st.seconds ?: "", st.rpe ?: "",
+                                if (i > 0) r.sim.transitionSec.getOrNull(i - 1)?.takeIf { it > 0 } ?: "" else "",
+                            )
+                        )
+                    }
+                } else for (st in r.stations) {
                     // Whitelist: only the eight known stations and the between-station run, only numeric columns.
                     val id = if (HyroxRuns.isRun(st)) HyroxRuns.ID else (HyroxStation.byId(st.stationId) ?: continue).id
                     hyrox.getOrPut(month) { mutableListOf() }.add(
@@ -66,6 +90,7 @@ object PublicExport {
         }
         emit("gym", GYM_HEADER, gym)
         emit("hyrox", HYROX_HEADER, hyrox)
+        emit("hyrox-sim", SIM_HEADER, sims)
         emit("other", OTHER_HEADER, other)
         emit("treadmill", TREADMILL_HEADER, treadmill)
         out[SUMMARY_PATH] = summary(sorted)

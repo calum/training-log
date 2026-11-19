@@ -115,7 +115,9 @@ object RunStageLogic {
     /** Seconds of running in [r] (0 when it was not a run). */
     fun runSeconds(r: SessionRecord): Int {
         return when (r.type) {
-            SessionType.HYROX -> r.stations.filter { HyroxRuns.isRun(it) }.sumOf { run ->
+            // A simulation whose run legs were a rower, SkiErg, bike or incline walk is not running (its "run" logs
+            // are substitutes), so it must never move the knee-gated stage.
+            SessionType.HYROX -> if (r.sim != null && !r.sim.runMode.running) 0 else r.stations.filter { HyroxRuns.isRun(it) }.sumOf { run ->
                 run.seconds ?: run.distanceM?.let { HyroxRuns.targetSec(it, 9.0) } ?: 0
             }
             SessionType.TREADMILL -> {

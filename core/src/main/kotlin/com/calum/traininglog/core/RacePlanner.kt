@@ -892,21 +892,21 @@ object RacePlanner {
                 listOf("Warm up 10 minutes easy.", "Do the first four stations at race standard, each after a run leg, at controlled effort (RPE 7-8, not all-out):") +
                     stationList(c, first4) + listOf(rl, "Cool down 5 minutes. Note how each station felt; that tells us what to keep working on.") + caution,
                 whySpecific,
-                LaunchHint(SessionType.HYROX, hyroxFocus = first4.toSet(), minutes = m), includesRunning = runOk,
+                LaunchHint(SessionType.HYROX, hyroxFocus = first4.toSet(), minutes = m, sim = SimPreset(SimFormat.FIRST_HALF)), includesRunning = runOk,
             )
             10 -> PlannedSession(
                 d.date, SessionKind.KEY, "Hyrox circuit: stations 5-8 at race standard", m, Intensity.HARD, hardM, 7..8, modsH,
                 listOf("Warm up 10 minutes easy.", "Second half of the race, each station after a run leg, at race load:") +
                     stationList(c, last4) + listOf(rl, "Cool down 5 minutes.") + caution,
                 whySpecific,
-                LaunchHint(SessionType.HYROX, hyroxFocus = last4.toSet(), minutes = m), includesRunning = runOk,
+                LaunchHint(SessionType.HYROX, hyroxFocus = last4.toSet(), minutes = m, sim = SimPreset(SimFormat.SECOND_HALF)), includesRunning = runOk,
             )
             11 -> PlannedSession(
                 d.date, SessionKind.SIM, "Near-full simulation rehearsal", m, Intensity.HARD, hardM, 7..8, modsH,
                 listOf("Warm up 10 minutes easy.", "8 x [run leg + station] at race loads, controlled effort (RPE 7-8): finish feeling you could do a bit more, not empty.") +
                     stationList(c, all) + listOf(rl, "Practise the plan for race day: fuel, pacing, transitions. Cool down 5 minutes.") + caution,
                 "A controlled rehearsal checks pacing and kit without taking a big recovery bill; it is a dress rehearsal, not a test (heuristic, not trial evidence).",
-                LaunchHint(SessionType.HYROX, hyroxFocus = all.toSet(), minutes = m), includesRunning = runOk,
+                LaunchHint(SessionType.HYROX, hyroxFocus = all.toSet(), minutes = m, sim = SimPreset(SimFormat.FULL, 0.9)), includesRunning = runOk,
             )
             12 -> PlannedSession(
                 d.date, SessionKind.KEY, "Sharpen: race-pace pieces", m, Intensity.HARD, hardM, 7..8, modsH,

@@ -88,6 +88,8 @@ import kotlinx.coroutines.launch
 fun GymScreen(vm: AppViewModel) {
     val g by vm.gym.collectAsState()
     val live = g ?: run { vm.home(); return }
+    // The lifts are saved and a station finisher is planned: offer it as the next step.
+    if (live.finisherOffered) { GymFinisherPrompt(vm, live); return }
     KeepScreenOn()
     val tone = remember { runCatching { ToneGenerator(AudioManager.STREAM_MUSIC, 100) }.getOrNull() }
     DisposableEffect(Unit) { onDispose { tone?.release() } }

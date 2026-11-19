@@ -561,6 +561,16 @@ class RacePlannerTest {
         assertEquals(3, UserSettings(racePlan = RacePlanSettings(sessionsPerWeek = 1)).sanitized().racePlan.sessionsPerWeek)
     }
 
+    @Test fun simulationSessionsCarryTheirPreset() {
+        val p = plan()
+        assertEquals(SimPreset(SimFormat.FIRST_HALF, 1.0), p.weeks[8].sessions.first { it.kind == SessionKind.SIM }.launch.sim)
+        assertEquals(SimPreset(SimFormat.SECOND_HALF, 1.0), p.weeks[9].sessions.first { it.title.contains("stations 5-8") }.launch.sim)
+        assertEquals(SimPreset(SimFormat.FULL, 0.9), p.weeks[10].sessions.first { it.title.contains("Near-full") }.launch.sim)
+        // Every other planned session keeps opening what it did before.
+        val others = p.weeks.flatMap { it.sessions }.filter { it.launch.sim != null }
+        assertEquals(3, others.size)
+    }
+
     @Test fun buildIsDeterministic() {
         val recs = fullWeek(week1, 200) + cleanRuns(LocalDate.of(2026, 11, 1), 3)
         val a = plan(recs, week1.plusWeeks(2))

@@ -32,6 +32,10 @@ import com.calum.traininglog.core.RacePlanner
 import com.calum.traininglog.core.TimeSuggestion
 import com.calum.traininglog.core.Progression
 import com.calum.traininglog.core.Rewards
+import com.calum.traininglog.core.RunMode
+import com.calum.traininglog.core.RunStageLogic
+import com.calum.traininglog.core.SimFormat
+import com.calum.traininglog.core.SimPreset
 import com.calum.traininglog.core.Recommendation
 import com.calum.traininglog.core.RecommendationInput
 import com.calum.traininglog.core.Recommender
@@ -78,6 +82,8 @@ sealed interface Screen {
     data object RacePlan : Screen
     /** Guided timer for an easy or interval session from the race plan (rower, SkiErg, bike, ...). */
     data class GuidedTimer(val session: com.calum.traininglog.core.PlannedSession) : Screen
+    /** Hyrox simulation in true race order: setup, player and results all live behind this route (see [HyroxSimController]). */
+    data class HyroxSim(val preset: com.calum.traininglog.core.SimPreset? = null) : Screen
 }
 
 data class Inputs(
@@ -111,6 +117,11 @@ data class GymLive(
     val windowMinutes: Int = 0,
     /** 'Station finisher: ...' lines from a race-plan strength session (header first); empty for a normal session. */
     val finisher: List<String> = emptyList(),
+    /** The stations and minutes of that finisher, for the "Do the station finisher" step after finishing the lifts. */
+    val finisherFocus: Set<com.calum.traininglog.core.HyroxStation> = emptySet(),
+    val finisherMinutes: Int = 0,
+    /** True once the lifts are saved and the finisher is offered as the next step. */
+    val finisherOffered: Boolean = false,
 )
 
 class AppViewModel @JvmOverloads constructor(
@@ -305,6 +316,7 @@ class AppViewModel @JvmOverloads constructor(
 
     fun finishGym() {
         val g = _gym.value ?: return
+        if (g.finisherOffered) return // already saved: a second tap must not save again
         val logs = g.exercises.mapNotNull { e ->
             val done = e.sets.filter { it.done }
             if (done.isEmpty()) null
@@ -329,7 +341,27 @@ class AppViewModel @JvmOverloads constructor(
             }
             val took = "Took $minutes min (the plan was about ${g.plan.estimatedMinutes})."
             _celebration.update { it?.copy(messages = listOf(took) + it.messages) }
+            // The lifts are saved. With a station finisher planned, offer it as the next step (the gym screen shows it).
+            if (g.finisherFocus.isNotEmpty() && g.finisher.isNotEmpty()) {
+                _gym.update { it?.copy(finisherOffered = true) }
+                return
+            }
         }
+        _gym.value = null
+        home()
+    }
+
+    /** "Do the station finisher": the guided Hyrox session for those stations with the finisher's minutes. */
+    fun startFinisher() {
+        val g = _gym.value ?: return
+        val focus = g.finisherFocus
+        _gym.value = null
+        hyrox.prepare(hyroxInput(), g.finisherMinutes.coerceAtLeast(20), focus)
+        go(Screen.HyroxSession(focus))
+    }
+
+    /** "Skip finisher": the lifts are already saved, so just go home. */
+    fun skipFinisher() {
         _gym.value = null
         home()
     }
@@ -518,6 +550,84 @@ class AppViewModel @JvmOverloads constructor(
         home()
     }
 
+    // ---- Hyrox simulation (true race order) ----
+
+    val sim = HyroxSimController()
+
+    private fun simInput(): SimInput {
+        val settings = _data.value.profile.settings
+        return SimInput(
+            settings.hyroxDivision, settings, RunStageLogic.stage(_data.value.records, today),
+            treadmillAtPlace = com.calum.traininglog.core.HyroxGear.TREADMILL in settings.hyroxGear,
+        )
+    }
+
+    /** Opens the simulation for [preset] (null: a full one at race loads). A running simulation is resumed, not replaced. */
+    fun simOpen(preset: SimPreset? = null) {
+        if (sim.ui.value.phase == SimPhase.RUNNING) { go(Screen.HyroxSim(preset)); return }
+        sim.reset()
+        sim.prepare(simInput(), preset)
+        go(Screen.HyroxSim(preset))
+    }
+
+    /** Makes sure the setup has legs (the route can be opened from a screen that did not call [simOpen]). */
+    fun simEnsure(preset: SimPreset?) {
+        val u = sim.ui.value
+        if (u.phase == SimPhase.SETUP && u.plan == null) sim.prepare(simInput(), preset)
+    }
+
+    fun simSetup(
+        format: SimFormat? = null, loadFactor: Double? = null, runMode: RunMode? = null, targetSec: Int? = null, clearTarget: Boolean = false,
+    ) = sim.rebuild(simInput(), format, loadFactor, runMode, targetSec, clearTarget)
+
+    /** The time allowed for each transition (10 to 180 s in steps of 5): remembered in the settings, then the legs are rebuilt. */
+    fun simSetTransition(sec: Int) {
+        updateProfile { it.copy(settings = it.settings.copy(hyroxTransitionSec = com.calum.traininglog.core.HyroxSim.snapTransition(sec))) }
+        sim.rebuild(simInput())
+    }
+
+    fun simStepTarget(deltaMin: Int) = sim.stepTarget(simInput(), deltaMin)
+
+    /** Looks at the results of a past simulation. */
+    fun simView(recordId: String) { sim.view(recordId); go(Screen.HyroxSim(null)) }
+
+    /**
+     * Saves the simulation the moment it ends (all legs done, or ended early), so nothing is lost if the screen
+     * freezes. The results card then only edits that record. A simulation with no leg done logs nothing.
+     */
+    private fun autosaveSim(u: HyroxSimUi) {
+        if (u.phase != SimPhase.DONE || u.viewing || u.savedId != null) return
+        runCatching {
+            val record = HyroxSimController.record(u, UUID.randomUUID().toString(), today, sim.elapsedSec(u)) ?: return
+            sim.markSaved(record.id)
+            persist { it.copy(records = it.records + record) }
+        }
+    }
+
+    /** Results card "Save": attaches how it felt (and the effort of the last leg) to the saved record, then goes home. */
+    fun saveSim(feeling: Feeling, kneePain: Int?, lastRpe: Int? = null) {
+        autosaveSim(sim.ui.value)
+        val id = sim.ui.value.savedId
+        if (id != null) {
+            persist { d ->
+                d.copy(records = d.records.map { r ->
+                    if (r.id != id) r else r.copy(
+                        feeling = feeling, kneePain = kneePain,
+                        stations = if (lastRpe != null && r.stations.isNotEmpty()) r.stations.dropLast(1) + r.stations.last().copy(rpe = lastRpe) else r.stations,
+                    )
+                })
+            }
+        }
+        sim.reset()
+        home()
+    }
+
+    /** Leaves the simulation results (the record is already saved). */
+    fun simClose(toHub: Boolean = false) {
+        if (sim.ui.value.phase != SimPhase.RUNNING) sim.reset()
+        if (toHub) go(Screen.Hyrox) else home()
+    }
+
     // ---- Hike (and the old core log) ----
 
     fun saveLight(type: SessionType, minutes: Int, note: String) {
@@ -576,7 +686,17 @@ class AppViewModel @JvmOverloads constructor(
                 setInputs { it.copy(minutes = session.minutes.coerceAtLeast(20)) }
                 startGym(session.minutes.coerceAtLeast(20))
                 val finisher = GuidedPlan.finisherLines(session)
-                if (finisher.isNotEmpty()) _gym.update { it?.copy(finisher = finisher) }
+                if (finisher.isNotEmpty()) {
+                    _gym.update {
+                        it?.copy(
+                            finisher = finisher, finisherFocus = session.launch.hyroxFocus,
+                            finisherMinutes = GuidedPlan.finisherMinutes(session) ?: 10,
+                        )
+                    }
+                }
+            }
+            mod == Modality.HYROX_STATIONS && (session.kind == SessionKind.SIM || session.launch.sim != null) -> {
+                simOpen(session.launch.sim)
             }
             mod == Modality.HYROX_STATIONS -> {
                 val focus = session.launch.hyroxFocus
@@ -669,5 +789,7 @@ class AppViewModel @JvmOverloads constructor(
         viewModelScope.launch { TreadmillEngine.ui.collect { autosaveFinishedTreadmill(it) } }
         // Same for the guided timer: saved when its last step ends, the rating card just edits it.
         viewModelScope.launch { guided.ui.collect { autosaveGuided(it) } }
+        // And the simulation: saved when its last leg ends (or it is ended early).
+        viewModelScope.launch { sim.ui.collect { autosaveSim(it) } }
     }
 }

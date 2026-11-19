@@ -133,6 +133,10 @@ data class GuidedPlan(
             else -> "Comfortably hard: ${target.first}-${target.last}/10, a few words at a time"
         }
 
+        /** The "about N min" in a strength session's finisher header, or null when it has none. */
+        fun finisherMinutes(s: PlannedSession): Int? =
+            finisherLines(s).firstOrNull()?.let { Regex("about (\\d+) min").find(it)?.groupValues?.get(1)?.toIntOrNull() }
+
         /** The Hyrox-station finisher lines of a strength session's detail (header first), or empty. */
         fun finisherLines(s: PlannedSession): List<String> {
             val i = s.detail.indexOfFirst { it.startsWith("Hyrox station finisher") || it.startsWith("Station technique primer") }

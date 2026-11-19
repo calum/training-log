@@ -18,6 +18,9 @@ import java.util.Locale
 object HyroxFormat {
     fun kg(x: Double): String = if (x % 1.0 == 0.0) x.toInt().toString() else String.format(Locale.ENGLISH, "%.1f", x)
 
+    /** "Mon 18 Jan". */
+    fun dateShort(date: java.time.LocalDate): String = date.format(java.time.format.DateTimeFormatter.ofPattern("EEE d MMM", Locale.UK))
+
     fun time(seconds: Int): String = "${seconds / 60}:${"%02d".format(seconds % 60)}"
 
     /** "50 m · 152 kg", "100 reps · 6 kg", "200 m · 24 kg each", "1000 m". */

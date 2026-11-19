@@ -61,6 +61,8 @@ data class UserSettings(
     /** Race-preparation plan (event date, sessions per week, on/off). */
     /** Calum's answers: 4 sessions a week and about 5 hours (300 min) at most in any week. The planner's own defaults are unchanged. */
     val racePlan: RacePlanSettings = RacePlanSettings(sessionsPerWeek = 4, maxWeeklyMinutes = 300),
+    /** Time allowed for each transition (the "Roxzone") in a Hyrox simulation: 10 to 180 s in steps of 5. 45 s suits the gym. */
+    val hyroxTransitionSec: Int = HyroxSim.DEFAULT_TRANSITION_SEC,
 ) {
     /** The kit ticked for [place]. */
     fun hyroxGearAt(place: HyroxPlace): Set<HyroxGear> = if (place == HyroxPlace.GYM) hyroxGymGear else hyroxHomeGear
@@ -130,6 +132,7 @@ data class UserSettings(
         reminderHour = reminderHour.coerceIn(0, 23),
         reminderMinute = reminderMinute.coerceIn(0, 59),
         reminderMaxPerWeek = reminderMaxPerWeek.coerceIn(REMINDER_MAX_RANGE),
+        hyroxTransitionSec = HyroxSim.snapTransition(hyroxTransitionSec),
         hyroxRunSpeedKmh = HyroxRuns.snapSpeed(hyroxRunSpeedKmh),
         hyroxRunInclinePct = roundTo(hyroxRunInclinePct.coerceIn(HyroxRuns.INCLINE_RANGE), 0.5),
         racePlan = racePlan.sanitized(),
