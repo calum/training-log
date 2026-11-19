@@ -2,6 +2,14 @@
 
 What changed in each release, in plain language, newest first. The release workflow copies the matching `## vX.Y.Z` section into the GitHub release, and the app shows it as "What's new" before you tap Update.
 
+## v0.8.2
+
+- Tuesday and Friday are now your default rest days, and the plan schedules around them. You can still train on a rest day if you fancy it. A week strip on the Race plan screen shows which days are lift, hard, long, free or rest.
+- Rearrange a week: every planned session has a Move button. Pick another day this week, with rest days marked and a gentle hint if it puts a hard session next to a strength day.
+- Skip a session: tell it why (not feeling well, no time, other). It is never a failure. The session moves to the next free day if one is left that week, otherwise it is simply dropped for the week with no catching up, and later weeks stay as planned. Undo is always there.
+- "I have some time": say how long you have and how you feel, and it suggests the most useful planned session that fits, with an alternative. On a rest day it says so. If the week's sessions are done, it offers an easy bonus session.
+- A calm "rough stretch" card appears if several planned sessions have been skipped in about 10 days, or the last two weeks were light. It has a button to copy a summary to paste to Claude for a fresh plan. It never nags.
+
 ## v0.8.1
 
 - The race plan now starts from tomorrow. A short Kick-off covers Friday to Sunday (one easy session and one light strength session), so "This week" is no longer next week's sessions. Week 1 still starts on Monday 23 Nov, and the 14-week structure and the race-week timing are unchanged.
