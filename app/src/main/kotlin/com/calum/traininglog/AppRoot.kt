@@ -99,6 +99,10 @@ fun AppRoot(vm: AppViewModel, inPip: Boolean) {
                     Screen.Blocks -> BlocksScreen(vm)
                     Screen.Trophies -> TrophyScreen(vm)
                     Screen.Progress -> ProgressScreen(vm)
+                    Screen.Hyrox -> HyroxScreen(vm)
+                    is Screen.HyroxStation -> HyroxStationScreen(vm, s.station)
+                    is Screen.HyroxSession -> HyroxSessionScreen(vm, s.focus)
+                    is Screen.HyroxLog -> HyroxLogScreen(vm, s.station)
                     Screen.Export -> ExportScreen(vm)
                     Screen.Backup -> BackupScreen(vm)
                 }

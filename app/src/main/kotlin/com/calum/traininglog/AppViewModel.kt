@@ -59,6 +59,13 @@ sealed interface Screen {
     data object Progress : Screen
     data object Export : Screen
     data object Backup : Screen
+    /** Hyrox hub: stations, division, your progress. */
+    data object Hyrox : Screen
+    data class HyroxStation(val station: com.calum.traininglog.core.HyroxStation) : Screen
+    /** Guided station session; [focus] pre-selects stations (empty = recommended mix). */
+    data class HyroxSession(val focus: Set<com.calum.traininglog.core.HyroxStation> = emptySet()) : Screen
+    /** Quick log of a station already done; [station] pre-selects it. */
+    data class HyroxLog(val station: com.calum.traininglog.core.HyroxStation? = null) : Screen
 }
 
 data class Inputs(

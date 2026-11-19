@@ -166,6 +166,7 @@ fun HomeScreen(vm: AppViewModel) {
                         SecondaryButton("Blocks", onClick = { vm.go(Screen.Blocks) }, modifier = Modifier.weight(1f))
                         SecondaryButton("Settings", onClick = { vm.go(Screen.Settings) }, modifier = Modifier.weight(1f))
                     }
+                    SecondaryButton("Hyrox", onClick = { vm.go(Screen.Hyrox) }, accent = AppColors.energy, modifier = Modifier.fillMaxWidth())
                     SecondaryButton("Export for Claude", onClick = { vm.go(Screen.Export) }, modifier = Modifier.fillMaxWidth())
                     SecondaryButton("Backup & sync", onClick = { vm.go(Screen.Backup) }, modifier = Modifier.fillMaxWidth())
                     TextButton(onClick = { UpdateManager.check(ctx, quiet = false) }, Modifier.align(Alignment.CenterHorizontally)) {
