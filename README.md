@@ -54,6 +54,10 @@ Personal progressive training app for Android (Pixel 6a). Asks how much time and
 
 - **Hyrox race plan** (14 weeks to 27 Feb 2027): periodised, mostly easy with ~20% hard, knee-gated running return, adaptive and guilt-free, with guided timers and launch routing for every planned session. Evidence and caveats in `docs/hyrox-plan-evidence.md`.
 
+## Added in v0.9
+
+- **Hyrox simulation mode** with timed transitions (Roxzone), knee-gated run legs, splits and comparison with your last sim, plus a stepped station finisher. See `core/.../HyroxSim.kt`.
+
 Not yet built: training blocks, in-app settings for increments and starting weights.
 
 ## Starting weights are placeholders

@@ -2,6 +2,14 @@
 
 What changed in each release, in plain language, newest first. The release workflow copies the matching `## vX.Y.Z` section into the GitHub release, and the app shows it as "What's new" before you tap Update.
 
+## v0.9.0
+
+- Hyrox simulation mode: on the Hyrox page, start a full simulation (8 runs and 8 stations) or a half (stations 1 to 4 or 5 to 8) in true race order at your division's loads, or at 90% or 80% for a first go. The week 9 half sim, the week 10 circuit and the week 11 rehearsal open it straight from your plan.
+- Timed transitions: between every run and station there is a transition with a countdown (race-like 20 s, gym setup 45 s, home setup 90 s, or your own), a prep prompt for what comes next ("Load the sled to 152 kg", "Grab the 6 kg wall ball"), and a Ready, go button. The race clock never stops, so the time counts in your total, as in a real race. Going over is shown calmly and is never a penalty.
+- Run legs follow your knee: if running is not ready, each 1 km run becomes a knee-safe substitute (1 km incline walk, 1000 m on the rower or SkiErg, or 3 km on the bike). Treadmill runs count down at your set speed.
+- Results: your total time, a table of splits for every leg, running, stations and Roxzone time shown separately, a comparison with your last sim of the same format in kind words, and one thing to work on. A sim saves as soon as it ends, and you can pause, skip a leg or end early.
+- Station finisher: after a strength session with a finisher, the app now offers to start it as a guided station session instead of only showing a card.
+
 ## v0.8.2
 
 - Tuesday and Friday are now your default rest days, and the plan schedules around them. You can still train on a rest day if you fancy it. A week strip on the Race plan screen shows which days are lift, hard, long, free or rest.
