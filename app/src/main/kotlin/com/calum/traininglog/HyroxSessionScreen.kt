@@ -50,6 +50,8 @@ import androidx.compose.ui.unit.sp
 import com.calum.traininglog.core.CueType
 import com.calum.traininglog.core.Feeling
 import com.calum.traininglog.core.HyroxGuide
+import com.calum.traininglog.core.HyroxPlace
+import com.calum.traininglog.core.HyroxRuns
 import com.calum.traininglog.core.HyroxSessionPlan
 import com.calum.traininglog.core.HyroxStation as Station
 import com.calum.traininglog.core.StationBlock
@@ -80,7 +82,10 @@ fun HyroxSessionScreen(vm: AppViewModel, focus: Set<Station>) {
     // Opened from a hub or station page with a focus: prepare the setup for it (a running session is left alone).
     LaunchedEffect(focus) {
         val u = vm.hyrox.ui.value
-        if (u.phase == HyroxPhase.SETUP && (u.plan == null || u.entryFocus != focus)) vm.hyroxPrepare(focus)
+        if (u.phase == HyroxPhase.SETUP) {
+            // Re-plan on every visit: the kit or the place may have been changed since the setup was last open.
+            if (u.plan == null || u.entryFocus != focus) vm.hyroxPrepare(focus) else vm.hyroxSetup()
+        }
     }
     when (ui.phase) {
         HyroxPhase.SETUP -> HyroxSetupContent(
@@ -88,6 +93,10 @@ fun HyroxSessionScreen(vm: AppViewModel, focus: Set<Station>) {
             onMinutes = { vm.hyroxSetup(minutes = it) },
             onFocus = { st -> vm.hyroxSetup(focus = if (st in ui.focus) ui.focus - st else ui.focus + st) },
             onRuns = { vm.hyroxSetup(withRuns = it) },
+            onPlace = { vm.hyroxSetPlace(it) },
+            onRunDistance = { vm.hyroxSetup(runMetres = it) },
+            runSpeedKmh = data.profile.settings.hyroxRunSpeedKmh,
+            runInclinePct = data.profile.settings.hyroxRunInclinePct,
             onShuffle = { vm.hyroxSetup(shuffle = true) },
             onStart = { vm.hyrox.start() },
             onBack = { vm.home() },
@@ -115,6 +124,10 @@ internal fun HyroxSetupContent(
     onShuffle: () -> Unit,
     onStart: () -> Unit,
     onBack: () -> Unit,
+    onPlace: (HyroxPlace) -> Unit = {},
+    onRunDistance: (Int) -> Unit = {},
+    runSpeedKmh: Double = 9.0,
+    runInclinePct: Double = 1.0,
 ) {
     val plan = ui.plan
     val kneeOk = lastKnee == null || lastKnee < HyroxPlanInput.KNEE_RUN_LIMIT
@@ -126,10 +139,16 @@ internal fun HyroxSetupContent(
         Column(verticalArrangement = Arrangement.spacedBy(Spacing.xs)) {
             Text("Hyrox session", style = MaterialTheme.typography.headlineLarge, color = AppColors.textPrimary)
             Text(
-                if (plan != null && plan.blocks.isNotEmpty()) "${plan.blocks.size} stations, about ${plan.estimatedMinutes} minutes"
+                if (plan != null && plan.blocks.isNotEmpty()) "${plan.blocks.size} ${if (plan.blocks.size == 1) "station" else "stations"}, about ${plan.estimatedMinutes} minutes"
                 else "Pick your time and stations",
                 style = MaterialTheme.typography.titleMedium, color = AppColors.textMuted,
             )
+        }
+        Column(verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+            FieldLabel("WHERE ARE YOU TRAINING?")
+            Row(horizontalArrangement = Arrangement.spacedBy(Spacing.sm), modifier = Modifier.fillMaxWidth()) {
+                HyroxPlace.entries.forEach { p -> SelectChip(p.label, ui.place == p, { onPlace(p) }, Modifier.weight(1f)) }
+            }
         }
         Column(verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
             FieldLabel("HOW LONG?")
@@ -147,28 +166,63 @@ internal fun HyroxSetupContent(
                 style = MaterialTheme.typography.bodySmall, color = AppColors.textMuted,
             )
         }
-        Row(
-            Modifier.fillMaxWidth().clip(AppShapes.medium).background(AppColors.surfaceRaised).padding(horizontal = Spacing.lg, vertical = Spacing.sm),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Column(Modifier.weight(1f)) {
-                Text("Include easy runs between stations", style = MaterialTheme.typography.titleSmall, color = AppColors.textPrimary)
+        if (kneeOk) {
+            val spec = plan?.runSpec
+            val treadmillHere = spec?.treadmill ?: ui.treadmillHere
+            Column(
+                Modifier.fillMaxWidth().clip(AppShapes.medium).background(AppColors.surfaceRaised).padding(horizontal = Spacing.lg, vertical = Spacing.sm),
+                verticalArrangement = Arrangement.spacedBy(Spacing.sm),
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Include runs between stations", style = MaterialTheme.typography.titleSmall, color = AppColors.textPrimary)
+                        Text(runNoteText(), style = MaterialTheme.typography.bodySmall, color = AppColors.textMuted)
+                    }
+                    Switch(
+                        ui.withRuns, onRuns,
+                        colors = SwitchDefaults.colors(checkedTrackColor = AppColors.primary, checkedThumbColor = AppColors.onPrimary),
+                    )
+                }
+                if (ui.withRuns) {
+                    FieldLabel("RUN DISTANCE")
+                    Row(horizontalArrangement = Arrangement.spacedBy(Spacing.sm), modifier = Modifier.fillMaxWidth()) {
+                        HyroxRuns.DISTANCE_CHOICES.forEach { m -> SelectChip("$m m", ui.runMetres == m, { onRunDistance(m) }, Modifier.weight(1f)) }
+                    }
+                    Text(
+                        if (treadmillHere) {
+                            "Treadmill runs at ${HyroxText.speed(runSpeedKmh)} km/h, ${HyroxText.incline(runInclinePct)}% incline: " +
+                                "${HyroxText.clock(HyroxRuns.targetSec(ui.runMetres, runSpeedKmh))} each, counted down for you."
+                        } else "No treadmill ticked here, so you time each run with a stopwatch.",
+                        style = MaterialTheme.typography.bodySmall, color = AppColors.textMuted,
+                    )
+                }
+            }
+        } else {
+            Column(
+                Modifier.fillMaxWidth().clip(AppShapes.medium).background(AppColors.surfaceRaised).padding(horizontal = Spacing.lg, vertical = Spacing.md),
+                verticalArrangement = Arrangement.spacedBy(Spacing.xs),
+            ) {
+                Text("Runs between stations", style = MaterialTheme.typography.titleSmall, color = AppColors.textPrimary)
                 Text(
-                    if (kneeOk) runNoteText() else "Left out for now: your knee score was $lastKnee last time. Strength stations only.",
+                    "Left out for now: your knee score was $lastKnee last time, so this session is strength stations only. " +
+                        "Runs come back as an option once the knee is calmer.",
                     style = MaterialTheme.typography.bodySmall, color = AppColors.textMuted,
                 )
             }
-            Switch(
-                ui.withRuns && kneeOk, onRuns, enabled = kneeOk,
-                colors = SwitchDefaults.colors(checkedTrackColor = AppColors.primary, checkedThumbColor = AppColors.onPrimary),
-            )
         }
 
+        if (plan != null && plan.unavailable.isNotEmpty()) {
+            Text(
+                "Not available here: " + plan.unavailable.joinToString(", ") { it.displayName } +
+                    ". Tick your kit under My equipment on the Hyrox page.",
+                style = MaterialTheme.typography.bodySmall, color = AppColors.textMuted,
+            )
+        }
         FieldLabel("TODAY'S PLAN")
         if (plan == null || plan.blocks.isEmpty()) {
             SectionCard { Text("Nothing fits in that time. Try a longer session, or pick fewer stations.", color = AppColors.textMuted) }
         } else {
-            plan.blocks.forEachIndexed { i, b -> PlanBlockCard(i + 1, b) }
+            plan.blocks.forEachIndexed { i, b -> PlanBlockCard(i + 1, b, plan) }
             SectionCard(title = "Warm-up") { Text(plan.warmupNote, style = MaterialTheme.typography.bodyMedium, color = AppColors.textMuted) }
             plan.notes.forEach { Text(it, style = MaterialTheme.typography.bodySmall, color = AppColors.textMuted) }
         }
@@ -188,7 +242,7 @@ internal fun HyroxSetupContent(
 }
 
 @Composable
-private fun PlanBlockCard(n: Int, b: StationBlock) {
+private fun PlanBlockCard(n: Int, b: StationBlock, plan: HyroxSessionPlan) {
     SectionCard {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
             Text("$n", style = AppType.numberS, color = AppColors.primary)
@@ -200,7 +254,15 @@ private fun PlanBlockCard(n: Int, b: StationBlock) {
             Pill("Level ${b.prescription.level}: ${b.prescription.label}", color = AppColors.reward)
             if (b.station.kneeHeavy) Pill("Knee-aware", color = AppColors.info)
         }
-        if (b.runAfterM > 0) Text("then an easy ${b.runAfterM} m run (optional)", style = MaterialTheme.typography.bodyMedium, color = AppColors.textMuted)
+        if (b.runAfterM > 0) {
+            val spec = plan.runSpec
+            Text(
+                if (spec != null && spec.treadmill) {
+                    "then a ${b.runAfterM} m treadmill run at ${HyroxText.speed(spec.speedKmh)} km/h (${HyroxText.clock(HyroxRuns.targetSec(b.runAfterM, spec.speedKmh))}, optional)"
+                } else "then an easy ${b.runAfterM} m run (optional)",
+                style = MaterialTheme.typography.bodyMedium, color = AppColors.textMuted,
+            )
+        }
     }
 }
 
@@ -221,6 +283,7 @@ private fun HyroxPlayer(vm: AppViewModel, ui: HyroxUi) {
     var flash by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) {
         var warned = -1L
+        var warnedRun = -1L
         while (true) {
             nowMs = vm.hyrox.nowMs()
             val u = vm.hyrox.ui.value
@@ -228,7 +291,12 @@ private fun HyroxPlayer(vm: AppViewModel, ui: HyroxUi) {
                 val left = (u.restEndsAt - nowMs) / 1000
                 if (left in 1..3 && warned != u.restEndsAt) { warned = u.restEndsAt; cues.play(CueType.PRE_WARNING) }
             }
+            if (u.step == HyroxStep.RUN && u.runStartedAt != null && u.runTargetSec != null) {
+                val key = u.runStartedAt + u.runTargetSec * 1000L
+                if (key - nowMs in 1000..3000 && warnedRun != key) { warnedRun = key; cues.play(CueType.PRE_WARNING) }
+            }
             if (vm.hyrox.tick()) cues.play(CueType.CHANGE)
+            if (vm.hyrox.tickRun()) cues.play(CueType.DONE)
             delay(200)
         }
     }
@@ -244,6 +312,7 @@ private fun HyroxPlayer(vm: AppViewModel, ui: HyroxUi) {
         onWeight = { vm.hyrox.adjustWeight(it) }, onDistance = { vm.hyrox.adjustDistance(it) }, onReps = { vm.hyrox.adjustReps(it) },
         onRpe = { vm.hyrox.setRpe(it) }, onTechnique = { vm.hyrox.setTechnique(it) }, onSaveBlock = { vm.hyrox.saveBlock() },
         onRunGo = { vm.hyrox.runGo() }, onRunDone = { vm.hyrox.runDone() }, onSkipRun = { vm.hyrox.skipRun() },
+        onRunMore = { vm.hyrox.runAddTime() }, onRunRpe = { vm.hyrox.setRunRpe(it) },
         onSkipStation = { vm.hyrox.skipStation() }, onEnd = { vm.hyrox.endEarly() },
     )
 }
@@ -258,6 +327,7 @@ internal fun HyroxPlayerBody(
     onRpe: (Int) -> Unit, onTechnique: (Int) -> Unit, onSaveBlock: () -> Unit,
     onRunGo: () -> Unit, onRunDone: () -> Unit, onSkipRun: () -> Unit,
     onSkipStation: () -> Unit, onEnd: () -> Unit,
+    onRunMore: () -> Unit = {}, onRunRpe: (Int) -> Unit = {},
 ) {
     val block = ui.block ?: return
     val st = block.station
@@ -272,7 +342,7 @@ internal fun HyroxPlayerBody(
             verticalArrangement = Arrangement.spacedBy(Spacing.md),
         ) {
             if (ui.step == HyroxStep.RUN) {
-                RunBlock(ui, nowMs, block, onRunGo, onRunDone, onSkipRun)
+                RunBlock(ui, nowMs, block, onRunGo, onRunDone, onSkipRun, onRunMore, onRunRpe)
             } else {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
                     Text("STATION ${ui.index + 1} OF ${ui.blocks.size}", style = AppType.eyebrow, color = AppColors.textMuted, modifier = Modifier.weight(1f))
@@ -429,11 +499,33 @@ private fun RateBlock(
 }
 
 @Composable
-private fun RunBlock(ui: HyroxUi, nowMs: Long, block: StationBlock, onGo: () -> Unit, onDone: () -> Unit, onSkip: () -> Unit) {
+private fun RunBlock(
+    ui: HyroxUi, nowMs: Long, block: StationBlock,
+    onGo: () -> Unit, onDone: () -> Unit, onSkip: () -> Unit, onMore: () -> Unit, onRpe: (Int) -> Unit,
+) {
+    val spec = ui.runSpec
+    val treadmill = spec?.treadmill == true
     val running = ui.runStartedAt != null
-    val sec = if (running) ((nowMs - ui.runStartedAt!!) / 1000).toInt().coerceAtLeast(0) else 0
-    Text("OPTIONAL RUN", style = AppType.eyebrow, color = AppColors.textMuted)
-    Text("Easy run ${block.runAfterM} m", style = MaterialTheme.typography.displaySmall, color = AppColors.textPrimary)
+    val elapsed = if (running) ((nowMs - ui.runStartedAt!!) / 1000).toInt().coerceAtLeast(0) else 0
+    val target = ui.runTargetSec ?: spec?.takeIf { it.treadmill }?.let { HyroxRuns.targetSec(block.runAfterM, it.speedKmh) }
+    Text(if (treadmill) "OPTIONAL TREADMILL RUN" else "OPTIONAL RUN", style = AppType.eyebrow, color = AppColors.textMuted)
+    Text(
+        if (treadmill) "Treadmill run ${block.runAfterM} m" else "Easy run ${block.runAfterM} m",
+        style = MaterialTheme.typography.displaySmall, color = AppColors.textPrimary,
+    )
+    if (treadmill && spec != null) {
+        Column(
+            Modifier.fillMaxWidth().clip(AppShapes.medium).background(AppColors.info.copy(alpha = 0.10f))
+                .border(1.dp, AppColors.info.copy(alpha = 0.4f), AppShapes.medium).padding(Spacing.lg),
+            verticalArrangement = Arrangement.spacedBy(Spacing.xs),
+        ) {
+            Text("SET THE TREADMILL", style = AppType.eyebrow, color = AppColors.info)
+            Text(
+                "Set the treadmill to ${HyroxText.speed(spec.speedKmh)} km/h, ${HyroxText.incline(spec.inclinePct)}% incline",
+                style = MaterialTheme.typography.titleLarge, color = AppColors.textPrimary,
+            )
+        }
+    }
     Text(
         "Conversational pace, just to get used to running on tired legs. Stop if your right knee flares; skipping is fine.",
         style = MaterialTheme.typography.bodyLarge, color = AppColors.textMuted,
@@ -443,11 +535,35 @@ private fun RunBlock(ui: HyroxUi, nowMs: Long, block: StationBlock, onGo: () -> 
             .border(1.dp, AppColors.outline.copy(alpha = 0.5f), AppShapes.large).padding(Spacing.lg),
         horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(Spacing.md),
     ) {
-        Text(HyroxText.clock(sec), color = if (running) AppColors.info else AppColors.textMuted, style = AppType.numberHero.copy(fontSize = 96.sp, lineHeight = 100.sp))
-        if (running) BigActionButton("Done", onDone, Modifier.heightIn(min = 96.dp), brush = AppColors.gradientReward)
-        else BigActionButton("Start run", onGo, Modifier.heightIn(min = 96.dp))
+        if (treadmill && target != null) {
+            val left = (target - elapsed).coerceAtLeast(0)
+            Text(if (running) "TIME LEFT" else "READY", style = AppType.eyebrow, color = AppColors.textMuted)
+            Text(
+                HyroxText.clock(if (running) left else target),
+                color = if (running) (if (left in 1..5) AppColors.energy else AppColors.info) else AppColors.textMuted,
+                style = AppType.numberHero.copy(fontSize = 96.sp, lineHeight = 100.sp),
+            )
+            if (running) {
+                Box(Modifier.fillMaxWidth().height(6.dp).clip(AppShapes.chip).background(AppColors.track)) {
+                    Box(Modifier.fillMaxWidth((elapsed / target.toFloat()).coerceIn(0f, 1f)).height(6.dp).clip(AppShapes.chip).background(AppColors.info))
+                }
+            }
+        } else {
+            Text(if (running) "RUN TIME" else "READY", style = AppType.eyebrow, color = AppColors.textMuted)
+            Text(HyroxText.clock(elapsed), color = if (running) AppColors.info else AppColors.textMuted, style = AppType.numberHero.copy(fontSize = 96.sp, lineHeight = 100.sp))
+        }
+        if (running) {
+            BigActionButton(if (treadmill) "Done early" else "Done", onDone, Modifier.heightIn(min = 96.dp), brush = AppColors.gradientReward)
+            if (treadmill) SecondaryButton("+30 s", onMore, Modifier.fillMaxWidth().heightIn(min = 64.dp))
+        } else BigActionButton("Start run", onGo, Modifier.heightIn(min = 96.dp))
     }
-    SecondaryButton("Skip the run", onSkip, Modifier.fillMaxWidth().heightIn(min = 64.dp))
+    if (running) {
+        FieldLabel("EFFORT (OPTIONAL, 6 EASY, 10 ALL OUT)")
+        Row(horizontalArrangement = Arrangement.spacedBy(Spacing.sm), modifier = Modifier.fillMaxWidth()) {
+            (6..10).forEach { v -> SelectChip("$v", ui.runRpe == v, { onRpe(v) }, Modifier.weight(1f).heightIn(min = 56.dp)) }
+        }
+    }
+    SecondaryButton("Skip run", onSkip, Modifier.fillMaxWidth().heightIn(min = 64.dp))
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -471,7 +587,7 @@ internal fun HyroxFinishContent(ui: HyroxUi, minutes: Int, initialFeeling: Feeli
     LaunchedEffect(Unit) { burst = 1 }
     var feeling by remember { mutableStateOf(initialFeeling) }
     var knee by remember { mutableStateOf(initialKnee) }
-    val n = ui.results.size
+    val n = ui.stationCount
     Box(Modifier.fillMaxSize().background(AppColors.background)) {
         Column(
             Modifier.fillMaxSize().verticalScroll(rememberScrollState()).statusBarsPadding().padding(Spacing.screen),
@@ -486,13 +602,12 @@ internal fun HyroxFinishContent(ui: HyroxUi, minutes: Int, initialFeeling: Feeli
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
                     StatTile("Stations", "$n", Modifier.weight(1f), accent = AppColors.reward, compact = true)
                     StatTile("Time", "$minutes", Modifier.weight(1f), unit = "min", compact = true)
-                    if (ui.runs.isNotEmpty()) StatTile("Easy runs", "${ui.runs.size}", Modifier.weight(1f), accent = AppColors.info, compact = true)
+                    if (ui.runs.isNotEmpty()) StatTile(if (ui.runs.size == 1) "Run" else "Runs", "${ui.runs.size}", Modifier.weight(1f), accent = AppColors.info, compact = true)
                 }
                 SectionCard(title = "What you did") {
                     ui.results.forEach { log ->
                         Text(HyroxText.summary(log), style = MaterialTheme.typography.bodyLarge, color = AppColors.textPrimary)
                     }
-                    HyroxText.runNote(ui.runs)?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = AppColors.textMuted) }
                     if (ui.skipped > 0) Text("${ui.skipped} skipped, which is fine.", style = MaterialTheme.typography.bodyMedium, color = AppColors.textMuted)
                 }
                 FieldLabel("HOW DID IT FEEL?")

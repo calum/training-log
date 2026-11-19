@@ -2,6 +2,9 @@ package com.calum.traininglog
 
 import android.os.SystemClock
 import com.calum.traininglog.core.HyroxDivision
+import com.calum.traininglog.core.HyroxPlace
+import com.calum.traininglog.core.HyroxRunSpec
+import com.calum.traininglog.core.HyroxRuns
 import com.calum.traininglog.core.HyroxSessionPlan
 import com.calum.traininglog.core.HyroxStation
 import com.calum.traininglog.core.SessionRecord
@@ -24,7 +27,11 @@ import kotlinx.coroutines.flow.update
  *
  * One station block = [StationPrescription.rounds] laps. Per lap: READY -> LAP (Go ... Done) -> REST (the
  * prescription's rest seconds, with a beep) -> READY of the next round. After the last lap: RATE (correct what you
- * actually did, effort, technique) -> optional easy RUN -> the next block, or DONE.
+ * actually did, effort, technique) -> optional RUN -> the next block, or DONE.
+ *
+ * A RUN is a treadmill run (a countdown for the distance at the set speed, with a pre-warning beep and a done beep)
+ * when the place has a treadmill ticked, else an outdoor-style stopwatch run. Each run done is saved as a
+ * [StationLog] with stationId [HyroxRuns.ID] next to the stations; skipping a run logs nothing.
  */
 
 enum class HyroxPhase { SETUP, RUNNING, DONE }
@@ -33,6 +40,8 @@ enum class HyroxStep { READY, LAP, REST, RATE, RUN }
 /** What the planner needs, read from the app data by the ViewModel. */
 data class HyroxPlanInput(val records: List<SessionRecord>, val division: HyroxDivision, val settings: UserSettings) {
     /** Latest knee score on record, or null. */
+    val place: HyroxPlace get() = settings.hyroxPlace
+
     val lastKnee: Int? get() = records.filter { it.kneePain != null }.sortedWith(compareBy({ it.date }, { it.id })).lastOrNull()?.kneePain
 
     /** Easy runs are only offered while the last knee score is below 4. */
@@ -48,6 +57,12 @@ data class HyroxUi(
     val minutes: Int = 45,
     val focus: Set<HyroxStation> = emptySet(),
     val withRuns: Boolean = false,
+    /** Distance of each run when runs are on (200 / 400 / 600 / 800 m). */
+    val runMetres: Int = HyroxRuns.DEFAULT_DISTANCE_M,
+    /** Where the plan was built for (read from the settings every time it is rebuilt). */
+    val place: HyroxPlace = HyroxPlace.GYM,
+    /** Whether the kit at [place] has a treadmill ticked. */
+    val treadmillAtPlace: Boolean = true,
     /** Stations left out of the plan by "Different mix" (cleared when the focus changes). */
     val excluded: Set<HyroxStation> = emptySet(),
     /** The focus the screen was opened with; tells the screen when to prepare afresh. */
@@ -69,7 +84,13 @@ data class HyroxUi(
     val rpe: Int? = null,
     val technique: Int? = null,
     val runStartedAt: Long? = null,
-    /** Seconds of each easy run done this session. */
+    /** How the runs are done this session (copied from the plan at Start). */
+    val runSpec: HyroxRunSpec? = null,
+    /** Countdown length of the run in progress (treadmill runs only; "+30 s" raises it). */
+    val runTargetSec: Int? = null,
+    /** Optional effort for the run in progress. */
+    val runRpe: Int? = null,
+    /** Seconds of each run done this session. */
     val runs: List<Int> = emptyList(),
     val results: List<StationLog> = emptyList(),
     val skipped: Int = 0,
@@ -80,6 +101,12 @@ data class HyroxUi(
 ) {
     val block: StationBlock? get() = blocks.getOrNull(index)
     val totalRounds: Int get() = block?.prescription?.rounds ?: 1
+
+    /** True when the kit at [place] includes a treadmill (runs are then countdowns). Set from the plan input. */
+    val treadmillHere: Boolean get() = plan?.runSpec?.treadmill ?: treadmillAtPlace
+
+    /** Stations done (the saved runs are in [results] too, but they are not stations). */
+    val stationCount: Int get() = results.count { !HyroxRuns.isRun(it) }
 }
 
 class HyroxController(private val now: () -> Long = { SystemClock.elapsedRealtime() }) {
@@ -91,21 +118,28 @@ class HyroxController(private val now: () -> Long = { SystemClock.elapsedRealtim
     // ------------------------------------------------------------------ setup
 
     /** Opens the setup. Ignored while a session is running or waiting to be saved. */
-    fun prepare(input: HyroxPlanInput, minutes: Int, focus: Set<HyroxStation>, withRuns: Boolean = false) {
+    fun prepare(input: HyroxPlanInput, minutes: Int, focus: Set<HyroxStation>, withRuns: Boolean = false, runMetres: Int = HyroxRuns.DEFAULT_DISTANCE_M) {
         if (_ui.value.phase != HyroxPhase.SETUP) return
         _ui.value = buildPlan(
-            HyroxUi(minutes = snapMinutes(minutes), focus = focus, withRuns = withRuns && input.runsAllowed, entryFocus = focus),
+            HyroxUi(
+                minutes = snapMinutes(minutes), focus = focus, withRuns = withRuns && input.runsAllowed,
+                runMetres = runMetres, entryFocus = focus,
+            ),
             input,
         )
     }
 
-    fun rebuild(input: HyroxPlanInput, minutes: Int? = null, focus: Set<HyroxStation>? = null, withRuns: Boolean? = null, shuffle: Boolean = false) {
+    fun rebuild(
+        input: HyroxPlanInput, minutes: Int? = null, focus: Set<HyroxStation>? = null, withRuns: Boolean? = null,
+        shuffle: Boolean = false, runMetres: Int? = null,
+    ) {
         _ui.update { u ->
             if (u.phase != HyroxPhase.SETUP) return@update u
             var next = u.copy(
                 minutes = minutes?.let(::snapMinutes) ?: u.minutes,
                 focus = focus ?: u.focus,
                 withRuns = (withRuns ?: u.withRuns) && input.runsAllowed,
+                runMetres = runMetres?.takeIf { it in HyroxRuns.DISTANCE_CHOICES } ?: u.runMetres,
                 excluded = if (focus != null) emptySet() else u.excluded,
             )
             if (shuffle) {
@@ -122,8 +156,9 @@ class HyroxController(private val now: () -> Long = { SystemClock.elapsedRealtim
         val plan = HyroxSessionPlan.build(
             u.minutes, input.records, input.division, input.settings,
             focus = if (u.excluded.isEmpty()) u.focus else base - u.excluded, withRuns = u.withRuns,
+            gear = input.settings.hyroxGear, runM = u.runMetres,
         )
-        return u.copy(plan = plan)
+        return u.copy(plan = plan, place = input.place, treadmillAtPlace = com.calum.traininglog.core.HyroxGear.TREADMILL in input.settings.hyroxGear)
     }
 
     fun start() = _ui.update { u ->
@@ -131,7 +166,7 @@ class HyroxController(private val now: () -> Long = { SystemClock.elapsedRealtim
         if (p.blocks.isEmpty() || u.phase != HyroxPhase.SETUP) return@update u
         u.copy(
             phase = HyroxPhase.RUNNING, blocks = p.blocks, index = 0, startedAt = now(), endedAt = null,
-            results = emptyList(), runs = emptyList(), skipped = 0, changes = 0,
+            results = emptyList(), runs = emptyList(), skipped = 0, changes = 0, runSpec = p.runSpec,
         ).freshBlock()
     }
 
@@ -200,16 +235,56 @@ class HyroxController(private val now: () -> Long = { SystemClock.elapsedRealtim
         if ((u.block?.runAfterM ?: 0) > 0) withLog.copy(step = HyroxStep.RUN, runStartedAt = null) else withLog.nextBlock()
     }
 
-    // ------------------------------------------------------------------ easy run
+    // ------------------------------------------------------------------ run
 
-    fun runGo() = _ui.update { u -> if (u.step == HyroxStep.RUN && u.runStartedAt == null) u.copy(runStartedAt = now()) else u }
+    /** Start: a stopwatch run, or (on a treadmill) the countdown for the distance at the set speed. */
+    fun runGo() = _ui.update { u ->
+        if (u.step != HyroxStep.RUN || u.runStartedAt != null) return@update u
+        val spec = u.runSpec
+        val metres = u.block?.runAfterM ?: 0
+        val target = if (spec != null && spec.treadmill && metres > 0) HyroxRuns.targetSec(metres, spec.speedKmh) else null
+        u.copy(runStartedAt = now(), runTargetSec = target)
+    }
 
+    /** "+30 s": a little more time on the treadmill countdown. */
+    fun runAddTime(sec: Int = RUN_EXTRA_SEC) = _ui.update { u ->
+        val t = u.runTargetSec
+        if (u.step == HyroxStep.RUN && u.runStartedAt != null && t != null) u.copy(runTargetSec = t + sec) else u
+    }
+
+    fun setRunRpe(v: Int) = _ui.update { if (it.step == HyroxStep.RUN) it.copy(runRpe = if (it.runRpe == v) null else v) else it }
+
+    /** Done (or "Done early" on the treadmill): saves the run with the time it took. */
     fun runDone() = _ui.update { u ->
         val t0 = u.runStartedAt
-        if (u.step != HyroxStep.RUN || t0 == null) u else u.copy(runs = u.runs + secondsSince(t0)).nextBlock()
+        if (u.step != HyroxStep.RUN || t0 == null) u else u.finishRun(secondsSince(t0))
+    }
+
+    /** Ends the treadmill countdown when it reaches zero. Returns true exactly then (the screen plays the done beep). */
+    fun tickRun(): Boolean {
+        var finished = false
+        _ui.update { u ->
+            val t0 = u.runStartedAt
+            val target = u.runTargetSec
+            if (u.step == HyroxStep.RUN && t0 != null && target != null && now() - t0 >= target * 1000L) {
+                finished = true
+                u.finishRun(target)
+            } else u
+        }
+        return finished
     }
 
     fun skipRun() = _ui.update { u -> if (u.step == HyroxStep.RUN) u.nextBlock() else u }
+
+    /** The run as a log: the planned distance, or what the treadmill covered if it was stopped early. */
+    private fun HyroxUi.finishRun(sec: Int): HyroxUi {
+        val planned = block?.runAfterM ?: 0
+        val spec = runSpec
+        val target = runTargetSec
+        val metres = if (spec != null && target != null && sec < target) minOf(planned, HyroxRuns.distanceAt(spec.speedKmh, sec)) else planned
+        val log = StationLog(stationId = HyroxRuns.ID, distanceM = metres.takeIf { it > 0 }, seconds = sec.takeIf { it > 0 }, rpe = runRpe)
+        return copy(runs = runs + sec, results = results + log).nextBlock()
+    }
 
     // ------------------------------------------------------------------ leaving
 
@@ -243,6 +318,7 @@ class HyroxController(private val now: () -> Long = { SystemClock.elapsedRealtim
     private fun HyroxUi.freshBlock(): HyroxUi = copy(
         step = HyroxStep.READY, round = 0, laps = emptyList(), lapStartedAt = null, restEndsAt = 0L, restTotalSec = 0,
         actual = HyroxActual(null, null, null), rpe = null, technique = null, runStartedAt = null,
+        runTargetSec = null, runRpe = null,
     )
 
     private fun HyroxUi.nextBlock(): HyroxUi =
@@ -270,6 +346,7 @@ class HyroxController(private val now: () -> Long = { SystemClock.elapsedRealtim
     companion object {
         const val WEIGHT_STEP = 2.5
         const val REPS_STEP = 5
+        const val RUN_EXTRA_SEC = 30
         val MINUTE_CHOICES = listOf(20, 30, 45, 60, 90)
 
         fun snapMinutes(m: Int): Int = MINUTE_CHOICES.minByOrNull { kotlin.math.abs(it - m) } ?: 45
@@ -297,6 +374,12 @@ class HyroxController(private val now: () -> Long = { SystemClock.elapsedRealtim
 object HyroxText {
     fun clock(sec: Int): String = "${sec / 60}:${"%02d".format(sec % 60)}"
 
+    /** "9.0": the treadmill speed with one decimal, locale independent. */
+    fun speed(kmh: Double): String = String.format(java.util.Locale.ENGLISH, "%.1f", kmh)
+
+    /** "1" or "1.5": the incline without a pointless ".0". */
+    fun incline(pct: Double): String = if (pct % 1.0 == 0.0) pct.toInt().toString() else String.format(java.util.Locale.ENGLISH, "%.1f", pct)
+
     private fun kg(x: Double) = if (x % 1.0 == 0.0) x.toInt().toString() else x.toString()
 
     /** "4 x 12 m · 40 kg · rest 90 s". Weight is per hand for the farmers carry. */
@@ -312,7 +395,7 @@ object HyroxText {
 
     /** "Sled Push 50 m at 40 kg in 1:12". */
     fun summary(log: StationLog): String {
-        val name = HyroxStation.byId(log.stationId)?.displayName ?: log.stationId
+        val name = if (HyroxRuns.isRun(log)) "Run" else HyroxStation.byId(log.stationId)?.displayName ?: log.stationId
         val sb = StringBuilder(name)
         log.distanceM?.let { sb.append(" $it m") }
         log.reps?.let { sb.append(" $it reps") }

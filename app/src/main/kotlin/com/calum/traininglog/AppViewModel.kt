@@ -446,7 +446,14 @@ class AppViewModel @JvmOverloads constructor(
 
     fun hyroxSetup(
         minutes: Int? = null, focus: Set<com.calum.traininglog.core.HyroxStation>? = null, withRuns: Boolean? = null, shuffle: Boolean = false,
-    ) = hyrox.rebuild(hyroxInput(), minutes, focus, withRuns, shuffle)
+        runMetres: Int? = null,
+    ) = hyrox.rebuild(hyroxInput(), minutes, focus, withRuns, shuffle, runMetres)
+
+    /** Gym or Home & garden: remembered (it is the last place used) and the plan is rebuilt for its kit. */
+    fun hyroxSetPlace(place: com.calum.traininglog.core.HyroxPlace) {
+        updateProfile { it.copy(settings = it.settings.copy(hyroxPlace = place)) }
+        hyroxSetup()
+    }
 
     /** Today's date as the app sees it (tests inject a fixed one). */
     fun todayDate(): LocalDate = today
@@ -455,16 +462,18 @@ class AppViewModel @JvmOverloads constructor(
     fun saveHyroxSession(feeling: Feeling, kneePain: Int?) {
         val u = hyrox.ui.value
         val stations = u.results
+        val stationCount = u.stationCount
         val minutes = ((hyrox.elapsedMs(u) + 30_000) / 60_000).toInt().coerceAtLeast(1)
         hyrox.reset()
-        if (stations.isEmpty()) { home(); return }
+        // Runs only follow a station, so a session with no station has nothing worth saving.
+        if (stationCount == 0) { home(); return }
         val record = SessionRecord(
             id = UUID.randomUUID().toString(), date = today, type = SessionType.HYROX,
             minutesAvailable = u.minutes, minutesActual = minutes, feeling = feeling, kneePain = kneePain,
-            note = HyroxText.runNote(u.runs), stations = stations,
+            stations = stations,
         )
         persist { it.copy(records = it.records + record) }
-        _celebration.update { it?.copy(messages = listOf("${stations.size} ${if (stations.size == 1) "station" else "stations"} in $minutes min.") + it.messages) }
+        _celebration.update { it?.copy(messages = listOf("$stationCount ${if (stationCount == 1) "station" else "stations"} in $minutes min.") + it.messages) }
         home()
     }
 

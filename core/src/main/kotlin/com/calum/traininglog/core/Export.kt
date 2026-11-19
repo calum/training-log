@@ -65,6 +65,12 @@ object Export {
 
     /** e.g. "Sled Push: 102.5 kg, 50 m, 1:12, RPE 8, technique 2/3, level 5". */
     internal fun stationLine(st: StationLog): String {
+        if (HyroxRuns.isRun(st)) {
+            val parts = listOfNotNull(
+                st.distanceM?.let { "$it m" }, st.seconds?.let { "in ${clock(it)}" },
+            )
+            return ("Run " + parts.joinToString(" ")).trim() + (st.rpe?.let { ", RPE $it" } ?: "")
+        }
         val name = HyroxStation.byId(st.stationId)?.displayName ?: st.stationId
         val parts = listOfNotNull(
             st.weightKg?.let { "${num(it)} kg" },

@@ -9,6 +9,8 @@ import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipeUp
 import com.calum.traininglog.core.Feeling
+import com.calum.traininglog.core.HyroxGear
+import com.calum.traininglog.core.HyroxPlace
 import com.calum.traininglog.core.HyroxStation
 import com.calum.traininglog.core.SessionRecord
 import com.calum.traininglog.core.SessionType
@@ -86,12 +88,19 @@ class HyroxHubScreenshotTest(private val s: Case) {
 
     companion object {
         private val edited = UserSettings(hyroxWeightOverrides = mapOf("sled_push" to 142.5))
+        private val boughtKit = UserSettings(
+            hyroxHomeGear = setOf(HyroxGear.TREADMILL, HyroxGear.WALL_BALL, HyroxGear.SANDBAG), hyroxRunSpeedKmh = 9.5, hyroxRunInclinePct = 1.0,
+        )
+        private val atHome = UserSettings(hyroxPlace = HyroxPlace.HOME)
 
         @JvmStatic
         @ParameterizedRobolectricTestRunner.Parameters(name = "{0}")
         fun params(): List<Array<Any>> = listOf(
             Case("hyrox-hub-empty", null, false, pages = 3),
             Case("hyrox-hub", null, true, pages = 3),
+            Case("hyrox-hub-equipment", null, true, pages = 3, settings = boughtKit),
+            Case("hyrox-station-sled-push-home", HyroxStation.SLED_PUSH, true, pages = 2, settings = atHome),
+            Case("hyrox-station-row-home", HyroxStation.ROW, true, pages = 2, settings = atHome),
             Case("hyrox-station-sled-push-new", HyroxStation.SLED_PUSH, false, pages = 4),
             Case("hyrox-station-wall-balls", HyroxStation.WALL_BALLS, true, pages = 4),
             Case("hyrox-station-row", HyroxStation.ROW, true, pages = 3),

@@ -342,12 +342,13 @@ class HyroxTest {
             stations = listOf(
                 StationLog("sled_push", 102.5, 50, null, 72, 8, 3, 5),
                 StationLog("row", null, 1000, null, 240, 7),
+                StationLog("run", null, 400, null, 151, 6, level = 3, technique = 2),
                 StationLog("custom:secretstation", 1.0, 1, null, 1, 1),
             ),
         )
         val files = PublicExport.files(listOf(r))
         assertEquals(
-            "date,station,weight_kg,distance_m,reps,seconds,rpe\n2026-11-01,sled_push,102.5,50,,72,8\n2026-11-01,row,,1000,,240,7\n",
+            "date,station,weight_kg,distance_m,reps,seconds,rpe\n2026-11-01,sled_push,102.5,50,,72,8\n2026-11-01,row,,1000,,240,7\n2026-11-01,run,,400,,151,6\n",
             files["data/hyrox/2026-11.csv"],
         )
         for ((path, content) in files) {
@@ -359,7 +360,7 @@ class HyroxTest {
     }
 
     @Test fun publicHyroxRoundTrip() {
-        val a = session("a", 0, StationLog("sled_push", 102.5, 50, null, 72, 8), StationLog("wall_balls", 6.0, null, 100, 400, 9))
+        val a = session("a", 0, StationLog("sled_push", 102.5, 50, null, 72, 8), StationLog("wall_balls", 6.0, null, 100, 400, 9), StationLog("run", null, 400, null, 151, 6))
         val b = session("b", 40, StationLog("row", null, 1000, null, 245, 7))
         val back = PublicImport.records(PublicExport.files(listOf(a, b))).filter { it.type == SessionType.HYROX }
         assertEquals(2, back.size)

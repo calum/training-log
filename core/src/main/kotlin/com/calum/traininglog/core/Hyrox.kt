@@ -21,6 +21,23 @@ enum class HyroxDivision(val label: String) {
 
 enum class StationKind { DISTANCE, REPS }
 
+/** Kit a station needs. [WEIGHTS] means kettlebells or dumbbells (for the farmers carry). */
+enum class HyroxGear(val label: String, val short: String) {
+    SLED("Sled", "sled"),
+    SKIERG("SkiErg", "SkiErg"),
+    ROWER("Rower", "rower"),
+    WALL_BALL("Wall ball", "wall ball"),
+    SANDBAG("Sandbag", "sandbag"),
+    WEIGHTS("Kettlebells or dumbbells", "kettlebells or dumbbells"),
+    TREADMILL("Treadmill", "treadmill"),
+}
+
+/** Where a session happens. The kit ticked for each place is in [UserSettings]. */
+enum class HyroxPlace(val label: String) {
+    GYM("Gym"),
+    HOME("Home & garden"),
+}
+
 /** The 8 stations in race order. [id] is what is stored in [StationLog.stationId]. */
 enum class HyroxStation(val id: String, val displayName: String, val order: Int, val kind: StationKind) {
     SKIERG("skierg", "SkiErg", 1, StationKind.DISTANCE),
@@ -34,6 +51,21 @@ enum class HyroxStation(val id: String, val displayName: String, val order: Int,
 
     /** The two stations that load the knee hardest (deep bends, repeated landings). */
     val kneeHeavy: Boolean get() = this == BURPEE_BROAD_JUMP || this == SANDBAG_LUNGES
+
+    /** The kit this station needs (empty when it needs none, like the burpee broad jumps). */
+    val requiredGear: Set<HyroxGear>
+        get() = when (this) {
+            SKIERG -> setOf(HyroxGear.SKIERG)
+            SLED_PUSH, SLED_PULL -> setOf(HyroxGear.SLED)
+            BURPEE_BROAD_JUMP -> emptySet()
+            ROW -> setOf(HyroxGear.ROWER)
+            FARMERS_CARRY -> setOf(HyroxGear.WEIGHTS)
+            SANDBAG_LUNGES -> setOf(HyroxGear.SANDBAG)
+            WALL_BALLS -> setOf(HyroxGear.WALL_BALL)
+        }
+
+    /** True when every piece of kit it needs is in [gear] (null means everything is available). */
+    fun availableWith(gear: Set<HyroxGear>?): Boolean = gear == null || gear.containsAll(requiredGear)
 
     /** True for stations done with an external load. */
     val weighted: Boolean get() = this != SKIERG && this != ROW && this != BURPEE_BROAD_JUMP
@@ -312,8 +344,8 @@ object HyroxGuide {
             ),
             kneeNote = "Repeated squats are generally knee-friendly when the knee is OK in lifting; keep the depth you can control.",
             alternatives = listOf(
-                "Medicine ball squat and throw, or a ball slam variation",
                 "Thrusters with a dumbbell or barbell",
+                "Medicine ball squat and throw, or a ball slam variation",
                 "Goblet squat into an overhead press",
             ),
             pacingTip = "Plan sets of 15 to 25 with short rests rather than one big set and a crash.",
@@ -521,6 +553,42 @@ object HyroxProgression {
     }
 }
 
+// ------------------------------------------------------------------------------------------------ runs
+
+/**
+ * The run between stations is logged as a [StationLog] with [ID] as its stationId. It is NOT one of the eight
+ * stations: levels, standards, badges and PRs ignore it (it only adds a little XP).
+ */
+object HyroxRuns {
+    const val ID = "run"
+    val DISTANCE_CHOICES = listOf(200, 400, 600, 800)
+    const val DEFAULT_DISTANCE_M = 400
+    val SPEED_RANGE = 6.0..16.0
+    const val SPEED_STEP = 0.5
+    val INCLINE_RANGE = 0.0..15.0
+
+    fun isRun(log: StationLog): Boolean = log.stationId == ID
+
+    /** Seconds to cover [metres] at [speedKmh] (rounded). */
+    fun targetSec(metres: Int, speedKmh: Double): Int =
+        Math.round(metres / (speedKmh.coerceIn(SPEED_RANGE) / 3.6)).toInt().coerceAtLeast(1)
+
+    /** Metres covered in [sec] at [speedKmh], to the nearest 10 m. */
+    fun distanceAt(speedKmh: Double, sec: Int): Int =
+        (Math.round(speedKmh / 3.6 * sec / 10.0) * 10).toInt().coerceAtLeast(0)
+
+    fun snapSpeed(kmh: Double): Double = roundTo(kmh.coerceIn(SPEED_RANGE), SPEED_STEP).coerceIn(SPEED_RANGE)
+}
+
+/**
+ * How the runs of a session are done: on a treadmill (a counted-down time at [speedKmh] and [inclinePct]) or by
+ * stopwatch (outside, or no treadmill at this place).
+ */
+data class HyroxRunSpec(val metres: Int, val treadmill: Boolean, val speedKmh: Double, val inclinePct: Double) {
+    /** Countdown length for a treadmill run, else null. */
+    val targetSec: Int? get() = if (treadmill) HyroxRuns.targetSec(metres, speedKmh) else null
+}
+
 // ------------------------------------------------------------------------------------------------ session plan
 
 data class StationBlock(
@@ -538,6 +606,10 @@ data class HyroxSessionPlan(
     val label: String,
     val warmupNote: String,
     val notes: List<String> = emptyList(),
+    /** Stations left out because the kit for them is missing here (those asked for, or all of them when no focus). */
+    val unavailable: List<HyroxStation> = emptyList(),
+    /** How the runs are done; null when the plan has no runs. */
+    val runSpec: HyroxRunSpec? = null,
 ) {
     companion object {
         /** See [HyroxPlanner.build]. */
@@ -548,7 +620,9 @@ data class HyroxSessionPlan(
             settings: UserSettings = UserSettings(),
             focus: Set<HyroxStation>? = null,
             withRuns: Boolean = false,
-        ): HyroxSessionPlan = HyroxPlanner.build(minutes, records, division, settings, focus, withRuns)
+            gear: Set<HyroxGear>? = null,
+            runM: Int = HyroxRuns.DEFAULT_DISTANCE_M,
+        ): HyroxSessionPlan = HyroxPlanner.build(minutes, records, division, settings, focus, withRuns, gear, runM)
     }
 }
 
@@ -559,6 +633,12 @@ object HyroxPlanner {
     internal const val MAX_BLOCKS = 4
     internal const val KNEE_CAP_SCORE = 4
 
+    /** The kit he is most likely to buy first comes first when substitutes are listed. */
+    private val SUBSTITUTE_ORDER = listOf(
+        HyroxStation.WALL_BALLS, HyroxStation.SANDBAG_LUNGES, HyroxStation.FARMERS_CARRY, HyroxStation.SLED_PUSH,
+        HyroxStation.SLED_PULL, HyroxStation.SKIERG, HyroxStation.ROW,
+    )
+
     /** Builds a 20-90 minute session of 2-4 stations (as many as fit). Deterministic. */
     fun build(
         minutes: Int,
@@ -567,6 +647,8 @@ object HyroxPlanner {
         settings: UserSettings = UserSettings(),
         focus: Set<HyroxStation>? = null,
         withRuns: Boolean = false,
+        gear: Set<HyroxGear>? = null,
+        runM: Int = HyroxRuns.DEFAULT_DISTANCE_M,
     ): HyroxSessionPlan {
         val total = minutes.coerceIn(20, 90)
         val overrides = settings.hyroxWeightOverrides
@@ -581,7 +663,9 @@ object HyroxPlanner {
             return if (idx < 0) 50 else hyrox.size - 1 - idx
         }
 
-        val pool = HyroxStation.entries.filter { focus.isNullOrEmpty() || it in focus }
+        val wanted = HyroxStation.entries.filter { focus.isNullOrEmpty() || it in focus }
+        val pool = wanted.filter { it.availableWith(gear) }
+        val unavailable = wanted.filter { !it.availableWith(gear) }
         data class Cand(val station: HyroxStation, val score: Double, val presc: StationPrescription)
         val cands = pool.map { s ->
             val hist = entries(s)
@@ -596,7 +680,8 @@ object HyroxPlanner {
         var remaining = total - warm
         val blocks = mutableListOf<StationBlock>()
         var kneeHeavyCount = 0
-        val runMin = if (runsOn) HyroxPlanner.RUN_MIN else 0
+        val runMetresEach = runM.coerceIn(100, 2000)
+        val runMin = if (runsOn) ceil(HyroxPlanner.RUN_MIN * runMetresEach / HyroxPlanner.RUN_M.toDouble()).toInt() else 0
         for (c in cands) {
             if (blocks.size >= HyroxPlanner.MAX_BLOCKS) break
             if (kneeHigh && c.station.kneeHeavy && kneeHeavyCount >= 1) continue
@@ -607,13 +692,26 @@ object HyroxPlanner {
                 est = estimateMin(c.station, p) + runMin
             }
             if (est > remaining) continue
-            blocks += StationBlock(c.station, p, est - runMin, if (runsOn) HyroxPlanner.RUN_M else 0)
+            blocks += StationBlock(c.station, p, est - runMin, if (runsOn) runMetresEach else 0)
             remaining -= est
             if (c.station.kneeHeavy) kneeHeavyCount++
         }
         val runMetres = blocks.sumOf { it.runAfterM }
         val est = warm + blocks.sumOf { it.estimatedMin + (if (runsOn) runMin else 0) }
+        val treadmill = gear == null || HyroxGear.TREADMILL in gear
+        val runSpec = if (runsOn && blocks.isNotEmpty()) {
+            HyroxRunSpec(runMetresEach, treadmill, HyroxRuns.snapSpeed(settings.hyroxRunSpeedKmh), settings.hyroxRunInclinePct.coerceIn(HyroxRuns.INCLINE_RANGE))
+        } else null
         val notes = buildList {
+            // Missing kit: say what is needed and what to do instead, never as a failure.
+            if (!focus.isNullOrEmpty()) for (s in unavailable) {
+                add("${s.displayName} is left out: it needs ${needs(s, gear)}. Instead: ${HyroxGuide.of(s).alternatives.first()}.")
+            }
+            if (blocks.size < 2 && unavailable.isNotEmpty()) {
+                add("The kit you have here only fits ${if (blocks.isEmpty()) "no" else "one"} station, so here are substitutes you can do with what you have:")
+                // Stations asked for already got their line above.
+                if (focus.isNullOrEmpty()) unavailable.sortedBy { SUBSTITUTE_ORDER.indexOf(it) }.take(3).forEach { s -> add("${s.displayName} substitute: ${HyroxGuide.of(s).alternatives.first()}") }
+            }
             if (kneeHigh) add("Your knee was sore last time, so this plan keeps to one knee-heavy station at most and skips running. Stop any station that flares it.")
             if (withRuns && runsOn) add("Short easy runs between blocks to get used to running on tired legs. Keep them easy.")
             add(HyroxStandards.standardsNote)
@@ -622,9 +720,13 @@ object HyroxPlanner {
         return HyroxSessionPlan(
             blocks = blocks, runMetres = runMetres, estimatedMinutes = est, label = label,
             warmupNote = "Warm-up (about $warm min): easy cardio for 4 to 5 min on the bike, rower or a brisk walk, then bodyweight squats, hip hinges and arm circles. Do one light practice set of the first station.",
-            notes = notes,
+            notes = notes, unavailable = unavailable, runSpec = runSpec,
         )
     }
+
+    /** "a sled" or "a wall ball and a sandbag": the missing kit for [s], phrased for a note. */
+    private fun needs(s: HyroxStation, gear: Set<HyroxGear>?): String =
+        s.requiredGear.filter { gear != null && it !in gear }.joinToString(" and ") { it.short }.ifEmpty { "some kit" }
 
     /** Rough clock time for a prescription: work at a typical pace, rests between rounds, and a minute of setup. */
     fun estimateMin(station: HyroxStation, p: StationPrescription): Int {

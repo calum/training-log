@@ -46,11 +46,11 @@ object PublicExport {
                     )
                 }
                 SessionType.HYROX -> for (st in r.stations) {
-                    // Whitelist: only the eight known stations, only numeric columns.
-                    val station = HyroxStation.byId(st.stationId) ?: continue
+                    // Whitelist: only the eight known stations and the between-station run, only numeric columns.
+                    val id = if (HyroxRuns.isRun(st)) HyroxRuns.ID else (HyroxStation.byId(st.stationId) ?: continue).id
                     hyrox.getOrPut(month) { mutableListOf() }.add(
                         row(
-                            r.date, station.id, st.weightKg?.let { num(it) } ?: "", st.distanceM ?: "", st.reps ?: "",
+                            r.date, id, st.weightKg?.let { num(it) } ?: "", st.distanceM ?: "", st.reps ?: "",
                             st.seconds ?: "", st.rpe ?: "",
                         )
                     )

@@ -10,6 +10,8 @@ import androidx.compose.ui.test.isRoot
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.test.core.app.ApplicationProvider
 import com.calum.traininglog.core.Feeling
+import com.calum.traininglog.core.HyroxGear
+import com.calum.traininglog.core.HyroxPlace
 import com.calum.traininglog.core.HyroxStation
 import com.calum.traininglog.core.Profile
 import com.calum.traininglog.core.SessionRecord
@@ -61,10 +63,10 @@ class HyroxSessionScreenshotTest(private val shot: Shot) {
     class Env(val vm: AppViewModel) {
         fun advance(ms: Long) { ShadowSystemClock.advanceBy(Duration.ofMillis(ms)) }
 
-        fun open(minutes: Int = 45, runs: Boolean = false, focus: Set<HyroxStation> = emptySet()) {
+        fun open(minutes: Int = 45, runs: Boolean = false, focus: Set<HyroxStation> = emptySet(), runMetres: Int? = null) {
             vm.begin(SessionType.HYROX, minutes)
             if (focus.isNotEmpty()) vm.hyroxSetup(focus = focus)
-            if (runs) vm.hyroxSetup(withRuns = true)
+            if (runs) vm.hyroxSetup(withRuns = true, runMetres = runMetres)
         }
 
         /** Runs the current block's laps (20 s each, rests waited out) until the rating step. */
@@ -117,6 +119,30 @@ class HyroxSessionScreenshotTest(private val shot: Shot) {
             r.dropLast(1) + r.last().copy(kneePain = 5) to Fixtures.busyProfile()
         }
 
+        /** Home and garden with a wall ball, a sandbag and the treadmill (what he will own after the shopping trip). */
+        private val homeKit = {
+            val p = Fixtures.busyProfile()
+            HyroxFixtures.hyroxRecords() to p.copy(
+                settings = p.settings.copy(
+                    hyroxPlace = HyroxPlace.HOME, hyroxHomeGear = setOf(HyroxGear.TREADMILL, HyroxGear.WALL_BALL, HyroxGear.SANDBAG),
+                ),
+            )
+        }
+
+        /** Home today: only the treadmill so far. */
+        private val homeBare = {
+            val p = Fixtures.busyProfile()
+            HyroxFixtures.hyroxRecords() to p.copy(settings = p.settings.copy(hyroxPlace = HyroxPlace.HOME))
+        }
+
+        /** Home with no treadmill ticked: runs are a stopwatch. */
+        private val homeNoTreadmill = {
+            val p = Fixtures.busyProfile()
+            HyroxFixtures.hyroxRecords() to p.copy(
+                settings = p.settings.copy(hyroxPlace = HyroxPlace.HOME, hyroxHomeGear = setOf(HyroxGear.WALL_BALL, HyroxGear.SANDBAG)),
+            )
+        }
+
         private fun form(station: HyroxStation, f: (HyroxLogForm) -> HyroxLogForm = { it }): HyroxLogForm =
             f(HyroxLogForm.start(HyroxLogForm.defaults(station, HyroxFixtures.hyroxRecords(), com.calum.traininglog.core.HyroxDivision.MEN_OPEN)))
 
@@ -133,12 +159,35 @@ class HyroxSessionScreenshotTest(private val shot: Shot) {
             Shot("hyrox-session-setup-full", tallDp = 2300) { open() },
             Shot("hyrox-session-setup-runs", tallDp = 2300) { open(runs = true) },
             Shot("hyrox-session-setup-knee", seed = kneeSore) { open() },
+            Shot("hyrox-session-setup-gym", tallDp = 2300) { open() },
+            Shot("hyrox-session-setup-home", tallDp = 2300, seed = homeKit) { open(60) },
+            Shot("hyrox-session-setup-home-bare", tallDp = 2300, seed = homeBare) { open(45) },
+            Shot("hyrox-session-setup-home-runs", tallDp = 2500, seed = homeKit) { open(60, runs = true, runMetres = 600) },
+            Shot("hyrox-session-setup-home-stopwatch", tallDp = 2500, seed = homeNoTreadmill) { open(60, runs = true) },
             Shot("hyrox-session-player-ready") { open(); vm.hyrox.start() },
             Shot("hyrox-session-player-lap") { open(); vm.hyrox.start(); vm.hyrox.go(); advance(18_000) },
             Shot("hyrox-session-player-rest") { open(); vm.hyrox.start(); vm.hyrox.go(); advance(21_000); vm.hyrox.lapDone(); advance(30_000) },
             Shot("hyrox-session-player-rate", tallDp = 1500) { open(); vm.hyrox.start(); lapsToRating() },
             Shot("hyrox-session-player-run", seed = { HyroxFixtures.hyroxRecords() to Fixtures.busyProfile() }) {
                 open(runs = true); vm.hyrox.start(); lapsToRating(); rateAndSave(); vm.hyrox.runGo(); advance(95_000)
+            },
+            Shot("hyrox-session-player-run-ready", tallDp = 1300, seed = homeKit) {
+                open(60, runs = true, runMetres = 600); vm.hyrox.start(); lapsToRating(); rateAndSave()
+            },
+            Shot("hyrox-session-player-run-treadmill", tallDp = 1300, seed = homeKit) {
+                open(60, runs = true, runMetres = 600); vm.hyrox.start(); lapsToRating(); rateAndSave()
+                vm.hyrox.runGo(); advance(95_000); vm.hyrox.setRunRpe(7)
+            },
+            Shot("hyrox-session-player-run-stopwatch", tallDp = 1300, seed = homeNoTreadmill) {
+                open(60, runs = true); vm.hyrox.start(); lapsToRating(); rateAndSave(); vm.hyrox.runGo(); advance(95_000)
+            },
+            Shot("hyrox-session-finish-runs", tallDp = 1700, seed = homeKit) {
+                open(45, runs = true)
+                vm.hyrox.start()
+                while (vm.hyrox.ui.value.phase == HyroxPhase.RUNNING) {
+                    lapsToRating(); rateAndSave()
+                    vm.hyrox.runGo(); advance(150_000); vm.hyrox.runDone()
+                }
             },
             Shot("hyrox-session-finish", tallDp = 1500) {
                 open(); vm.hyrox.start()
@@ -154,6 +203,7 @@ class HyroxSessionScreenshotTest(private val shot: Shot) {
                 },
                 tallDp = 2300,
             ),
+            logShot("hyrox-session-log-run", form(HyroxStation.SLED_PUSH).copy(current = HyroxLogForm.runDefaults()).setSeconds(151).setRpe(7), tallDp = 1500),
             Shot("hyrox-session-log-route") { vm.go(Screen.HyroxLog(HyroxStation.WALL_BALLS)) },
             Shot("hyrox-session-start-tile") { vm.go(Screen.Start) },
         )

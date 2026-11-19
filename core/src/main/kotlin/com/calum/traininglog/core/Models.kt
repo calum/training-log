@@ -24,6 +24,9 @@ object DayOfWeekSerializer : KSerializer<DayOfWeek> {
 
 object DayOfWeekSetSerializer : KSerializer<Set<DayOfWeek>> by SetSerializer(DayOfWeekSerializer)
 
+/** Kit sets are stored as lists of enum names. Unknown names (from a newer app) are not expected; they would fail loudly. */
+object HyroxGearSetSerializer : KSerializer<Set<HyroxGear>> by SetSerializer(kotlinx.serialization.serializer<HyroxGear>())
+
 object LocalDateSetSerializer : KSerializer<Set<LocalDate>> by SetSerializer(LocalDateSerializer)
 
 enum class Feeling { GOOD, OKAY, ROUGH, ILL }

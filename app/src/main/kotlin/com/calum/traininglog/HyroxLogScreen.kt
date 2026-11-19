@@ -32,6 +32,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.calum.traininglog.core.HyroxDivision
 import com.calum.traininglog.core.HyroxProgression
+import com.calum.traininglog.core.HyroxRuns
 import com.calum.traininglog.core.HyroxStation as Station
 import com.calum.traininglog.core.SessionRecord
 import com.calum.traininglog.core.SessionType
@@ -91,9 +92,12 @@ data class HyroxLogForm(
     fun adjustWeight(steps: Int) = edit { s -> s.weightKg?.let { s.copy(weightKg = (it + steps * HyroxController.WEIGHT_STEP).coerceAtLeast(0.0)) } ?: s }
 
     fun adjustDistance(steps: Int): HyroxLogForm {
-        val st = Station.byId(current.stationId) ?: return this
-        return edit { s -> s.distanceM?.let { s.copy(distanceM = (it + steps * HyroxController.distanceStep(st)).coerceAtLeast(0)) } ?: s }
+        val step = if (isRun) RUN_STEP else HyroxController.distanceStep(Station.byId(current.stationId) ?: return this)
+        return edit { s -> s.distanceM?.let { s.copy(distanceM = (it + steps * step).coerceAtLeast(0)) } ?: s }
     }
+
+    /** True while the editor is on a run (done outside the app) rather than a station. */
+    val isRun: Boolean get() = current.stationId == HyroxRuns.ID
 
     fun adjustReps(steps: Int) = edit { s -> s.reps?.let { s.copy(reps = (it + steps * HyroxController.REPS_STEP).coerceAtLeast(0)) } ?: s }
 
@@ -122,6 +126,10 @@ data class HyroxLogForm(
 
     companion object {
         const val TIME_STEP = 10
+        const val RUN_STEP = 100
+
+        /** A run logged by hand: 400 m to start, time and effort optional. */
+        fun runDefaults() = StationLog(stationId = HyroxRuns.ID, distanceM = HyroxRuns.DEFAULT_DISTANCE_M)
         const val MAX_DAYS_BACK = 14
 
         fun start(defaults: StationLog) = HyroxLogForm(current = defaults)
@@ -177,6 +185,7 @@ internal fun HyroxLogContent(
 ) {
     val cur = form.current
     val st = Station.byId(cur.stationId) ?: Station.SKIERG
+    val isRun = form.isRun
     val total = form.toSave().size
     Column(
         Modifier.fillMaxSize().background(AppColors.background).verticalScroll(rememberScrollState())
@@ -202,8 +211,9 @@ internal fun HyroxLogContent(
         FieldLabel("STATION")
         FlowRow(horizontalArrangement = Arrangement.spacedBy(Spacing.sm), verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
             Station.entries.forEach { s ->
-                SelectChip(s.displayName, s == st, { if (s != st) onForm(form.pick(defaultsFor(s))) })
+                SelectChip(s.displayName, !isRun && s == st, { if (isRun || s != st) onForm(form.pick(defaultsFor(s))) })
             }
+            SelectChip("Run", isRun, { if (!isRun) onForm(form.pick(HyroxLogForm.runDefaults())) })
         }
 
         FieldLabel("WHEN")
@@ -224,7 +234,7 @@ internal fun HyroxLogContent(
             cur.weightKg?.let { w ->
                 BigNumberStepper(fmt(w), "kg", { onForm(form.adjustWeight(-1)) }, { onForm(form.adjustWeight(1)) }, label = if (st == Station.FARMERS_CARRY) "Weight per hand" else "Weight")
             }
-            cur.distanceM?.let { d -> BigNumberStepper("$d", "m", { onForm(form.adjustDistance(-1)) }, { onForm(form.adjustDistance(1)) }, label = "Total distance") }
+            cur.distanceM?.let { d -> BigNumberStepper("$d", "m", { onForm(form.adjustDistance(-1)) }, { onForm(form.adjustDistance(1)) }, label = if (isRun) "Run distance" else "Total distance") }
             cur.reps?.let { r -> BigNumberStepper("$r", "reps", { onForm(form.adjustReps(-1)) }, { onForm(form.adjustReps(1)) }, label = "Total reps") }
             TimeEditor(form, onForm)
         }
@@ -233,10 +243,12 @@ internal fun HyroxLogContent(
         Row(horizontalArrangement = Arrangement.spacedBy(Spacing.sm), modifier = Modifier.fillMaxWidth()) {
             (6..10).forEach { v -> SelectChip("$v", cur.rpe == v, { onForm(form.setRpe(v)) }, Modifier.weight(1f).heightIn(min = 56.dp)) }
         }
-        FieldLabel("TECHNIQUE")
-        Row(horizontalArrangement = Arrangement.spacedBy(Spacing.sm), modifier = Modifier.fillMaxWidth()) {
-            listOf(1 to "Needs work", 2 to "OK", 3 to "Smooth").forEach { (v, label) ->
-                TapChip(label, cur.technique == v, { onForm(form.setTechnique(v)) }, Modifier.weight(1f))
+        if (!isRun) {
+            FieldLabel("TECHNIQUE")
+            Row(horizontalArrangement = Arrangement.spacedBy(Spacing.sm), modifier = Modifier.fillMaxWidth()) {
+                listOf(1 to "Needs work", 2 to "OK", 3 to "Smooth").forEach { (v, label) ->
+                    TapChip(label, cur.technique == v, { onForm(form.setTechnique(v)) }, Modifier.weight(1f))
+                }
             }
         }
 

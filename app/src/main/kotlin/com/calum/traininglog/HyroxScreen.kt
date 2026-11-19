@@ -4,6 +4,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -27,6 +29,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.calum.traininglog.core.HyroxDivision
+import com.calum.traininglog.core.HyroxGear
+import com.calum.traininglog.core.HyroxPlace
+import com.calum.traininglog.core.HyroxRuns
 import com.calum.traininglog.core.HyroxGuide
 import com.calum.traininglog.core.HyroxLadder
 import com.calum.traininglog.core.HyroxProgression
@@ -37,6 +42,7 @@ import com.calum.traininglog.core.UserSettings
 import com.calum.traininglog.ui.AppColors
 import com.calum.traininglog.ui.AppType
 import com.calum.traininglog.ui.BigActionButton
+import com.calum.traininglog.ui.BigNumberStepper
 import com.calum.traininglog.ui.HeroCard
 import com.calum.traininglog.ui.Pill
 import com.calum.traininglog.ui.SecondaryButton
@@ -52,6 +58,7 @@ fun HyroxScreen(vm: AppViewModel) {
         records = data.records,
         settings = data.profile.settings,
         onDivision = { d -> vm.updateProfile { it.copy(settings = it.settings.copy(hyroxDivision = d)) } },
+        onSettings = { f -> vm.updateProfile { p -> p.copy(settings = f(p.settings).sanitized()) } },
         onOpen = { vm.go(Screen.HyroxStation(it)) },
         onStart = { vm.go(Screen.HyroxSession(emptySet())) },
         onLog = { vm.go(Screen.HyroxLog(null)) },
@@ -68,6 +75,7 @@ internal fun HyroxHubContent(
     onStart: () -> Unit,
     onLog: () -> Unit,
     onBack: () -> Unit,
+    onSettings: ((UserSettings) -> UserSettings) -> Unit = {},
 ) {
     val division = settings.hyroxDivision
     val overrides = settings.hyroxWeightOverrides
@@ -96,6 +104,7 @@ internal fun HyroxHubContent(
             }
         }
         item { DivisionCard(division, overrides, onDivision) }
+        item { EquipmentCard(settings, onSettings) }
         items(HyroxStation.entries, key = { it.id }) { st ->
             StationCard(st, records, settings, onClick = { onOpen(st) })
         }
@@ -136,6 +145,46 @@ private fun DivisionCard(division: HyroxDivision, overrides: Map<String, Double>
         val approx = HyroxFormat.approx(division)
         Text(
             (if (approx) "~ approx: some values are approximate. " else "") + HyroxStandards.standardsNote,
+            style = MaterialTheme.typography.bodySmall, color = AppColors.textMuted,
+        )
+    }
+}
+
+/** Which kit he has at the gym and at home (home sessions only use ticked kit), plus the treadmill run speed. */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+internal fun EquipmentCard(settings: UserSettings, onSettings: ((UserSettings) -> UserSettings) -> Unit) {
+    SectionCard(title = "My equipment") {
+        Text(
+            "Tick what you have. Home sessions only use ticked equipment.",
+            style = MaterialTheme.typography.bodyMedium, color = AppColors.textMuted,
+        )
+        HyroxPlace.entries.forEach { place ->
+            Column(verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+                Text(if (place == HyroxPlace.GYM) "AT THE GYM" else "AT HOME", style = AppType.eyebrow, color = AppColors.textMuted)
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(Spacing.sm), verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+                    val have = settings.hyroxGearAt(place)
+                    HyroxGear.entries.forEach { g ->
+                        SelectChip(g.label, g in have, { onSettings { it.withHyroxGear(place, g, g !in have) } })
+                    }
+                }
+            }
+        }
+        Text("TREADMILL RUNS", style = AppType.eyebrow, color = AppColors.textMuted)
+        BigNumberStepper(
+            HyroxText.speed(settings.hyroxRunSpeedKmh), "km/h",
+            { onSettings { it.copy(hyroxRunSpeedKmh = HyroxRuns.snapSpeed(it.hyroxRunSpeedKmh - HyroxRuns.SPEED_STEP)) } },
+            { onSettings { it.copy(hyroxRunSpeedKmh = HyroxRuns.snapSpeed(it.hyroxRunSpeedKmh + HyroxRuns.SPEED_STEP)) } },
+            label = "Run speed",
+        )
+        BigNumberStepper(
+            HyroxText.incline(settings.hyroxRunInclinePct), "% incline",
+            { onSettings { it.copy(hyroxRunInclinePct = (it.hyroxRunInclinePct - 0.5).coerceAtLeast(0.0)) } },
+            { onSettings { it.copy(hyroxRunInclinePct = (it.hyroxRunInclinePct + 0.5).coerceAtMost(HyroxRuns.INCLINE_RANGE.endInclusive)) } },
+            label = "Run incline",
+        )
+        Text(
+            "Runs are optional and stay off unless you switch them on. With a treadmill ticked, each run counts down the time for its distance at this speed.",
             style = MaterialTheme.typography.bodySmall, color = AppColors.textMuted,
         )
     }

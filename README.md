@@ -48,7 +48,7 @@ Personal progressive training app for Android (Pixel 6a). Asks how much time and
 
 ## Added in v0.7
 
-- **Hyrox**: hub with the 8 stations by division, per-station technique, mistakes, knee notes, alternatives and a 6-level progression, a guided station session with lap timer and ratings, quick logging, PRs, badges and export. Standards are third-party figures (confirm at hyrox.com) and editable. See `core/.../Hyrox.kt`.
+- **Hyrox**: hub with the 8 stations by division, per-station technique, mistakes, knee notes, alternatives and a 6-level progression, a guided station session with lap timer and ratings, quick logging, PRs, badges and export. Standards are third-party figures (confirm at hyrox.com) and editable. See `core/.../Hyrox.kt`. Pick Gym or Home & garden per session (tick your kit under My equipment; home plans only use ticked kit), and optionally add treadmill runs between stations (counted-down time at your set speed, logged as `run` entries).
 
 Not yet built: training blocks, in-app settings for increments and starting weights.
 

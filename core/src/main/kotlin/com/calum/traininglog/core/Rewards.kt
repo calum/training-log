@@ -105,6 +105,9 @@ object Rewards {
     const val HYROX_PER_STATION = 15
     const val HYROX_NEW_STATION = 10
     const val HYROX_RACE_STANDARD = 30
+    /** A small bonus for each run between stations (up to [HYROX_RUN_CAP] of them). */
+    const val HYROX_PER_RUN = 5
+    const val HYROX_RUN_CAP = 8
 
     const val TOKEN_EVERY_ACTIVE_WEEKS = 4
     const val MAX_TOKENS = 2
@@ -351,7 +354,8 @@ object Rewards {
             SessionType.HIKE -> XpBreakdown(OTHER_BASE, minuteXp(rec.minutesActual, HIKE_MINUTE_CAP), 0, 0, 0)
             SessionType.HYROX -> XpBreakdown(
                 HYROX_BASE,
-                rec.stations.map { it.stationId }.distinct().count { HyroxStation.byId(it) != null } * HYROX_PER_STATION,
+                rec.stations.map { it.stationId }.distinct().count { HyroxStation.byId(it) != null } * HYROX_PER_STATION +
+                    min(rec.stations.count { HyroxRuns.isRun(it) }, HYROX_RUN_CAP) * HYROX_PER_RUN,
                 0, 0, 0,
             )
         }

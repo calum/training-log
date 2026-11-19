@@ -32,6 +32,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.calum.traininglog.core.HyroxGuide
+import com.calum.traininglog.core.HyroxGear
 import com.calum.traininglog.core.HyroxLadder
 import com.calum.traininglog.core.HyroxProgression
 import com.calum.traininglog.core.HyroxStandards
@@ -97,6 +98,8 @@ internal fun HyroxStationContent(
     val entries = remember(records, station) { HyroxFormat.entries(records, station) }
     val next = remember(entries, settings) { HyroxProgression.next(station, division, entries, overrides) }
     val ladder = remember(settings, station) { HyroxLadder.of(division, station, overrides) }
+    val available = station.availableWith(settings.hyroxGear)
+    val placeLabel = if (settings.hyroxPlace == com.calum.traininglog.core.HyroxPlace.GYM) "at the gym" else "at home"
 
     Column(
         Modifier.fillMaxSize().background(AppColors.background).statusBarsPadding()
@@ -115,9 +118,26 @@ internal fun HyroxStationContent(
                 style = MaterialTheme.typography.headlineSmall, color = AppColors.onHero,
             )
             if (std.note.isNotBlank()) Text(std.note, style = MaterialTheme.typography.bodySmall, color = AppColors.onHero.copy(alpha = 0.85f))
+            Text(
+                "Needs: " + (station.requiredGear.joinToString(", ") { it.short }.ifEmpty { "no equipment" }),
+                style = MaterialTheme.typography.bodyMedium, color = AppColors.onHero.copy(alpha = 0.9f),
+            )
             Row(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
                 Pill("Level ${next.level} of ${HyroxLadder.LEVELS}", color = AppColors.onHero, filled = false)
                 if (guide.confident) Pill("You're confident here", color = AppColors.onHero)
+            }
+        }
+
+        if (!available) {
+            // Not possible with the kit ticked for this place: lead with what to do instead.
+            SectionCard(title = "Not available $placeLabel") {
+                Text(
+                    "Needs: ${station.requiredGear.joinToString(" and ") { it.short }}. That is not ticked for this place. " +
+                        "Train it with one of these instead:",
+                    style = MaterialTheme.typography.bodyMedium, color = AppColors.textMuted,
+                )
+                Checklist(guide.alternatives, AppColors.info, dot = true)
+                Text("Tick your kit under My equipment on the Hyrox page.", style = MaterialTheme.typography.bodySmall, color = AppColors.textMuted)
             }
         }
 
@@ -155,7 +175,7 @@ internal fun HyroxStationContent(
             SectionCard(title = "Pacing") {
                 Text(guide.pacingTip, style = MaterialTheme.typography.bodyLarge, color = AppColors.textPrimary)
             }
-            SectionCard(title = "No equipment? Train it with...") { Checklist(guide.alternatives, AppColors.info, dot = true) }
+            if (available) SectionCard(title = "No equipment? Train it with...") { Checklist(guide.alternatives, AppColors.info, dot = true) }
         }
 
         LadderCard(station, ladder, next.level, HyroxFormat.prescription(station, next), next.note)

@@ -50,7 +50,27 @@ data class UserSettings(
     val hyroxDivision: HyroxDivision = HyroxDivision.MEN_OPEN,
     /** Race-weight overrides by station id (kg; per hand for the farmers carry), for editing the stored standards. */
     val hyroxWeightOverrides: Map<String, Double> = emptyMap(),
+    /** Kit ticked at the gym (everything) and at home (only the treadmill until he buys the rest). */
+    @Serializable(with = HyroxGearSetSerializer::class) val hyroxGymGear: Set<HyroxGear> = HyroxGear.entries.toSet(),
+    @Serializable(with = HyroxGearSetSerializer::class) val hyroxHomeGear: Set<HyroxGear> = setOf(HyroxGear.TREADMILL),
+    /** Where the last Hyrox session was planned for. */
+    val hyroxPlace: HyroxPlace = HyroxPlace.GYM,
+    /** Treadmill run between stations: speed (6 to 16 km/h, steps of 0.5) and incline. */
+    val hyroxRunSpeedKmh: Double = 9.0,
+    val hyroxRunInclinePct: Double = 1.0,
 ) {
+    /** The kit ticked for [place]. */
+    fun hyroxGearAt(place: HyroxPlace): Set<HyroxGear> = if (place == HyroxPlace.GYM) hyroxGymGear else hyroxHomeGear
+
+    /** The kit at the place he last picked. */
+    val hyroxGear: Set<HyroxGear> get() = hyroxGearAt(hyroxPlace)
+
+    /** Ticks or unticks [gear] at [place]. */
+    fun withHyroxGear(place: HyroxPlace, gear: HyroxGear, on: Boolean): UserSettings {
+        val now = hyroxGearAt(place).let { if (on) it + gear else it - gear }
+        return if (place == HyroxPlace.GYM) copy(hyroxGymGear = now) else copy(hyroxHomeGear = now)
+    }
+
     /** The library [exercise] with this user's starting weight, increment and rest applied. */
     fun resolve(exercise: Exercise): Exercise {
         val o = lifts[exercise.id] ?: return exercise
@@ -107,6 +127,10 @@ data class UserSettings(
         reminderHour = reminderHour.coerceIn(0, 23),
         reminderMinute = reminderMinute.coerceIn(0, 59),
         reminderMaxPerWeek = reminderMaxPerWeek.coerceIn(REMINDER_MAX_RANGE),
+        hyroxRunSpeedKmh = HyroxRuns.snapSpeed(hyroxRunSpeedKmh),
+        hyroxRunInclinePct = roundTo(hyroxRunInclinePct.coerceIn(HyroxRuns.INCLINE_RANGE), 0.5),
+        hyroxGymGear = hyroxGymGear.toSet(),
+        hyroxHomeGear = hyroxHomeGear.toSet(),
         hyroxWeightOverrides = hyroxWeightOverrides
             .filter { (id, _) -> HyroxStation.byId(id)?.weighted == true }
             .mapValues { (_, kg) -> kg.coerceIn(HYROX_KG_RANGE) },

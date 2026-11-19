@@ -82,11 +82,11 @@ object PublicImport {
         for (c in contents) for (cells in rows(c)) {
             if (cells.size < 2) continue
             val date = date(cells[0]) ?: continue
-            val station = HyroxStation.byId(cells[1].trim()) ?: continue
+            val stationId = cells[1].trim().takeIf { it == HyroxRuns.ID } ?: HyroxStation.byId(cells[1].trim())?.id ?: continue
             fun cell(i: Int) = cells.getOrNull(i)?.trim()?.takeIf { it.isNotEmpty() }
             byDate.getOrPut(date) { mutableListOf() }.add(
                 StationLog(
-                    stationId = station.id,
+                    stationId = stationId,
                     weightKg = cell(2)?.toDoubleOrNull(),
                     distanceM = cell(3)?.toIntOrNull(),
                     reps = cell(4)?.toIntOrNull(),
