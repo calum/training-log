@@ -173,7 +173,7 @@ class AppViewModel @JvmOverloads constructor(
             SessionType.TREADMILL -> prepareTreadmill(minutes, style)
             SessionType.CORE -> prepareCore(minutes)
             SessionType.HIKE -> go(Screen.Light(type))
-            SessionType.HYROX -> home() // Hyrox screens are added by the UI work; no tile points here yet
+            SessionType.HYROX -> { hyroxPrepare(emptySet(), minutes); go(Screen.HyroxSession(emptySet())) }
             null -> home()
         }
     }
@@ -430,6 +430,54 @@ class AppViewModel @JvmOverloads constructor(
         val names = run.doneWorkNames()
         val felt = when (effort) { Effort.TOO_EASY -> "too easy"; Effort.JUST_RIGHT -> "just right"; Effort.TOO_HARD -> "too hard"; null -> null }
         saveLight(SessionType.CORE, minutes, if (names.isEmpty()) "Core: warm-up and stretching" else com.calum.traininglog.core.CoreRoutine.note(names, felt))
+    }
+
+    // ---- Hyrox (guided station session and quick log) ----
+
+    val hyrox = HyroxController()
+
+    private fun hyroxInput(): HyroxPlanInput {
+        val settings = _data.value.profile.settings
+        return HyroxPlanInput(_data.value.records, settings.hyroxDivision, settings)
+    }
+
+    /** Opens the Hyrox setup (a session already running or waiting to be saved is left alone). */
+    fun hyroxPrepare(focus: Set<com.calum.traininglog.core.HyroxStation>, minutes: Int = 45) = hyrox.prepare(hyroxInput(), minutes, focus)
+
+    fun hyroxSetup(
+        minutes: Int? = null, focus: Set<com.calum.traininglog.core.HyroxStation>? = null, withRuns: Boolean? = null, shuffle: Boolean = false,
+    ) = hyrox.rebuild(hyroxInput(), minutes, focus, withRuns, shuffle)
+
+    /** Today's date as the app sees it (tests inject a fixed one). */
+    fun todayDate(): LocalDate = today
+
+    /** Saves the finished (or ended early) guided Hyrox session as one record, then goes home. No stations done logs nothing. */
+    fun saveHyroxSession(feeling: Feeling, kneePain: Int?) {
+        val u = hyrox.ui.value
+        val stations = u.results
+        val minutes = ((hyrox.elapsedMs(u) + 30_000) / 60_000).toInt().coerceAtLeast(1)
+        hyrox.reset()
+        if (stations.isEmpty()) { home(); return }
+        val record = SessionRecord(
+            id = UUID.randomUUID().toString(), date = today, type = SessionType.HYROX,
+            minutesAvailable = u.minutes, minutesActual = minutes, feeling = feeling, kneePain = kneePain,
+            note = HyroxText.runNote(u.runs), stations = stations,
+        )
+        persist { it.copy(records = it.records + record) }
+        _celebration.update { it?.copy(messages = listOf("${stations.size} ${if (stations.size == 1) "station" else "stations"} in $minutes min.") + it.messages) }
+        home()
+    }
+
+    /** Quick log of stations already done, [daysAgo] days back, as ONE record. */
+    fun saveHyroxLog(daysAgo: Int, stations: List<com.calum.traininglog.core.StationLog>, feeling: Feeling = Feeling.GOOD) {
+        if (stations.isEmpty()) { home(); return }
+        val minutes = ((stations.sumOf { it.seconds ?: 0 } + 59) / 60).coerceAtLeast(1)
+        val record = SessionRecord(
+            id = UUID.randomUUID().toString(), date = today.minusDays(daysAgo.toLong()), type = SessionType.HYROX,
+            minutesAvailable = minutes, minutesActual = minutes, feeling = feeling, stations = stations,
+        )
+        persist { it.copy(records = it.records + record) }
+        home()
     }
 
     // ---- Hike (and the old core log) ----
