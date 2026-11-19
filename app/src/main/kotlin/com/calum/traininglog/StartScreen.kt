@@ -18,6 +18,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
@@ -27,6 +29,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.calum.traininglog.core.Feeling
+import com.calum.traininglog.core.RacePlanner
 import com.calum.traininglog.core.RestDays
 import com.calum.traininglog.core.SessionType
 import com.calum.traininglog.ui.AppColors
@@ -124,13 +127,25 @@ private fun typeEmoji(t: SessionType) = when (t) {
     SessionType.HYROX -> "🏁"
 }
 
+private val START_MINUTES = listOf(20, 30, 45, 60, 90, 120)
+
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun StartScreen(vm: AppViewModel) {
     val inputs by vm.inputs.collectAsState()
     val rec by vm.recommendation.collectAsState()
     val data by vm.data.collectAsState()
-    val restDay = RestDays.isRestDay(data.profile, LocalDate.now())
+    val today = LocalToday.current ?: LocalDate.now()
+    val restDay = RestDays.isRestDay(data.profile, today)
+    val planned = remember(data.profile, data.records, today) {
+        data.profile.settings.racePlan.takeIf { it.enabled }?.let { cfg ->
+            RacePlanFormat.todaysOpenSession(RacePlanner.build(cfg, data.records, today, data.profile), data.records, today)
+        }
+    }
+    // Preselect the planned length (the nearest of the time chips) once, when the screen opens.
+    LaunchedEffect(planned?.date, planned?.title) {
+        planned?.let { p -> vm.setInputs { it.copy(minutes = START_MINUTES.minBy { m -> Math.abs(m - p.minutes) }) } }
+    }
     Page {
         Title("Today")
         if (restDay) {
@@ -142,8 +157,27 @@ fun StartScreen(vm: AppViewModel) {
             }
         }
 
+        planned?.let { p ->
+            SectionCard {
+                Text("HYROX SIM", style = AppType.eyebrow, color = AppColors.energy)
+                Text(
+                    "From your race plan: ${p.title}", style = MaterialTheme.typography.titleLarge, color = AppColors.textPrimary,
+                )
+                Text(
+                    "${p.minutes} min · ${RacePlanFormat.intensityLabel(p.intensity)} · ${p.rpeLabel}",
+                    style = MaterialTheme.typography.bodyMedium, color = AppColors.textMuted,
+                )
+                Text(p.why, style = MaterialTheme.typography.bodySmall, color = AppColors.textMuted)
+                BigActionButton("Start the planned session", onClick = { vm.launchPlanned(p) })
+                Text(
+                    "Or work out something different below. The plan will be here either way.",
+                    style = MaterialTheme.typography.bodySmall, color = AppColors.textMuted,
+                )
+            }
+        }
+
         FieldLabel("HOW MUCH TIME?")
-        ChipGrid(listOf(20, 30, 45, 60, 90, 120), 3, { inputs.minutes == it }, { if (it == 120) "2 hours" else "$it min" }) { m ->
+        ChipGrid(START_MINUTES, 3, { inputs.minutes == it }, { if (it == 120) "2 hours" else "$it min" }) { m ->
             vm.setInputs { it.copy(minutes = m) }
         }
 

@@ -15,6 +15,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.border
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.AlertDialog
@@ -36,7 +39,11 @@ import androidx.compose.ui.unit.dp
 import com.calum.traininglog.core.DayStatus
 import com.calum.traininglog.core.ExerciseLibrary
 import com.calum.traininglog.core.RestDays
+import com.calum.traininglog.core.PlannedSession
+import com.calum.traininglog.core.RacePlan
+import com.calum.traininglog.core.RacePlanner
 import com.calum.traininglog.core.Rewards
+import com.calum.traininglog.core.SessionKind
 import com.calum.traininglog.core.SessionRecord
 import com.calum.traininglog.core.SessionType
 import com.calum.traininglog.core.WeekPlanner
@@ -67,8 +74,12 @@ fun HomeScreen(vm: AppViewModel) {
     val data by vm.data.collectAsState()
     val celebration by vm.celebration.collectAsState()
     val ctx = LocalContext.current
-    val today = LocalDate.now()
+    val today = LocalToday.current ?: LocalDate.now()
     val profile = data.profile
+    val racePlan = remember(profile, data.records, today) {
+        profile.settings.racePlan.takeIf { it.enabled }?.let { RacePlanner.build(it, data.records, today, profile) }
+    }
+    val plannedToday = racePlan?.let { RacePlanFormat.todaysOpenSession(it, data.records, today) }
     val rewards = Rewards.summary(data.records, today, profile.settings)
     val view = WeekPlanner.plan(data.records, profile, today, profile.settings)
     val restToday = RestDays.isRestDay(profile, today)
@@ -87,6 +98,7 @@ fun HomeScreen(vm: AppViewModel) {
                 UpdateBanner(Modifier.padding(top = Spacing.sm))
                 StoreNoteBanner(vm, Modifier.padding(top = Spacing.sm))
             }
+            racePlan?.let { rp -> item { RaceHomeCard(rp, data.records, today, plannedToday, { vm.go(Screen.RacePlan) }, { vm.launchPlanned(it) }) } }
             item {
                 HeroCard {
                     Text(if (restToday) "REST DAY" else "THIS WEEK", style = AppType.eyebrow, color = AppColors.onHero.copy(alpha = 0.8f))
@@ -152,7 +164,8 @@ fun HomeScreen(vm: AppViewModel) {
                     BigActionButton("Start a session", onClick = { vm.go(Screen.Start) })
                 }
             }
-            nextUp(data.records, view, today)?.let { text -> item { NextUpCard(text) } }
+            (plannedToday?.let { "From your race plan: ${it.title}, ${it.minutes} min." } ?: nextUp(data.records, view, today))
+                ?.let { text -> item { NextUpCard(text) } }
             item { BlockHomeCard(vm) }
             item {
                 Column(verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
@@ -212,6 +225,68 @@ fun HomeScreen(vm: AppViewModel) {
             },
             dismissButton = { TextButton(onClick = { weekdayFor = null }) { Text("Cancel") } },
         )
+    }
+}
+
+/** Race plan summary for Home: countdown, this week's progress dots and today's planned session. Tap opens the plan. */
+@Composable
+private fun RaceHomeCard(
+    plan: RacePlan, records: List<SessionRecord>, today: LocalDate, plannedToday: PlannedSession?,
+    onOpen: () -> Unit, onStart: (PlannedSession) -> Unit,
+) {
+    val week = RacePlanner.thisWeek(plan, today)
+    val done = if (week != null) RacePlanFormat.doneSessions(week, records, today) else emptySet()
+    val counted = if (week != null) RacePlanFormat.counted(week) else emptyList()
+    val days = plan.daysToGo(today)
+    SectionCard(onClick = onOpen) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+            Text("HYROX SIM", style = AppType.eyebrow, color = AppColors.energy, modifier = Modifier.weight(1f))
+            Pill(RacePlanFormat.weekShort(plan, today), color = AppColors.info)
+        }
+        Text(RacePlanFormat.countdown(days), style = MaterialTheme.typography.headlineSmall, color = AppColors.textPrimary)
+        if (counted.isNotEmpty()) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+                counted.sortedBy { it.date }.forEach { s ->
+                    val state = RacePlanFormat.stateOf(s, done, today)
+                    val color = when (state) {
+                        SessionState.DONE -> AppColors.primary
+                        SessionState.UPCOMING -> AppColors.textMuted
+                        SessionState.OPTIONAL -> AppColors.track
+                    }
+                    Box(
+                        Modifier.size(18.dp).clip(CircleShape)
+                            .then(if (state == SessionState.DONE) Modifier.background(color) else Modifier.border(2.dp, color, CircleShape)),
+                    )
+                }
+                Text(
+                    "${done.size} of ${counted.size} this week", style = MaterialTheme.typography.labelMedium,
+                    color = AppColors.textMuted, modifier = Modifier.padding(start = Spacing.xs),
+                )
+            }
+        }
+        val todays = week?.sessions?.firstOrNull { it.date == today }
+        when {
+            week == null -> Text("The plan has finished. Well done.", style = MaterialTheme.typography.bodyLarge, color = AppColors.textPrimary)
+            today < plan.start -> {
+                val first = week.sessions.minByOrNull { it.date }
+                Text(
+                    "Week 1 starts ${RacePlanFormat.shortDay(plan.start)}" + (first?.let { ". First up: ${it.title}, ${it.minutes} min." } ?: "."),
+                    style = MaterialTheme.typography.bodyMedium, color = AppColors.textMuted,
+                )
+            }
+            plannedToday != null -> Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Spacing.md)) {
+                Column(Modifier.weight(1f)) {
+                    Text("TODAY", style = AppType.eyebrow, color = AppColors.primary)
+                    Text(plannedToday.title, style = MaterialTheme.typography.titleSmall, color = AppColors.textPrimary)
+                    Text("${plannedToday.minutes} min", style = MaterialTheme.typography.bodyMedium, color = AppColors.textMuted)
+                }
+                SecondaryButton("Start", onClick = { onStart(plannedToday) }, accent = AppColors.primary)
+            }
+            todays != null && todays.kind != SessionKind.REST && !todays.isRaceDay ->
+                Text("Today's session is done. Nice work.", style = MaterialTheme.typography.bodyLarge, color = AppColors.textPrimary)
+            todays?.isRaceDay == true -> Text("Race day. Enjoy it.", style = MaterialTheme.typography.bodyLarge, color = AppColors.textPrimary)
+            else -> Text("Rest day. Nothing planned, enjoy it.", style = MaterialTheme.typography.bodyLarge, color = AppColors.textPrimary)
+        }
     }
 }
 
