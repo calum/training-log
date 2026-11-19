@@ -255,4 +255,62 @@ class HikeCoreFlowTest {
         assertEquals(CoreOutcome.BACK, p.getValue(skippedId).outcome)
         assertTrue(p.values.all { it.outcome == CoreOutcome.BACK }, "too hard steps everything back: $p")
     }
+
+    // ------------------------------------------------------------------------------------ autosave safety
+
+    @Test fun aFinishedMatSessionIsSavedAtOnceAndTheCardOnlyEditsIt() {
+        val vm = newVm()
+        vm.begin(SessionType.CORE, 20)
+        runCoreToTheEnd(vm)
+        idle()
+        val saved = onDisk().records.single()
+        assertEquals(SessionType.CORE, saved.type)
+        assertEquals(20, saved.minutesActual)
+        assertEquals(saved.id, vm.core.ui.value.savedId)
+        assertEquals(saved.id, vm.celebration.value!!.record.id)
+        assertTrue(onDisk().profile.coreProgress.values.all { it.outcome == CoreOutcome.PROGRESS })
+
+        // Force-close on the finish card: a new ViewModel from disk still has the session.
+        assertEquals(1, newVm().data.value.records.size)
+
+        vm.saveCore(Effort.TOO_HARD)
+        val d = onDisk()
+        assertEquals(1, d.records.size, "no duplicate")
+        assertEquals(saved.id, d.records.single().id)
+        assertTrue(d.records.single().note!!.contains("too hard"))
+        assertTrue(d.profile.coreProgress.values.all { it.outcome == CoreOutcome.BACK }, "progression recomputed once, not stacked")
+        assertEquals(Screen.Home, vm.screen.value)
+    }
+
+    @Test fun endingAMatSessionEarlyKeepsItAndUnderAMinuteDoesNot() {
+        val vm = newVm()
+        vm.begin(SessionType.CORE, 20)
+        vm.core.start()
+        repeat(150) { vm.core.tick(1000) }
+        vm.core.end()
+        idle()
+        assertEquals(1, onDisk().records.size)
+        vm.saveCore(null)
+        assertEquals(1, onDisk().records.size)
+
+        vm.begin(SessionType.CORE, 20)
+        vm.core.start()
+        repeat(30) { vm.core.tick(1000) }
+        vm.core.end()
+        idle()
+        vm.saveCore(null)
+        assertEquals(1, onDisk().records.size)
+    }
+
+    @Test fun forceClosingTheHikeFinishCardLeavesItInHistoryWithoutADuplicate() {
+        val vm = newVm()
+        vm.begin(SessionType.HIKE)
+        vm.hike.start()
+        advance(minutes(50))
+        vm.hike.finish()
+        idle()
+        assertEquals(1, newVm().data.value.records.size)
+        vm.saveHike()
+        assertEquals(1, onDisk().records.size)
+    }
 }

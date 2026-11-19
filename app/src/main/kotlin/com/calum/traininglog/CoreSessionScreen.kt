@@ -97,6 +97,8 @@ data class CoreUi(
     val run: CoreRun? = null,
     /** Beep-and-flash counter: bumped on each step change so the screen can flash. */
     val changes: Int = 0,
+    /** Id of the record saved the moment the session ended (the finish card then only edits it). */
+    val savedId: String? = null,
 )
 
 /** State holder for the guided core session; lives in [AppViewModel] so rotation does not lose it. */
@@ -158,6 +160,8 @@ class CoreController {
     }
 
     fun end() = _ui.update { it.copy(phase = CorePhase.DONE) }
+
+    fun markSaved(id: String) = _ui.update { it.copy(savedId = id) }
 
     fun reset() { _ui.value = CoreUi() }
 }

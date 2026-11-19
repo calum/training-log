@@ -576,20 +576,67 @@ class AppViewModel @JvmOverloads constructor(
     fun coreSetup(minutes: Int? = null, kneeSensitive: Boolean? = null, reshuffle: Boolean = false) =
         core.rebuild(lastCoreIds(), minutes, kneeSensitive, reshuffle, _data.value.profile.coreProgress)
 
-    /** Saves the finished (or ended) core session as a normal record, then goes home. Under a minute logs nothing. */
-    fun saveCore(effort: Effort?) {
-        val run = core.ui.value.run
-        val minutes = (run?.completedSec ?: 0) / 60
-        core.reset()
-        if (run == null || minutes < 1) { home(); return }
-        // What was done decides the next targets (see CoreProgression): finished and fine moves up, skipped or too hard eases off.
-        val results = run.workResults()
-        if (results.isNotEmpty()) {
-            updateProfile { it.copy(coreProgress = com.calum.traininglog.core.CoreProgression.update(it.coreProgress, results, effort, _inputs.value.feeling, today)) }
-        }
+    /** Progress map as it was before this session's autosave, so the finish card can recompute it with the chosen effort (applied once). */
+    private var coreProgressBefore: Map<String, com.calum.traininglog.core.CoreProgressEntry>? = null
+
+    private fun coreNote(run: com.calum.traininglog.core.CoreRun, effort: Effort?): String {
         val names = run.doneWorkNames()
         val felt = when (effort) { Effort.TOO_EASY -> "too easy"; Effort.JUST_RIGHT -> "just right"; Effort.TOO_HARD -> "too hard"; null -> null }
-        saveLight(SessionType.CORE, minutes, if (names.isEmpty()) "Core: warm-up and stretching" else com.calum.traininglog.core.CoreRoutine.note(names, felt))
+        return if (names.isEmpty()) "Core: warm-up and stretching" else com.calum.traininglog.core.CoreRoutine.note(names, felt)
+    }
+
+    /**
+     * Saves the finished (or ended) core session the moment it ends, so nothing is lost if the screen freezes or the app is
+     * closed. The finish card then only edits that record. Under a minute logs nothing.
+     */
+    private fun autosaveCore(u: CoreUi) {
+        if (u.phase != CorePhase.DONE || u.savedId != null) return
+        val run = u.run ?: return
+        val minutes = run.completedSec / 60
+        if (minutes < 1) return
+        runCatching {
+            val record = SessionRecord(
+                id = UUID.randomUUID().toString(), date = today, type = SessionType.CORE,
+                minutesAvailable = _inputs.value.minutes, minutesActual = minutes, feeling = _inputs.value.feeling,
+                kneePain = _inputs.value.knee, note = coreNote(run, null),
+            )
+            val results = run.workResults()
+            val before = _data.value.profile.coreProgress
+            coreProgressBefore = before
+            core.markSaved(record.id)
+            persist { d ->
+                d.copy(
+                    records = d.records + record,
+                    profile = if (results.isEmpty()) d.profile else d.profile.copy(
+                        coreProgress = com.calum.traininglog.core.CoreProgression.update(before, results, null, _inputs.value.feeling, today),
+                    ),
+                )
+            }
+        }
+    }
+
+    /** Finish card: puts the effort on the already saved record and recomputes the progression from the same starting point (no duplicate). */
+    fun saveCore(effort: Effort?) {
+        autosaveCore(core.ui.value)
+        val u = core.ui.value
+        val run = u.run
+        val id = u.savedId
+        if (id != null && run != null) {
+            val before = coreProgressBefore ?: _data.value.profile.coreProgress
+            val results = run.workResults()
+            val note = coreNote(run, effort)
+            persist { d ->
+                d.copy(
+                    records = d.records.map { r -> if (r.id == id) r.copy(note = note) else r },
+                    profile = if (results.isEmpty()) d.profile else d.profile.copy(
+                        coreProgress = com.calum.traininglog.core.CoreProgression.update(before, results, effort, _inputs.value.feeling, today),
+                    ),
+                )
+            }
+        }
+        coreProgressBefore = null
+        core.reset()
+        home()
     }
 
     // ---- Knee care (guided hip and calf routine, an optional add-on to the plan) ----
@@ -1065,6 +1112,8 @@ class AppViewModel @JvmOverloads constructor(
         viewModelScope.launch { sim.ui.collect { autosaveSim(it) } }
         // And knee care: saved when its last step ends (or it is ended early), the finish card just edits it.
         viewModelScope.launch { kneeCare.ui.collect { autosaveKneeCare(it) } }
+        // And the mat routine: saved when its last step ends (or it is ended early); the finish card just edits it.
+        viewModelScope.launch { core.ui.collect { autosaveCore(it) } }
         // And the hike: saved when Finish is pressed, the finish card just edits it.
         viewModelScope.launch { hike.ui.collect { autosaveHike(it) } }
     }
