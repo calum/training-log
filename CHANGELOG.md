@@ -2,6 +2,13 @@
 
 What changed in each release, in plain language, newest first. The release workflow copies the matching `## vX.Y.Z` section into the GitHub release, and the app shows it as "What's new" before you tap Update.
 
+## v0.10.0
+
+- Knee care: a guided 15-minute routine for the hips and calves, from Home or the Race plan. Hip abductor and glute work, then weighted calf raises, then a cool-down. You can do it any day, even a rest day or after another session. It is not counted as one of your workouts, never uses up a rest day, and skipping it never affects your plan.
+- Calf raises are heavy by default: 3 or 4 sets of 6 to 10 slow reps (3 seconds up, 3 down) with a challenging load, or switch to higher reps (3 x 12 to 15). It tracks your home calf weight separately from the gym, shows what you did last time, and adds weight when you reach the top of the rep range. A quick "Just calf raises (8 min)" option is on the setup card.
+- Rep-based steps are simple: a huge "Do 8 reps" card with the tempo and load, small buttons to correct the weight or reps, and one large "Done, next" button, then an optional effort row and a rest countdown.
+- The Race plan shows "Knee care 0 of 2 this week" with Start buttons, plus a gentle nudge if you have done fewer than two calf sessions by Thursday evening.
+
 ## v0.9.1
 
 - Swiping back (or the back key) now goes to the previous screen instead of closing the app. Home still closes the app, as usual.
