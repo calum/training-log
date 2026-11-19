@@ -105,7 +105,7 @@ private fun ChoiceTile(emoji: String, label: String, selected: Boolean, onClick:
         verticalArrangement = Arrangement.Center,
     ) {
         Text(emoji, style = AppType.numberM)
-        Text(label, color = fg, style = MaterialTheme.typography.labelLarge, maxLines = 1)
+        Text(label, color = fg, style = MaterialTheme.typography.labelMedium, maxLines = 1)
     }
 }
 
@@ -199,7 +199,7 @@ fun StartScreen(vm: AppViewModel) {
 
         FieldLabel("OR PICK IT YOURSELF")
         Row(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
-            for (t in SessionType.entries.filter { it != SessionType.HYROX }) {
+            for (t in SessionType.entries) {
                 ChoiceTile(
                     typeEmoji(t), if (t == SessionType.HIKE) "Hike" else typeName(t), false,
                     { vm.begin(t) }, Modifier.weight(1f),
