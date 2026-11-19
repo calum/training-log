@@ -2,6 +2,13 @@
 
 What changed in each release, in plain language, newest first. The release workflow copies the matching `## vX.Y.Z` section into the GitHub release, and the app shows it as "What's new" before you tap Update.
 
+## v0.7.1
+
+- Hyrox at home: choose Gym or Home & garden when you set up a session. Tick the equipment you have in each place on the Hyrox page (the gym defaults to everything; at home you start with just the treadmill, so tick the wall ball or sandbag when you buy them). Home sessions only use stations you can do there, and tell you what is missing with a substitute.
+- Treadmill runs between stations: with a treadmill ticked, a run block tells you the speed to set, counts down the time for the distance with a warning beep and a finish beep, and lets you add 30 seconds, finish early or skip. Choose 200, 400, 600 or 800 m. Runs are off by default and are not offered when your last knee score was 4 or more.
+- Runs are logged with distance and time, appear in your history and Claude export, and you can log a run done outside the app.
+- A small Needs: line on each station page, and the no-equipment alternatives are more prominent when you cannot do a station where you are.
+
 ## v0.7.0
 
 - Hyrox is here. A new Hyrox button on Home opens a hub with all eight stations in race order: SkiErg, sled push, sled pull, burpee broad jumps, rowing, farmers carry, sandbag lunges and wall balls. Pick your division (Men's or Women's, Open or Pro) and you see the loads for it.
