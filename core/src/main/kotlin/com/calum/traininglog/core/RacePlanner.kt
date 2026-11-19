@@ -225,13 +225,9 @@ object RacePlanner {
         val layoutProfile = if (adj.moves.isEmpty()) profile else profile.copy(workoutOverrides = profile.workoutOverrides - PlanAdjust.moveRestTargets(profile))
 
         var prevSessions: List<PlannedSession> = emptyList()
-        // After a week that lost sessions to skips, the following weeks grow by at most about 10% from what was actually
-        // planned (a lighter week 10% lighter after a deload), until the original build-up is reached again. Null: no
-        // skip has held anything back, so the weeks are exactly what the volume model says.
-        var heldFrom: Int? = null
-        val planned = IntArray(WEEKS + 1)
-        var everHeld = false
-        val normalWeeks = (1..11).filter { !isDeload(it) }
+        // Skips and moves only change how their own week is shown (its planned minutes may shrink). Growth, the peak and
+        // the taper come from the original volumes; only what was actually done moves later weeks (see [volumes]).
+        val originalPlanned = IntArray(WEEKS + 1)
         val weeks = (1..WEEKS).map { i ->
             val ws = start.plusWeeks((i - 1).toLong())
             val projected = i > currentIdx && currentIdx >= 0
@@ -239,11 +235,7 @@ object RacePlanner {
             val rung = if (stage == status.stage && !projected) status.rung else 0
             val kneeCaution = status.flareRecent || (status.steppedBackOn?.let { ChronoUnit.DAYS.between(it, today) <= 14 } == true)
             val ctx = Ctx(i, phaseOf(i), isDeload(i), ws, stage, rung, records, settings, layoutProfile, cfg.raceDate, kneeCaution, cfg.maxWeeklyMinutes != null)
-            var total = vol.minutes[i]
-            if (i >= 12) {
-                // Sharpen, taper and race week stay anchored to the race and are sized from the peak actually planned.
-                if (everHeld) total = round5((if (i == 12) SHARPEN_FACTOR else if (i == 13) TAPER_FACTOR else RACE_WEEK_FACTOR) * normalWeeks.maxOf { planned[it] })
-            } else heldFrom?.let { total = min(total, max(floor5(it * (if (isDeload(i)) DELOAD_FACTOR else MAX_WEEKLY_INCREASE)), minTotalRamp(count))) }
+            val total = vol.minutes[i]
             var sessions = layoutWeek(ctx, total, count, prevSessions)
             var adjustment = vol.notes[i]
             if (i == currentIdx && rough != null) {
@@ -257,9 +249,7 @@ object RacePlanner {
             sessions = applied.sessions
             if (applied.notes.isNotEmpty()) adjustment = ((adjustment?.plus(" ")) ?: "") + applied.notes.joinToString(" ")
             val plannedNow = sessions.filter { !it.isRaceDay && it.kind != SessionKind.REST && it.skipReason == null }.sumOf { it.minutes }
-            planned[i] = plannedNow
-            heldFrom = if (sessions.any { it.skipReason != null && it.reflowedTo == null } || (heldFrom != null && total < vol.minutes[i])) plannedNow else null
-            if (heldFrom != null) everHeld = true
+            originalPlanned[i] = plannedNow + sessions.filter { it.skipReason != null && it.reflowedTo == null }.sumOf { it.minutes }
             prevSessions = sessions.filter { it.skipReason == null }
             PlanWeek(
                 index = i, start = ws, phase = ctx.phase, deload = ctx.deload,
@@ -269,7 +259,7 @@ object RacePlanner {
                 stationTargets = stationTargets(ctx), adjustment = adjustment,
             )
         }
-        val peak = weeks.filter { it.index <= 11 }.maxOf { it.plannedMinutes }
+        val peak = (1..11).maxOf { originalPlanned[it] }
         val kneeCautionNow = status.flareRecent || (status.steppedBackOn?.let { ChronoUnit.DAYS.between(it, today) <= 14 } == true)
         val leadIn = leadIn(cfg, records, today, layoutProfile, start, status, kneeCautionNow, bl, weeks.first())
         return RacePlan(weeks, cfg.raceDate, timeline(weeks), baseline, peak, status, leadIn, bl.fromHistory, startNote(bl, weeks.first().plannedMinutes, peak, cfg.maxWeeklyMinutes))

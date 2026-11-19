@@ -247,33 +247,51 @@ class PlanAdjustTest {
         assertEquals(p0.weeks[0].plannedMinutes - longEasy.minutes, w.plannedMinutes)
         assertEquals(3, RacePlanner.counted(w).size)    // nothing doubled or carried over
         assertEquals("Not this week, no catching up.", RacePlanner.skipOutcome(after, longEasy))
-        // Next week is not bigger than it was without the skip, and grows at most 10% on this (smaller) week.
-        assertTrue(after.weeks[1].plannedMinutes <= p0.weeks[1].plannedMinutes)
-        assertTrue(after.weeks[1].plannedMinutes <= w.plannedMinutes * 1.10 + 0.01, "${after.weeks[1].plannedMinutes} vs ${w.plannedMinutes}")
-        // The week after that is not squashed by the skip.
-        assertTrue(after.weeks[2].plannedMinutes <= after.weeks[1].plannedMinutes * 1.10 + 5)
+        // The skip only changes its own week: every later week and the peak are exactly as without it.
+        assertEquals(p0.weeks.drop(1).map { it.plannedMinutes }, after.weeks.drop(1).map { it.plannedMinutes })
         assertEquals(p0.weeks[1].start, after.weeks[1].start)
     }
 
-    @Test fun aWeekWithSkipsNeverPushesTheFollowingWeeksAboveTenPercentGrowth() {
-        val p0 = plan()
-        val dropped = RacePlanner.skip(profile, session(p0, sun, SessionKind.LONG_EASY), SkipReason.NO_TIME, sun)
-        val p = plan(p = dropped, now = sun)
-        val w = p.weeks
-        for (i in 1..10) {
-            if (w[i].deload) continue
-            assertTrue(w[i].plannedMinutes <= w[i - 1].plannedMinutes * 1.10 + 5, "week ${w[i].index}: ${w[i].plannedMinutes} after ${w[i - 1].plannedMinutes}")
+    @Test fun oneSkippedSessionInWeekThreeLeavesTheRestOfThePlanAlone() {
+        val now = LocalDate.of(2026, 12, 12)
+        val p0 = plan(now = now)
+        val s = session(p0, now, SessionKind.STRENGTH)
+        val sk = RacePlanner.skip(profile, s, SkipReason.NO_TIME, now)
+        val p = plan(now = now, p = sk)
+        assertTrue(p.weeks[2].plannedMinutes < p0.weeks[2].plannedMinutes)   // only its own week shrinks
+        assertEquals(p0.weeks.drop(3).map { it.plannedMinutes }, p.weeks.drop(3).map { it.plannedMinutes })
+        assertEquals(p0.weeks.take(2).map { it.plannedMinutes }, p.weeks.take(2).map { it.plannedMinutes })
+        assertEquals(p0.peakMinutes, p.peakMinutes)
+        assertEquals(p0.weeks.drop(3).map { w -> w.sessions.map { it.date to it.minutes } }, p.weeks.drop(3).map { w -> w.sessions.map { it.date to it.minutes } })
+        // Undoing restores everything.
+        assertEquals(p0.weeks, plan(now = now, p = RacePlanner.undo(sk, p.weeks[2].sessions.first { it.isSkipped })).weeks)
+        // A skip that re-flows changes nothing at all in the numbers.
+        val k = plan(now = wed, p = RacePlanner.skip(profile, session(plan(), wed, SessionKind.KEY), SkipReason.NO_TIME, wed))
+        assertEquals(plan().weeks.map { it.plannedMinutes }, k.weeks.map { it.plannedMinutes })
+    }
+
+    @Test fun manySkipsCountAsNotDoneSoTheLightWeekRuleRepeatsButNeverDoubles() {
+        val now = LocalDate.of(2026, 12, 7)   // Monday of week 3
+        val recs = everythingDone(LocalDate.of(2026, 11, 29)) + gym(LocalDate.of(2026, 11, 30), 30)
+        val p0 = plan(recs, now)
+        val w2 = p0.weeks[1]
+        val dec2 = LocalDate.of(2026, 12, 2); val dec5 = LocalDate.of(2026, 12, 5); val dec6 = LocalDate.of(2026, 12, 6)
+        var prof = profile
+        for ((d, k) in listOf(dec2 to SessionKind.KEY, dec5 to SessionKind.STRENGTH, dec6 to SessionKind.LONG_EASY)) {
+            prof = RacePlanner.skip(prof, session(p0, d, k), SkipReason.NO_TIME, d)
         }
-        // The held-back weeks never exceed the original build-up, and the taper is sized from the peak actually planned.
-        for (i in 0..10) assertTrue(w[i].plannedMinutes <= p0.weeks[i].plannedMinutes, "week ${i + 1}")
-        val peak = w.filter { it.index <= 11 }.maxOf { it.plannedMinutes }
-        assertEquals(peak, p.peakMinutes)
-        assertTrue(w[11].plannedMinutes.toDouble() / peak in 0.80..0.90, "sharpen ${w[11].plannedMinutes} of $peak")
-        assertTrue(w[12].plannedMinutes < w[11].plannedMinutes && w[13].plannedMinutes < w[12].plannedMinutes)
-        assertEquals(LocalDate.of(2027, 2, 27), w[13].sessions.last().date)
-        // A skip that re-flows loses nothing, so nothing is held back.
-        val flowed = plan(p = RacePlanner.skip(profile, session(p0, wed, SessionKind.KEY), SkipReason.NO_TIME, wed), now = wed)
-        assertEquals(p0.weeks.map { it.plannedMinutes }, flowed.weeks.map { it.plannedMinutes })
+        val p = plan(recs, now, prof)
+        // Existing rule: under 60% done repeats the targets; the skips do not change that or make it bigger.
+        assertEquals(p0.weeks.drop(2).map { it.plannedMinutes }, p.weeks.drop(2).map { it.plannedMinutes })
+        assertEquals(p0.peakMinutes, p.peakMinutes)
+        assertTrue(p.weeks[2].plannedMinutes <= w2.plannedMinutes, "week 3 ${p.weeks[2].plannedMinutes} vs week 2 ${w2.plannedMinutes}")
+        assertNotNull(p.weeks[2].adjustment)
+        assertTrue(p.weeks[2].adjustment!!.contains("lighter one"))
+        assertEquals(3, p.weeks[1].skippedSessions.size)
+        // Undo all: the same plan as with no skips.
+        var back = prof
+        for (sk in p.weeks[1].skippedSessions) back = RacePlanner.undo(back, sk)
+        assertEquals(p0.weeks, plan(recs, now, back).weeks)
     }
 
     @Test fun reflowRespectsRestDaysAndSpacing() {
@@ -344,7 +362,6 @@ class PlanAdjustTest {
         val now = LocalDate.of(2026, 11, 30)
         val quiet = listOf(gym(mon, 40))
         val after = plan(quiet, now, sk)
-        assertTrue(after.weeks[1].plannedMinutes <= after.weeks[0].plannedMinutes * 1.10 + 0.01)
         // Taper and race week stay anchored to the race date whatever was skipped.
         assertEquals(LocalDate.of(2027, 2, 22), after.weeks.last().start)
         assertTrue(after.weeks.last().sessions.any { it.isRaceDay && it.date == LocalDate.of(2027, 2, 27) })
