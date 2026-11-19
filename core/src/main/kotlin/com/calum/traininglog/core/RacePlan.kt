@@ -1,0 +1,147 @@
+package com.calum.traininglog.core
+
+import kotlinx.serialization.Serializable
+import java.time.LocalDate
+import java.time.temporal.ChronoUnit
+
+/** The default target event: a HYROX simulation on Saturday 27 February 2027. */
+val DEFAULT_RACE_DATE: LocalDate = LocalDate.of(2027, 2, 27)
+
+/**
+ * Settings for the race-preparation plan, stored in [UserSettings.racePlan]. Every field has a default so old
+ * saved JSON (which has none) still decodes.
+ *
+ * @property sessionsPerWeek 3 to 6. Fewer sessions drop the easy extras first (second easy, easy, long easy) and
+ * always keep the key session and two strength sessions.
+ */
+@Serializable
+data class RacePlanSettings(
+    @Serializable(with = LocalDateSerializer::class) val raceDate: LocalDate = DEFAULT_RACE_DATE,
+    val sessionsPerWeek: Int = 5,
+    val enabled: Boolean = true,
+) {
+    fun sanitized(): RacePlanSettings = copy(sessionsPerWeek = sessionsPerWeek.coerceIn(SESSIONS_RANGE))
+
+    companion object {
+        val SESSIONS_RANGE = 3..6
+    }
+}
+
+enum class RacePhase(val label: String) {
+    BASE("Base"),
+    BUILD("Build"),
+    SPECIFIC("Hyrox-specific"),
+    SHARPEN("Sharpen"),
+    TAPER("Taper"),
+    RACE("Race week"),
+}
+
+enum class SessionKind { STRENGTH, KEY, LONG_EASY, EASY, SIM, REST }
+
+enum class Intensity { EASY, HARD, STRENGTH }
+
+/** What a session can be done on; the first entries are the preferred ones. */
+enum class Modality(val label: String) {
+    ROW("Rower"),
+    SKIERG("SkiErg"),
+    TREADMILL_WALK("Incline treadmill walk"),
+    TREADMILL_RUN("Treadmill run"),
+    RUN_WALK("Run-walk"),
+    BIKE("Bike"),
+    GYM("Gym"),
+    HYROX_STATIONS("Hyrox stations"),
+    REST("Rest"),
+}
+
+/** What the UI should open for this session; [minutes] is the planned time. */
+data class LaunchHint(
+    val sessionType: SessionType,
+    val treadmillStyle: TreadmillStyle? = null,
+    val hyroxFocus: Set<HyroxStation> = emptySet(),
+    val minutes: Int,
+)
+
+/**
+ * One planned day. [minutes] is the whole session (warm-up and recoveries included); [hardMinutes] is the part
+ * of it at RPE 7 or more (the "hard 20%"), and is 0 for easy and strength sessions. [detail] holds the steps,
+ * [why] one plain sentence of the evidence behind it. [isRaceDay] marks the event itself, which is not counted
+ * in [PlanWeek.plannedMinutes].
+ */
+data class PlannedSession(
+    val date: LocalDate,
+    val kind: SessionKind,
+    val title: String,
+    val minutes: Int,
+    val intensity: Intensity,
+    val hardMinutes: Int,
+    val rpeTarget: IntRange,
+    val modalityOptions: List<Modality>,
+    val detail: List<String>,
+    val why: String,
+    val launch: LaunchHint,
+    val isRaceDay: Boolean = false,
+    /** True when the session includes running (so the UI can show the knee note). */
+    val includesRunning: Boolean = false,
+) {
+    val rpeLabel: String get() = if (rpeTarget.first == rpeTarget.last) "RPE ${rpeTarget.first}" else "RPE ${rpeTarget.first}-${rpeTarget.last}"
+}
+
+/**
+ * One Monday-Sunday week of the plan. [easyShareTarget] is the target share of ENDURANCE time that is easy
+ * (0.8). [stationTargets] is the ladder level aimed for on each station this week. [adjustment] explains, in
+ * no-guilt words, why a week repeats or steps back (null when nothing was adjusted).
+ */
+data class PlanWeek(
+    val index: Int,
+    val start: LocalDate,
+    val phase: RacePhase,
+    val deload: Boolean,
+    val plannedMinutes: Int,
+    val easyShareTarget: Double,
+    val runStage: RunStage,
+    /** True when [runStage] is a projection (a future week); it is recomputed from the logs every day. */
+    val runStageProjected: Boolean,
+    val sessions: List<PlannedSession>,
+    val headline: String,
+    val focus: String,
+    val stationTargets: Map<HyroxStation, Int>,
+    val adjustment: String? = null,
+) {
+    val end: LocalDate get() = start.plusDays(6)
+    private val counted: List<PlannedSession> get() = sessions.filter { !it.isRaceDay && it.kind != SessionKind.REST }
+    val strengthMinutes: Int get() = counted.filter { it.intensity == Intensity.STRENGTH }.sumOf { it.minutes }
+    val enduranceMinutes: Int get() = counted.filter { it.intensity != Intensity.STRENGTH }.sumOf { it.minutes }
+    val hardMinutes: Int get() = counted.sumOf { it.hardMinutes }
+    /** Planned share of endurance time that is easy (1 when there is none). */
+    val easyShare: Double get() = if (enduranceMinutes == 0) 1.0 else 1.0 - hardMinutes.toDouble() / enduranceMinutes
+    val label: String get() = if (deload) "${phase.label} (lighter week)" else phase.label
+}
+
+data class PhaseSpan(val phase: RacePhase, val firstWeek: Int, val lastWeek: Int, val start: LocalDate, val end: LocalDate)
+
+/**
+ * The whole plan. [baselineMinutes] is the weekly starting volume derived from the logs (or the default),
+ * [peakMinutes] the largest planned week, [runStatus] the knee-gated running state it was built with.
+ */
+data class RacePlan(
+    val weeks: List<PlanWeek>,
+    val race: LocalDate,
+    val phaseTimeline: List<PhaseSpan>,
+    val baselineMinutes: Int,
+    val peakMinutes: Int,
+    val runStatus: RunStatus,
+) {
+    val start: LocalDate get() = weeks.first().start
+    fun week(index: Int): PlanWeek? = weeks.firstOrNull { it.index == index }
+    fun weekOf(date: LocalDate): PlanWeek? = weeks.firstOrNull { date in it.start..it.end }
+    fun daysToGo(today: LocalDate): Long = ChronoUnit.DAYS.between(today, race)
+}
+
+/** Done versus planned time for a week, with wording that never frames a shortfall as a miss. */
+data class WeekProgress(
+    val plannedMinutes: Int,
+    val doneMinutes: Int,
+    /** 0..1 for a progress bar (capped at 1). */
+    val fraction: Double,
+    val message: String,
+)

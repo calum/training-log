@@ -58,6 +58,8 @@ data class UserSettings(
     /** Treadmill run between stations: speed (6 to 16 km/h, steps of 0.5) and incline. */
     val hyroxRunSpeedKmh: Double = 9.0,
     val hyroxRunInclinePct: Double = 1.0,
+    /** Race-preparation plan (event date, sessions per week, on/off). */
+    val racePlan: RacePlanSettings = RacePlanSettings(),
 ) {
     /** The kit ticked for [place]. */
     fun hyroxGearAt(place: HyroxPlace): Set<HyroxGear> = if (place == HyroxPlace.GYM) hyroxGymGear else hyroxHomeGear
@@ -129,6 +131,7 @@ data class UserSettings(
         reminderMaxPerWeek = reminderMaxPerWeek.coerceIn(REMINDER_MAX_RANGE),
         hyroxRunSpeedKmh = HyroxRuns.snapSpeed(hyroxRunSpeedKmh),
         hyroxRunInclinePct = roundTo(hyroxRunInclinePct.coerceIn(HyroxRuns.INCLINE_RANGE), 0.5),
+        racePlan = racePlan.sanitized(),
         hyroxGymGear = hyroxGymGear.toSet(),
         hyroxHomeGear = hyroxHomeGear.toSet(),
         hyroxWeightOverrides = hyroxWeightOverrides
