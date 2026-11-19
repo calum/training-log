@@ -28,6 +28,8 @@ import com.calum.traininglog.core.LoggedSet
 import com.calum.traininglog.core.MissReason
 import com.calum.traininglog.core.PlannedExercise
 import com.calum.traininglog.core.Profile
+import com.calum.traininglog.core.RacePlanner
+import com.calum.traininglog.core.TimeSuggestion
 import com.calum.traininglog.core.Progression
 import com.calum.traininglog.core.Rewards
 import com.calum.traininglog.core.Recommendation
@@ -138,6 +140,10 @@ class AppViewModel @JvmOverloads constructor(
     private val _recommendation = MutableStateFlow<Recommendation?>(null)
     val recommendation: StateFlow<Recommendation?> = _recommendation.asStateFlow()
 
+    private val _timeSuggestion = MutableStateFlow<TimeSuggestion?>(null)
+    /** The race plan's answer to 'what should I do?' for the chosen time and feeling (null when the plan is off or does not apply). */
+    val timeSuggestion: StateFlow<TimeSuggestion?> = _timeSuggestion.asStateFlow()
+
     private val _gym = MutableStateFlow<GymLive?>(null)
     val gym: StateFlow<GymLive?> = _gym.asStateFlow()
 
@@ -153,6 +159,7 @@ class AppViewModel @JvmOverloads constructor(
     fun setInputs(f: (Inputs) -> Inputs) {
         _inputs.update(f)
         _recommendation.value = null
+        _timeSuggestion.value = null
     }
 
     private val today get() = clock()
@@ -174,6 +181,12 @@ class AppViewModel @JvmOverloads constructor(
             ),
             seed = System.currentTimeMillis() / 60000,
         )
+        // With the race plan on, the plan's own answer (fitted to the time, feeling and knee) is shown first.
+        val d = _data.value
+        val cfg = d.profile.settings.racePlan
+        val plan = cfg.takeIf { it.enabled }?.let { RacePlanner.build(it, d.records, today, d.profile) }
+        _timeSuggestion.value = plan?.takeIf { it.segmentOf(today) != null }
+            ?.let { RacePlanner.suggestForTime(it, d.records, today, i.minutes, i.feeling, i.knee, d.profile) }
     }
 
     private fun lastTreadmillStyle(): TreadmillStyle? =

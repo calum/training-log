@@ -30,6 +30,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -51,6 +52,8 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.calum.traininglog.core.IntensityBalance
 import com.calum.traininglog.core.Intensity
+import com.calum.traininglog.core.MoveOption
+import com.calum.traininglog.core.PlanHealth
 import com.calum.traininglog.core.PlanWeek
 import com.calum.traininglog.core.PlannedSession
 import com.calum.traininglog.core.Profile
@@ -62,6 +65,7 @@ import com.calum.traininglog.core.RunStage
 import com.calum.traininglog.core.RunStatus
 import com.calum.traininglog.core.SessionKind
 import com.calum.traininglog.core.SessionRecord
+import com.calum.traininglog.core.SkipReason
 import com.calum.traininglog.core.TimeSplit
 import com.calum.traininglog.ui.AppColors
 import com.calum.traininglog.ui.AppShapes
@@ -88,6 +92,7 @@ fun RacePlanScreen(vm: AppViewModel) {
         onSettings = { f -> vm.updateProfile { p -> p.copy(settings = p.settings.copy(racePlan = f(p.settings.racePlan).sanitized())) } },
         onStart = { vm.launchPlanned(it) },
         onBack = { vm.home() },
+        onProfile = { f -> vm.updateProfile(f) },
     )
 }
 
@@ -100,10 +105,12 @@ internal fun RacePlanContent(
     onStart: (PlannedSession) -> Unit,
     onBack: () -> Unit,
     allWeeksOpen: Boolean = false,
+    onProfile: ((Profile) -> Profile) -> Unit = {},
 ) {
     val cfg = profile.settings.racePlan
     val plan = remember(cfg, records, today, profile) { RacePlanner.build(cfg, records, today, profile) }
     val week = RacePlanner.thisWeek(plan, today)
+    val health = remember(plan, records, profile, today) { PlanHealth.assess(plan, records, profile, today) }
 
     Column(
         Modifier.fillMaxSize().background(AppColors.background).statusBarsPadding()
@@ -119,9 +126,11 @@ internal fun RacePlanContent(
             PausedCard { onSettings { it.copy(enabled = true) } }
         } else {
             RaceHero(plan, today, week)
+            ReplanCard(health, plan, records, profile, today, onProfile)
+            TodayActions(plan, records, profile, today, onStart, onProfile)
             PhaseTimeline(plan, week, today)
             if (week != null) {
-                ThisWeekCard(plan, week, records, today, onStart)
+                ThisWeekCard(plan, week, records, profile, today, onStart, onProfile, health)
                 BalanceCard(records, week)
             } else {
                 SectionCard(title = "Race done") {
@@ -134,7 +143,7 @@ internal fun RacePlanContent(
             RunningCard(plan.runStatus)
             AllWeeksCard(plan, week, allWeeksOpen)
         }
-        SettingsCard(cfg, today, onSettings)
+        SettingsCard(cfg, profile, today, onSettings, onProfile)
         EvidenceCard()
         Spacer(Modifier.navigationBarsPadding().height(Spacing.xl))
     }
@@ -333,16 +342,21 @@ private fun LegendItem(color: Color, text: String, round: Boolean) {
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun ThisWeekCard(plan: RacePlan, week: PlanWeek, records: List<SessionRecord>, today: LocalDate, onStart: (PlannedSession) -> Unit) {
+private fun ThisWeekCard(
+    plan: RacePlan, week: PlanWeek, records: List<SessionRecord>, profile: Profile, today: LocalDate,
+    onStart: (PlannedSession) -> Unit, onProfile: ((Profile) -> Profile) -> Unit, health: PlanHealth,
+) {
     val done = remember(week, records, today) { RacePlanFormat.doneSessions(week, records, today) }
     val counted = RacePlanFormat.counted(week)
     val next = RacePlanFormat.nextSession(week, done, today)
     var open by remember(week.index) { mutableStateOf(setOfNotNull(next?.date)) }
+    var banner by remember { mutableStateOf<Pair<String, PlannedSession>?>(null) }
     val progress = RacePlanner.weekProgress(plan, records, today)
     val kick = week.isLeadIn
     val started = today >= week.start
     val doneMin = counted.filter { it in done }.sumOf { it.minutes }
     val weekOver = week.end < today
+    val skippedCount = week.skippedSessions.size
 
     SectionCard(Modifier.testTag("week"), title = if (kick) "Kick-off" else if (started) "This week" else "Coming up: week ${week.index}") {
         Text(if (kick) week.headline else week.label, style = MaterialTheme.typography.titleMedium, color = AppColors.textPrimary)
@@ -359,7 +373,7 @@ private fun ThisWeekCard(plan: RacePlan, week: PlanWeek, records: List<SessionRe
         } else if (started) {
             ProgressBar((progress?.fraction ?: 0.0).toFloat())
             Text(
-                RacePlanFormat.weekProgressText(done.size, counted.size, doneMin, week.plannedMinutes, weekOver),
+                RacePlanFormat.weekProgressText(done.size, counted.size, doneMin, week.plannedMinutes, weekOver, skippedCount),
                 style = MaterialTheme.typography.bodyMedium, color = AppColors.textPrimary,
             )
         } else {
@@ -368,18 +382,36 @@ private fun ThisWeekCard(plan: RacePlan, week: PlanWeek, records: List<SessionRe
                 style = MaterialTheme.typography.bodyMedium, color = AppColors.textPrimary,
             )
         }
+        WeekStrip(week, profile, today, done)
+        QuietLine(health)
         if (week.index <= 1) plan.startNote?.let {
             Text(it, style = MaterialTheme.typography.bodySmall, color = AppColors.textMuted)
+        }
+        banner?.let { (text, session) ->
+            ChangeBanner(text, onUndo = { onProfile { RacePlanner.undo(it, session) }; banner = null })
         }
         Column(verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
             week.sessions.sortedBy { it.date }.forEach { s ->
                 val state = RacePlanFormat.stateOf(s, done, today)
-                SessionRow(
-                    s, state, today,
-                    expanded = s.date in open,
-                    onToggle = { open = if (s.date in open) open - s.date else open + s.date },
-                    onStart = { onStart(s) },
-                )
+                key(s.date, s.kind, s.skipReason) {
+                    SessionRow(
+                        s, state, today,
+                        expanded = s.date in open,
+                        onToggle = { open = if (s.date in open) open - s.date else open + s.date },
+                        onStart = { onStart(s) },
+                        moveOptions = { RacePlanner.moveOptions(plan, s, today, profile) },
+                        onMove = { to ->
+                            onProfile { RacePlanner.addMove(it, s, to, today) }
+                            banner = "Moved to ${PlanDay.name(to)}." to s.copy(date = to, movedFrom = s.date)
+                        },
+                        onSkip = { reason ->
+                            val (np, msg) = skipWithMessage(profile, records, today, s, reason)
+                            onProfile { np }
+                            banner = msg to s.copy(skipReason = reason)
+                        },
+                        onUndo = { onProfile { RacePlanner.undo(it, s) }; banner = null },
+                    )
+                }
             }
         }
     }
@@ -392,70 +424,100 @@ private fun ProgressBar(fraction: Float) {
     }
 }
 
+private enum class RowPanel { NONE, MOVE, SKIP }
+
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun SessionRow(
     s: PlannedSession, state: SessionState, today: LocalDate,
     expanded: Boolean, onToggle: () -> Unit, onStart: () -> Unit,
+    moveOptions: () -> List<MoveOption>, onMove: (LocalDate) -> Unit, onSkip: (SkipReason) -> Unit, onUndo: () -> Unit,
 ) {
     val isRest = s.kind == SessionKind.REST
-    val accent = if (isRest) AppColors.info else if (s.isRaceDay) AppColors.energy else intensityColor(s.intensity)
+    val skipped = s.isSkipped
+    val accent = if (skipped) AppColors.textMuted else if (isRest) AppColors.info else if (s.isRaceDay) AppColors.energy else intensityColor(s.intensity)
     val dayText = if (s.date == today) "Today" else RacePlanFormat.shortDay(s.date)
+    var panel by remember { mutableStateOf(RowPanel.NONE) }
+    val canAdjust = state == SessionState.UPCOMING && !skipped && !isRest && !s.isRaceDay
     Column(
-        Modifier.fillMaxWidth().clip(AppShapes.medium).background(AppColors.surfaceRaised)
+        Modifier.fillMaxWidth().testTag("session-${s.date}-${s.kind.name.lowercase()}").clip(AppShapes.medium)
+            .background(if (skipped) AppColors.surface else AppColors.surfaceRaised)
             .clickable(onClick = onToggle).padding(Spacing.md),
         verticalArrangement = Arrangement.spacedBy(Spacing.sm),
     ) {
         Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(Spacing.md)) {
-            KindIcon(s.kind, s.isRaceDay, accent, done = state == SessionState.DONE)
+            KindIcon(if (skipped) SessionKind.REST else s.kind, s.isRaceDay, accent, done = state == SessionState.DONE && !skipped)
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(Spacing.xs)) {
-                Text(s.title, style = MaterialTheme.typography.titleSmall, color = AppColors.textPrimary)
+                Text(s.title, style = MaterialTheme.typography.titleSmall, color = if (skipped) AppColors.textMuted else AppColors.textPrimary)
                 Text(
                     if (isRest) dayText else "$dayText · ${s.minutes} min",
                     style = MaterialTheme.typography.bodyMedium, color = AppColors.textMuted,
                 )
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(Spacing.sm), verticalArrangement = Arrangement.spacedBy(Spacing.xs)) {
                     when {
+                        skipped -> Pill("Skipped: ${s.skipReason!!.short}", color = AppColors.textMuted)
                         s.isRaceDay -> Pill("Race day", color = AppColors.energy, filled = true)
                         isRest -> Pill("Rest", color = AppColors.info)
                         else -> Pill(RacePlanFormat.intensityLabel(s.intensity), color = accent)
                     }
                     when (state) {
-                        SessionState.DONE -> Pill("Done", color = AppColors.primary, filled = true)
-                        SessionState.OPTIONAL -> if (!isRest && !s.isRaceDay) Pill("Optional", color = AppColors.textMuted)
+                        SessionState.DONE -> if (!skipped) Pill("Done", color = AppColors.primary, filled = true)
+                        SessionState.OPTIONAL -> if (!isRest && !s.isRaceDay && !skipped) Pill("Optional", color = AppColors.textMuted)
                         SessionState.UPCOMING -> {}
                     }
+                    if (!skipped) s.movedFrom?.let { Pill("Moved from ${RacePlanFormat.shortDay(it).substringBefore(' ')}", color = AppColors.info) }
+                    if (skipped && s.reflowedTo != null) Pill("Moved to ${PlanDay.name(s.reflowedTo!!)}", color = AppColors.info)
                 }
             }
             Chevron(expanded)
         }
         if (expanded) {
             Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
-                if (!isRest && !s.isRaceDay) {
-                    Text(s.rpeLabel + (if (s.hardMinutes > 0) " · about ${s.hardMinutes} of ${s.minutes} min hard" else ""), style = MaterialTheme.typography.labelLarge, color = accent)
-                }
-                s.detail.forEach { line ->
-                    val indent = line.length - line.trimStart().length
-                    Text(
-                        line.trim(), Modifier.padding(start = if (indent > 0) 12.dp else 0.dp),
-                        style = MaterialTheme.typography.bodyMedium, color = AppColors.textPrimary,
-                    )
-                }
-                Text("Why: ${s.why}", style = MaterialTheme.typography.bodySmall, color = AppColors.textMuted)
-                if (s.includesRunning) {
-                    Text(
-                        "Running leg: stop and swap to the rower or a walk if the knee goes above 3/10.",
-                        style = MaterialTheme.typography.bodySmall, color = AppColors.info,
-                    )
-                }
-                if (!isRest && !s.isRaceDay && s.modalityOptions.isNotEmpty()) {
-                    Text("CAN BE DONE ON", style = AppType.eyebrow, color = AppColors.textMuted)
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(Spacing.sm), verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
-                        s.modalityOptions.forEach { Pill(it.label, color = AppColors.info) }
+                if (skipped) {
+                    Text(s.skipReason!!.line, style = MaterialTheme.typography.bodyMedium, color = AppColors.textPrimary)
+                    if (s.reflowedTo == null) Text("Not this week, and nothing is carried over.", style = MaterialTheme.typography.bodySmall, color = AppColors.textMuted)
+                    SecondaryButton("Undo skip", onUndo, Modifier.testTag("undo-${s.date}"))
+                } else {
+                    if (!isRest && !s.isRaceDay) {
+                        Text(s.rpeLabel + (if (s.hardMinutes > 0) " · about ${s.hardMinutes} of ${s.minutes} min hard" else ""), style = MaterialTheme.typography.labelLarge, color = accent)
                     }
-                }
-                if (state == SessionState.UPCOMING && !isRest && !s.isRaceDay) {
-                    BigActionButton("Start", onClick = onStart)
+                    s.detail.forEach { line ->
+                        val indent = line.length - line.trimStart().length
+                        Text(
+                            line.trim(), Modifier.padding(start = if (indent > 0) 12.dp else 0.dp),
+                            style = MaterialTheme.typography.bodyMedium, color = AppColors.textPrimary,
+                        )
+                    }
+                    Text("Why: ${s.why}", style = MaterialTheme.typography.bodySmall, color = AppColors.textMuted)
+                    if (s.includesRunning) {
+                        Text(
+                            "Running leg: stop and swap to the rower or a walk if the knee goes above 3/10.",
+                            style = MaterialTheme.typography.bodySmall, color = AppColors.info,
+                        )
+                    }
+                    if (!isRest && !s.isRaceDay && s.modalityOptions.isNotEmpty()) {
+                        Text("CAN BE DONE ON", style = AppType.eyebrow, color = AppColors.textMuted)
+                        FlowRow(horizontalArrangement = Arrangement.spacedBy(Spacing.sm), verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+                            s.modalityOptions.forEach { Pill(it.label, color = AppColors.info) }
+                        }
+                    }
+                    if (state == SessionState.UPCOMING && !isRest && !s.isRaceDay) {
+                        BigActionButton("Start", onClick = onStart)
+                    }
+                    if (s.movedFrom != null) {
+                        Text("Moved from ${PlanDay.name(s.movedFrom!!)}.", style = MaterialTheme.typography.bodySmall, color = AppColors.info)
+                        SecondaryButton("Undo move", onUndo, Modifier.testTag("undo-${s.date}"))
+                    }
+                    if (canAdjust) {
+                        when (panel) {
+                            RowPanel.NONE -> Row(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+                                SecondaryButton("Move", { panel = RowPanel.MOVE }, Modifier.weight(1f).testTag("move"), accent = AppColors.info)
+                                SecondaryButton("Skip", { panel = RowPanel.SKIP }, Modifier.weight(1f).testTag("skip"))
+                            }
+                            RowPanel.MOVE -> MovePanel(moveOptions(), onConfirm = { panel = RowPanel.NONE; onMove(it) }, onCancel = { panel = RowPanel.NONE })
+                            RowPanel.SKIP -> SkipPanel(onConfirm = { panel = RowPanel.NONE; onSkip(it) }, onCancel = { panel = RowPanel.NONE })
+                        }
+                    }
                 }
             }
         }
@@ -674,7 +736,10 @@ private fun PausedCard(onTurnOn: () -> Unit) {
 }
 
 @Composable
-private fun SettingsCard(cfg: RacePlanSettings, today: LocalDate, onSettings: ((RacePlanSettings) -> RacePlanSettings) -> Unit) {
+private fun SettingsCard(
+    cfg: RacePlanSettings, profile: Profile, today: LocalDate,
+    onSettings: ((RacePlanSettings) -> RacePlanSettings) -> Unit, onProfile: ((Profile) -> Profile) -> Unit,
+) {
     SectionCard(Modifier.testTag("settings"), title = "Plan settings") {
         BigNumberStepper(
             value = RacePlanFormat.dayMonth(cfg.raceDate), unit = cfg.raceDate.year.toString(),
@@ -718,6 +783,8 @@ private fun SettingsCard(cfg: RacePlanSettings, today: LocalDate, onSettings: ((
             "With a cap, every week is scaled to fit and keeps its shape: lighter weeks, a short taper. Steps of 15 minutes.",
             style = MaterialTheme.typography.bodySmall, color = AppColors.textMuted,
         )
+
+        RestWeekdayChips(profile, onProfile)
 
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Spacing.md)) {
             Column(Modifier.weight(1f)) {

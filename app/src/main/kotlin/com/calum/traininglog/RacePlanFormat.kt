@@ -136,32 +136,16 @@ internal object RacePlanFormat {
         Intensity.STRENGTH -> "Strength"
     }
 
-    /** Sessions that count towards a week (not the race itself or a rest day). */
-    fun counted(w: PlanWeek): List<PlannedSession> = w.sessions.filter { !it.isRaceDay && it.kind != SessionKind.REST }
-
-    private fun compatible(s: PlannedSession, r: SessionRecord): Boolean = when {
-        s.kind == SessionKind.STRENGTH -> r.type == SessionType.GYM
-        else -> r.type == SessionType.TREADMILL || r.type == SessionType.HYROX || r.type == SessionType.HIKE
-    }
+    /** Sessions that count towards a week (not the race itself, a rest day or a skipped session). */
+    fun counted(w: PlanWeek): List<PlannedSession> = RacePlanner.counted(w)
 
     /**
      * Which of the week's counted sessions have a matching logged session. Each record is used at most once, and
      * a session done a day or two off its planned date still counts (an evening swapped with the kids is normal).
      * Records after [today] never count.
      */
-    fun doneSessions(w: PlanWeek, records: List<SessionRecord>, today: LocalDate): Set<PlannedSession> {
-        val pool = records.filter { it.date in w.start..w.end && it.date <= today }.toMutableList()
-        val done = mutableSetOf<PlannedSession>()
-        for (s in counted(w).sortedBy { it.date }) {
-            val pick = pool.filter { compatible(s, it) }
-                .minWithOrNull(compareBy({ Math.abs(java.time.temporal.ChronoUnit.DAYS.between(it.date, s.date)) }, { it.date }))
-                ?: continue
-            if (Math.abs(java.time.temporal.ChronoUnit.DAYS.between(pick.date, s.date)) > 2) continue
-            pool.remove(pick)
-            done += s
-        }
-        return done
-    }
+    fun doneSessions(w: PlanWeek, records: List<SessionRecord>, today: LocalDate): Set<PlannedSession> =
+        RacePlanner.doneSessions(w, records, today)
 
     fun stateOf(s: PlannedSession, done: Set<PlannedSession>, today: LocalDate): SessionState = when {
         s in done -> SessionState.DONE
@@ -177,13 +161,14 @@ internal object RacePlanFormat {
     fun todaysOpenSession(plan: RacePlan, records: List<SessionRecord>, today: LocalDate): PlannedSession? {
         val w = plan.segmentOf(today) ?: return null
         val s = RacePlanner.today(plan, today) ?: return null
-        if (s.isRaceDay || s.kind == SessionKind.REST) return null
+        if (s.isRaceDay || s.kind == SessionKind.REST || s.isSkipped) return null
         return if (s in doneSessions(w, records, today)) null else s
     }
 
     /** "2 of 5 done, 138 of 215 planned minutes" wrapped in encouraging words. */
-    fun weekProgressText(done: Int, total: Int, doneMin: Int, plannedMin: Int, weekOver: Boolean): String {
-        if (total == 0) return "A light week: nothing to tick off."
+    fun weekProgressText(done: Int, total: Int, doneMin: Int, plannedMin: Int, weekOver: Boolean, skipped: Int = 0): String {
+        val skipNote = when (skipped) { 0 -> ""; 1 -> " 1 skipped, and that is fine."; else -> " $skipped skipped, and that is fine." }
+        if (total == 0) return "A light week: nothing to tick off.$skipNote"
         val core = "$done of $total done, $doneMin of $plannedMin planned minutes"
         return when {
             done == 0 && !weekOver -> "Fresh week: $total sessions planned, $plannedMin minutes. Start whenever it suits."
@@ -191,7 +176,7 @@ internal object RacePlanFormat {
             done >= total -> "All done: $core. Anything more is a bonus."
             weekOver -> "Nice work: $core. The rest were optional."
             else -> "Nice work: $core. The rest are optional."
-        }
+        } + skipNote
     }
 
     fun capLabel(cap: Int?): String = if (cap == null) "No limit" else "$cap min"

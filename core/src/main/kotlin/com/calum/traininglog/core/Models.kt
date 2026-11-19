@@ -107,7 +107,8 @@ data class SessionRecord(
 data class Profile(
     val treadmill: Calibration = Calibration(),
     @Serializable(with = LocalDateSerializer::class) val lastDeload: LocalDate? = null,
-    @Serializable(with = DayOfWeekSetSerializer::class) val restWeekdays: Set<DayOfWeek> = emptySet(),
+    /** Weekdays that are rest days every week. Default Tuesday and Friday (older saved data without the field gets this too). */
+    @Serializable(with = DayOfWeekSetSerializer::class) val restWeekdays: Set<DayOfWeek> = DEFAULT_REST_WEEKDAYS,
     @Serializable(with = LocalDateSetSerializer::class) val restDates: Set<LocalDate> = emptySet(),
     @Serializable(with = LocalDateSetSerializer::class) val workoutOverrides: Set<LocalDate> = emptySet(),
     /** Plan screen headline target (lift id and kg). */
@@ -117,6 +118,11 @@ data class Profile(
     val settings: UserSettings = UserSettings(),
     /** Training blocks and their history. */
     val blocks: BlockState = BlockState(),
+    /** Race plan: moved and skipped sessions, and the replan alert snooze (see [PlanAdjustments]). */
+    val planAdjustments: PlanAdjustments = PlanAdjustments(),
 )
+
+/** Rest weekdays a new (or older, field-less) profile starts with: Tuesday and Friday. */
+val DEFAULT_REST_WEEKDAYS: Set<DayOfWeek> = setOf(DayOfWeek.TUESDAY, DayOfWeek.FRIDAY)
 
 fun roundTo(x: Double, step: Double): Double = Math.round(x / step) * step

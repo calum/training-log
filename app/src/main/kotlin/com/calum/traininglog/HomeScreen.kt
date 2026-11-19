@@ -39,7 +39,10 @@ import androidx.compose.ui.unit.dp
 import com.calum.traininglog.core.DayStatus
 import com.calum.traininglog.core.ExerciseLibrary
 import com.calum.traininglog.core.RestDays
+import com.calum.traininglog.core.HealthLevel
+import com.calum.traininglog.core.PlanHealth
 import com.calum.traininglog.core.PlannedSession
+import com.calum.traininglog.core.Profile
 import com.calum.traininglog.core.RacePlan
 import com.calum.traininglog.core.RacePlanner
 import com.calum.traininglog.core.Rewards
@@ -80,6 +83,7 @@ fun HomeScreen(vm: AppViewModel) {
         profile.settings.racePlan.takeIf { it.enabled }?.let { RacePlanner.build(it, data.records, today, profile) }
     }
     val plannedToday = racePlan?.let { RacePlanFormat.todaysOpenSession(it, data.records, today) }
+    val health = remember(racePlan, data.records, profile, today) { racePlan?.let { PlanHealth.assess(it, data.records, profile, today) } }
     val rewards = Rewards.summary(data.records, today, profile.settings)
     val view = WeekPlanner.plan(data.records, profile, today, profile.settings)
     val restToday = RestDays.isRestDay(profile, today)
@@ -98,7 +102,14 @@ fun HomeScreen(vm: AppViewModel) {
                 UpdateBanner(Modifier.padding(top = Spacing.sm))
                 StoreNoteBanner(vm, Modifier.padding(top = Spacing.sm))
             }
-            racePlan?.let { rp -> item { RaceHomeCard(rp, data.records, today, plannedToday, { vm.go(Screen.RacePlan) }, { vm.launchPlanned(it) }) } }
+            racePlan?.let { rp ->
+                if (health?.level == HealthLevel.SUGGEST) item { ReplanCard(health, rp, data.records, profile, today, { f -> vm.updateProfile(f) }) }
+                item {
+                    RaceHomeCard(
+                        rp, data.records, profile, today, plannedToday, { vm.go(Screen.RacePlan) }, { vm.launchPlanned(it) }, { f -> vm.updateProfile(f) },
+                    )
+                }
+            }
             item {
                 HeroCard {
                     Text(if (restToday) "REST DAY" else "THIS WEEK", style = AppType.eyebrow, color = AppColors.onHero.copy(alpha = 0.8f))
@@ -231,8 +242,8 @@ fun HomeScreen(vm: AppViewModel) {
 /** Race plan summary for Home: countdown, this week's progress dots and today's planned session. Tap opens the plan. */
 @Composable
 private fun RaceHomeCard(
-    plan: RacePlan, records: List<SessionRecord>, today: LocalDate, plannedToday: PlannedSession?,
-    onOpen: () -> Unit, onStart: (PlannedSession) -> Unit,
+    plan: RacePlan, records: List<SessionRecord>, profile: Profile, today: LocalDate, plannedToday: PlannedSession?,
+    onOpen: () -> Unit, onStart: (PlannedSession) -> Unit, onProfile: ((Profile) -> Profile) -> Unit,
 ) {
     val week = RacePlanner.thisWeek(plan, today)
     val done = if (week != null) RacePlanFormat.doneSessions(week, records, today) else emptySet()
@@ -294,6 +305,7 @@ private fun RaceHomeCard(
             todays?.isRaceDay == true -> Text("Race day. Enjoy it.", style = MaterialTheme.typography.bodyLarge, color = AppColors.textPrimary)
             else -> Text("Rest day. Nothing planned, enjoy it.", style = MaterialTheme.typography.bodyLarge, color = AppColors.textPrimary)
         }
+        TodayActions(plan, records, profile, today, onStart, onProfile)
     }
 }
 

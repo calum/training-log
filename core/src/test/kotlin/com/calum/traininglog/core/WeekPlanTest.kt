@@ -21,7 +21,7 @@ class WeekPlanTest {
     private fun status(v: WeekView, date: LocalDate) = v.days.first { it.date == date }.status
 
     @Test fun restWeekdayAndOneOffDate() {
-        var p = RestDays.toggleWeekday(Profile(), DayOfWeek.WEDNESDAY)
+        var p = RestDays.toggleWeekday(NO_REST, DayOfWeek.WEDNESDAY)
         assertTrue(RestDays.isRestDay(p, d(2)))
         assertFalse(RestDays.isRestDay(p, d(3)))
         p = RestDays.toggleDate(p, d(4))
@@ -33,41 +33,41 @@ class WeekPlanTest {
     }
 
     @Test fun overrideMakesRestDayWorkable() {
-        val p = RestDays.trainAnyway(RestDays.toggleWeekday(Profile(), DayOfWeek.SUNDAY), d(6))
+        val p = RestDays.trainAnyway(RestDays.toggleWeekday(NO_REST, DayOfWeek.SUNDAY), d(6))
         assertFalse(RestDays.isRestDay(p, d(6)))
         assertTrue(RestDays.isRestDay(p, d(6).plusDays(7)))
         assertEquals(DayStatus.TODAY, status(WeekPlanner.plan(emptyList(), p, d(6)), d(6)))
     }
 
     @Test fun restButTrainedIsCelebrated() {
-        val p = RestDays.trainAnyway(RestDays.toggleWeekday(Profile(), DayOfWeek.TUESDAY), d(1))
+        val p = RestDays.trainAnyway(RestDays.toggleWeekday(NO_REST, DayOfWeek.TUESDAY), d(1))
         val v = WeekPlanner.plan(listOf(rec(d(1), SessionType.GYM)), p, d(3))
         assertEquals(DayStatus.REST_BUT_TRAINED, status(v, d(1)))
-        val v2 = WeekPlanner.plan(listOf(rec(d(1), SessionType.GYM)), RestDays.toggleWeekday(Profile(), DayOfWeek.TUESDAY), d(3))
+        val v2 = WeekPlanner.plan(listOf(rec(d(1), SessionType.GYM)), RestDays.toggleWeekday(NO_REST, DayOfWeek.TUESDAY), d(3))
         assertEquals(DayStatus.REST_BUT_TRAINED, status(v2, d(1)))
         assertEquals(1, v2.gymDone)
     }
 
     @Test fun pastEmptyIsNeutralAndHeadlineNeverNegative() {
-        val v = WeekPlanner.plan(emptyList(), Profile(), d(5))
+        val v = WeekPlanner.plan(emptyList(), NO_REST, d(5))
         assertEquals(DayStatus.PAST_EMPTY, status(v, d(0)))
         assertEquals(DayStatus.TODAY, status(v, d(5)))
         assertEquals(DayStatus.OPEN, status(v, d(6)))
         val banned = listOf("miss", "behind", "fail", "skipped", "lost")
         for (day in 0L..6L) for (n in 0..6) {
             val recs = (0 until n).map { rec(d(0), SessionType.TREADMILL, "r$it") }
-            val h = WeekPlanner.plan(recs, Profile(), d(day)).headline().lowercase()
+            val h = WeekPlanner.plan(recs, NO_REST, d(day)).headline().lowercase()
             assertTrue(banned.none { it in h }, h)
         }
     }
 
     @Test fun headlineWording() {
-        val v = WeekPlanner.plan(listOf(rec(d(0), SessionType.GYM), rec(d(1), SessionType.TREADMILL)), Profile(), d(2))
+        val v = WeekPlanner.plan(listOf(rec(d(0), SessionType.GYM), rec(d(1), SessionType.TREADMILL)), NO_REST, d(2))
         assertEquals("2 of 5 done, 5 open days left", v.headline())
     }
 
     @Test fun reachabilityStates() {
-        assertEquals(WeekOutlook.ON_TRACK, WeekPlanner.plan(emptyList(), Profile(), d(0)).outlook)
+        assertEquals(WeekOutlook.ON_TRACK, WeekPlanner.plan(emptyList(), NO_REST, d(0)).outlook)
         // Saturday with everything but Saturday as rest: 5 needed, 1 open + 1 rest left -> not reachable.
         val allRest = Profile(restWeekdays = DayOfWeek.values().toSet() - DayOfWeek.SATURDAY)
         assertEquals(WeekOutlook.BONUS_WEEK, WeekPlanner.plan(emptyList(), allRest, d(5)).outlook)
@@ -78,10 +78,10 @@ class WeekPlanTest {
         assertEquals(1, push.openDaysLeft)
         assertEquals(WeekOutlook.DOABLE_WITH_PUSH, push.outlook)
         // 1 treadmill left, one open day -> on track.
-        val track = WeekPlanner.plan(base + rec(d(3), SessionType.TREADMILL), Profile(), d(5))
+        val track = WeekPlanner.plan(base + rec(d(3), SessionType.TREADMILL), NO_REST, d(5))
         assertEquals(WeekOutlook.ON_TRACK, track.outlook)
         // Target met.
-        val met = WeekPlanner.plan(base + rec(d(3), SessionType.TREADMILL) + rec(d(4), SessionType.TREADMILL), Profile(), d(5))
+        val met = WeekPlanner.plan(base + rec(d(3), SessionType.TREADMILL) + rec(d(4), SessionType.TREADMILL), NO_REST, d(5))
         assertEquals(WeekOutlook.BONUS_WEEK, met.outlook)
         assertEquals(0, met.gymLeft)
         assertEquals(1, met.gymStretchLeft)
@@ -117,7 +117,8 @@ class WeekPlanTest {
         assertTrue(s.contains("\"MONDAY\""))
         assertEquals(p, json.decodeFromString<Profile>(s))
         val old = json.decodeFromString<Profile>("""{"lastDeload":"2026-10-01"}""")
-        assertEquals(emptySet(), old.restWeekdays)
+        assertEquals(DEFAULT_REST_WEEKDAYS, old.restWeekdays)
+        assertEquals(setOf(DayOfWeek.TUESDAY, DayOfWeek.FRIDAY), old.restWeekdays)
         assertEquals(emptySet(), old.restDates)
         assertEquals(emptySet(), old.workoutOverrides)
         assertEquals(Profile(), json.decodeFromString<Profile>("{}"))

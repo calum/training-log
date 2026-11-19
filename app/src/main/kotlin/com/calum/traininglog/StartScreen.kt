@@ -134,6 +134,7 @@ private val START_MINUTES = listOf(20, 30, 45, 60, 90, 120)
 fun StartScreen(vm: AppViewModel) {
     val inputs by vm.inputs.collectAsState()
     val rec by vm.recommendation.collectAsState()
+    val timeSuggestion by vm.timeSuggestion.collectAsState()
     val data by vm.data.collectAsState()
     val today = LocalToday.current ?: LocalDate.now()
     val restDay = RestDays.isRestDay(data.profile, today)
@@ -217,7 +218,9 @@ fun StartScreen(vm: AppViewModel) {
 
         BigActionButton("What should I do?", onClick = { vm.recommend() })
 
-        rec?.let { r ->
+        timeSuggestion?.let { ts ->
+            TimeSuggestionCard(ts, onStart = { vm.launchPlanned(it) }, onRest = { vm.home() }, hero = true)
+        } ?: rec?.let { r ->
             HeroCard {
                 Pill("Suggested", color = AppColors.onHero, filled = false)
                 Text(

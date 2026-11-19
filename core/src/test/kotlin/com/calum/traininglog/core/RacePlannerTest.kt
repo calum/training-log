@@ -11,6 +11,9 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
+/** A profile with no weekly rest days (the app default is Tuesday and Friday); the older planner tests assume none. */
+internal val NO_REST = Profile(restWeekdays = emptySet())
+
 class RacePlannerTest {
     private val json = Json { ignoreUnknownKeys = true }
     private val today = LocalDate.of(2026, 11, 19)
@@ -19,7 +22,7 @@ class RacePlannerTest {
     private var n = 0
     private fun id() = "r${n++}"
 
-    private fun plan(records: List<SessionRecord> = emptyList(), now: LocalDate = today, c: RacePlanSettings = cfg, profile: Profile = Profile()) =
+    private fun plan(records: List<SessionRecord> = emptyList(), now: LocalDate = today, c: RacePlanSettings = cfg, profile: Profile = NO_REST) =
         RacePlanner.build(c, records, now, profile)
 
     private fun gym(date: LocalDate, knee: Int? = null, min: Int = 45, feeling: Feeling = Feeling.GOOD) =
@@ -167,7 +170,7 @@ class RacePlannerTest {
     }
 
     @Test fun noSessionsOnRestDays() {
-        var prof = Profile()
+        var prof = NO_REST
         prof = RestDays.toggleWeekday(prof, DayOfWeek.SUNDAY)
         prof = RestDays.toggleWeekday(prof, DayOfWeek.FRIDAY)
         prof = RestDays.toggleDate(prof, LocalDate.of(2026, 12, 9))
@@ -183,7 +186,7 @@ class RacePlannerTest {
     }
 
     @Test fun veryFewFreeDaysKeepsKeyAndStrengthFirst() {
-        var prof = Profile()
+        var prof = NO_REST
         listOf(DayOfWeek.MONDAY, DayOfWeek.WEDNESDAY, DayOfWeek.FRIDAY, DayOfWeek.SUNDAY).forEach { prof = RestDays.toggleWeekday(prof, it) }
         val p = plan(profile = prof)
         for (w in p.weeks.filter { it.index <= 13 }) {

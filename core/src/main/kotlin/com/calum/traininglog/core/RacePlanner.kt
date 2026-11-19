@@ -6,6 +6,7 @@ import java.time.temporal.ChronoUnit
 import java.time.temporal.TemporalAdjusters
 import java.time.format.TextStyle
 import java.util.Locale
+import kotlin.math.abs
 import kotlin.math.floor
 import kotlin.math.max
 import kotlin.math.min
@@ -116,7 +117,57 @@ object RacePlanner {
 
     /** Today's planned session (in the lead-in or a numbered week), or null on a day with nothing planned. */
     fun today(plan: RacePlan, today: LocalDate): PlannedSession? =
-        plan.segmentOf(today)?.sessions?.firstOrNull { it.date == today }
+        plan.segmentOf(today)?.sessions?.let { all -> all.firstOrNull { it.date == today && it.skipReason == null } ?: all.firstOrNull { it.date == today } }
+
+    /** Sessions that count towards a week (not the race itself, a rest day or a skipped session). */
+    fun counted(w: PlanWeek): List<PlannedSession> = w.sessions.filter { !it.isRaceDay && it.kind != SessionKind.REST && it.skipReason == null }
+
+    private fun compatible(s: PlannedSession, r: SessionRecord): Boolean = when {
+        s.kind == SessionKind.STRENGTH -> r.type == SessionType.GYM
+        else -> r.type == SessionType.TREADMILL || r.type == SessionType.HYROX || r.type == SessionType.HIKE
+    }
+
+    /**
+     * Which of the week's counted sessions have a matching logged session. Each record is used at most once, and
+     * a session done a day or two off its planned date still counts (an evening swapped with the kids is normal).
+     * Records after [today] never count.
+     */
+    fun doneSessions(w: PlanWeek, records: List<SessionRecord>, today: LocalDate): Set<PlannedSession> {
+        val pool = records.filter { it.date in w.start..w.end && it.date <= today }.toMutableList()
+        val done = mutableSetOf<PlannedSession>()
+        for (s in counted(w).sortedBy { it.date }) {
+            val pick = pool.filter { compatible(s, it) }
+                .minWithOrNull(compareBy({ abs(ChronoUnit.DAYS.between(it.date, s.date)) }, { it.date }))
+                ?: continue
+            if (abs(ChronoUnit.DAYS.between(pick.date, s.date)) > 2) continue
+            pool.remove(pick)
+            done += s
+        }
+        return done
+    }
+
+    // ------------------------------------------------------------------------------------- flexibility
+
+    /** Day-by-day options for moving [session] within its week; hints are gentle notes, never blocks. */
+    fun moveOptions(plan: RacePlan, session: PlannedSession, today: LocalDate, profile: Profile): List<MoveOption> =
+        PlanAdjust.moveOptions(plan, session, today, profile)
+
+    /** The profile with [session] moved to [to] (a rest day becomes a one-off training day). Undo with [undo]. */
+    fun addMove(profile: Profile, session: PlannedSession, to: LocalDate, today: LocalDate): Profile = PlanAdjust.addMove(profile, session, to, today)
+
+    /** Records a skip of [session] with a [reason]; [build] re-flows the week kindly (see [PlanAdjust.apply]). */
+    fun skip(profile: Profile, session: PlannedSession, reason: SkipReason, today: LocalDate): Profile = PlanAdjust.skip(profile, session, reason, today)
+
+    /** Undoes the move or skip that put [session] where it is. */
+    fun undo(profile: Profile, session: PlannedSession): Profile = PlanAdjust.undo(profile, session)
+
+    /** 'Moved to Sunday.' or 'Not this week, no catching up.' for a skip of [skipped], read from the [planAfter] it. */
+    fun skipOutcome(planAfter: RacePlan, skipped: PlannedSession): String = PlanAdjust.skipOutcome(planAfter, skipped)
+
+    /** 'I have some time, what should I do?': a planned session fitted to [minutes], or a rest or bonus suggestion. */
+    fun suggestForTime(
+        plan: RacePlan, records: List<SessionRecord>, today: LocalDate, minutes: Int, feeling: Feeling, kneePain: Int?, profile: Profile = Profile(),
+    ): TimeSuggestion = PlanAdjust.suggestForTime(plan, records, today, minutes, feeling, kneePain, profile)
 
     /** Done versus planned time for the week (or lead-in) containing [today] (null when there is no such week). */
     fun weekProgress(plan: RacePlan, records: List<SessionRecord>, today: LocalDate): WeekProgress? {
@@ -142,7 +193,13 @@ object RacePlanner {
             fraction >= REPEAT_BELOW -> "$done of $planned planned minutes so far. Going well."
             else -> "$done of $planned planned minutes so far. Every session counts, whatever the rest of the week brings."
         }
-        return WeekProgress(planned, done, fraction, message)
+        val skips = w.skippedSessions
+        val note = when {
+            skips.isEmpty() -> ""
+            skips.size == 1 -> " " + skips[0].skipReason!!.line
+            else -> " ${skips.size} sessions skipped this week, and that is fine."
+        }
+        return WeekProgress(planned, done, fraction, message + note, skips.size)
     }
 
     // ---------------------------------------------------------------------------------------------- build
@@ -162,16 +219,32 @@ object RacePlanner {
         val vol = volumes(records, today, start, count, bl, cfg.maxWeeklyMinutes)
         val currentIdx = weekIndexOf(cfg.raceDate, today)
         val rough = recentRough(records, today)
+        // Moves onto a rest day set a one-off training-day override for the rest of the app; the layout must not see
+        // it, or it would re-arrange the whole week around the new day.
+        val adj = profile.planAdjustments
+        val layoutProfile = if (adj.moves.isEmpty()) profile else profile.copy(workoutOverrides = profile.workoutOverrides - PlanAdjust.moveRestTargets(profile))
 
         var prevSessions: List<PlannedSession> = emptyList()
+        // After a week that lost sessions to skips, the following weeks grow by at most about 10% from what was actually
+        // planned (a lighter week 10% lighter after a deload), until the original build-up is reached again. Null: no
+        // skip has held anything back, so the weeks are exactly what the volume model says.
+        var heldFrom: Int? = null
+        val planned = IntArray(WEEKS + 1)
+        var everHeld = false
+        val normalWeeks = (1..11).filter { !isDeload(it) }
         val weeks = (1..WEEKS).map { i ->
             val ws = start.plusWeeks((i - 1).toLong())
             val projected = i > currentIdx && currentIdx >= 0
             val stage = projectStage(status, i, currentIdx, today)
             val rung = if (stage == status.stage && !projected) status.rung else 0
             val kneeCaution = status.flareRecent || (status.steppedBackOn?.let { ChronoUnit.DAYS.between(it, today) <= 14 } == true)
-            val ctx = Ctx(i, phaseOf(i), isDeload(i), ws, stage, rung, records, settings, profile, cfg.raceDate, kneeCaution, cfg.maxWeeklyMinutes != null)
-            var sessions = layoutWeek(ctx, vol.minutes[i], count, prevSessions)
+            val ctx = Ctx(i, phaseOf(i), isDeload(i), ws, stage, rung, records, settings, layoutProfile, cfg.raceDate, kneeCaution, cfg.maxWeeklyMinutes != null)
+            var total = vol.minutes[i]
+            if (i >= 12) {
+                // Sharpen, taper and race week stay anchored to the race and are sized from the peak actually planned.
+                if (everHeld) total = round5((if (i == 12) SHARPEN_FACTOR else if (i == 13) TAPER_FACTOR else RACE_WEEK_FACTOR) * normalWeeks.maxOf { planned[it] })
+            } else heldFrom?.let { total = min(total, max(floor5(it * (if (isDeload(i)) DELOAD_FACTOR else MAX_WEEKLY_INCREASE)), minTotalRamp(count))) }
+            var sessions = layoutWeek(ctx, total, count, prevSessions)
             var adjustment = vol.notes[i]
             if (i == currentIdx && rough != null) {
                 val keyDropped = sessions.filter { (it.kind == SessionKind.KEY || it.kind == SessionKind.SIM) && !it.isRaceDay && it.date >= today }
@@ -180,10 +253,17 @@ object RacePlanner {
                     adjustment = (adjustment?.plus(" ") ?: "") + "You logged feeling ${rough.name.lowercase()} recently, so the hard session is skipped this week. Easy movement only, and rest if you need it."
                 }
             }
-            prevSessions = sessions
+            val applied = PlanAdjust.apply(sessions, ws, ws.plusDays(6), adj, layoutProfile, ctx.phase == RacePhase.RACE)
+            sessions = applied.sessions
+            if (applied.notes.isNotEmpty()) adjustment = ((adjustment?.plus(" ")) ?: "") + applied.notes.joinToString(" ")
+            val plannedNow = sessions.filter { !it.isRaceDay && it.kind != SessionKind.REST && it.skipReason == null }.sumOf { it.minutes }
+            planned[i] = plannedNow
+            heldFrom = if (sessions.any { it.skipReason != null && it.reflowedTo == null } || (heldFrom != null && total < vol.minutes[i])) plannedNow else null
+            if (heldFrom != null) everHeld = true
+            prevSessions = sessions.filter { it.skipReason == null }
             PlanWeek(
                 index = i, start = ws, phase = ctx.phase, deload = ctx.deload,
-                plannedMinutes = sessions.filter { !it.isRaceDay && it.kind != SessionKind.REST }.sumOf { it.minutes },
+                plannedMinutes = plannedNow,
                 easyShareTarget = EASY_TARGET, runStage = stage, runStageProjected = projected,
                 sessions = sessions, headline = headline(ctx), focus = focus(ctx),
                 stationTargets = stationTargets(ctx), adjustment = adjustment,
@@ -191,7 +271,7 @@ object RacePlanner {
         }
         val peak = weeks.filter { it.index <= 11 }.maxOf { it.plannedMinutes }
         val kneeCautionNow = status.flareRecent || (status.steppedBackOn?.let { ChronoUnit.DAYS.between(it, today) <= 14 } == true)
-        val leadIn = leadIn(cfg, records, today, profile, start, status, kneeCautionNow, bl, weeks.first())
+        val leadIn = leadIn(cfg, records, today, layoutProfile, start, status, kneeCautionNow, bl, weeks.first())
         return RacePlan(weeks, cfg.raceDate, timeline(weeks), baseline, peak, status, leadIn, bl.fromHistory, startNote(bl, weeks.first().plannedMinutes, peak, cfg.maxWeeklyMinutes))
     }
 
@@ -249,7 +329,7 @@ object RacePlanner {
         }
         week1.sessions.filter { it.kind != SessionKind.REST }.forEach { context[it.date] = it.kind }
         val dates = schedule(kinds, days, null, context)
-        val sessions = kinds.indices.map { n ->
+        val generated = kinds.indices.map { n ->
             val d = Draft(dates[n], kinds[n], minutes.getValue(kinds[n]), 0)
             val base = sessionFor(ctx, d, allowRun = true)
             when (kinds[n]) {
@@ -257,10 +337,15 @@ object RacePlanner {
                 else -> base.copy(title = "Kick-off: easy aerobic, ${d.minutes} min")
             }
         }.sortedBy { it.date }
-        val note = loggedToday.takeIf { it.isNotEmpty() }?.let { "Nothing more needed today: your ${loggedLabel(it.last())} counts. The plan starts tomorrow." }
+        val applied = PlanAdjust.apply(generated, first, last, profile.planAdjustments, profile, raceWeek = false)
+        val sessions = applied.sessions
+        val note = listOfNotNull(
+            loggedToday.takeIf { it.isNotEmpty() }?.let { "Nothing more needed today: your ${loggedLabel(it.last())} counts. The plan starts tomorrow." },
+            applied.notes.takeIf { it.isNotEmpty() }?.joinToString(" "),
+        ).takeIf { it.isNotEmpty() }?.joinToString(" ")
         return PlanWeek(
             index = 0, start = first, phase = RacePhase.KICKOFF, deload = false,
-            plannedMinutes = sessions.sumOf { it.minutes },
+            plannedMinutes = sessions.filter { it.skipReason == null }.sumOf { it.minutes },
             easyShareTarget = EASY_TARGET, runStage = status.stage, runStageProjected = false,
             sessions = sessions, headline = "Kick-off: easing in before week 1",
             focus = "A couple of short, easy sessions sized to what you are doing now (about $b minutes a week), so week 1 starts from where you really are. Nothing is hard.",
@@ -337,8 +422,8 @@ object RacePlanner {
     }
     private fun maxTotal(count: Int) = kindsFor(count).sumOf { SLOT_BOUNDS.getValue(it).second }
     private fun factor(count: Int) = when (count) { 3 -> 0.62; 4 -> 0.82; 5 -> 1.0; else -> 1.12 }
-    private fun round5(x: Double) = (x / 5).roundToInt() * 5
-    private fun floor5(x: Double) = (floor(x / 5) * 5).toInt()
+    internal fun round5(x: Double) = (x / 5).roundToInt() * 5
+    internal fun floor5(x: Double) = (floor(x / 5) * 5).toInt()
 
     /**
      * Weekly minutes for weeks 1-14 (index 0 unused). Normal weeks climb geometrically (at most 10% a week) from
@@ -490,7 +575,7 @@ object RacePlanner {
 
     // ------------------------------------------------------------------------------------- week layout
 
-    private class Ctx(
+    internal class Ctx(
         val i: Int, val phase: RacePhase, val deload: Boolean, val start: LocalDate, val stage: RunStage, val rung: Int,
         val records: List<SessionRecord>, val settings: UserSettings, val profile: Profile, val raceDate: LocalDate,
         val kneeCaution: Boolean, val capped: Boolean = false,
@@ -549,7 +634,7 @@ object RacePlanner {
         return min(base, floor5((total - others).toDouble()).coerceAtLeast(30))
     }
 
-    private class Draft(val date: LocalDate, val kind: SessionKind, val minutes: Int, val strengthNo: Int)
+    internal class Draft(val date: LocalDate, val kind: SessionKind, val minutes: Int, val strengthNo: Int)
 
     private fun finishDrafts(c: Ctx, drafts: List<Draft>): List<PlannedSession> {
         val out = mutableListOf<PlannedSession>()
@@ -687,7 +772,7 @@ object RacePlanner {
             if (k == SessionKind.STRENGTH && next == SessionKind.LONG_EASY) sc -= 10
             if (hard(k) && next == SessionKind.LONG_EASY) sc -= 18
             if (k == SessionKind.LONG_EASY && hard(next)) sc -= 18
-            if (hard(k) && next == SessionKind.STRENGTH) sc -= 6
+            if (hard(k) && next == SessionKind.STRENGTH) sc -= 14
             if (k != SessionKind.STRENGTH && next != null && next != SessionKind.STRENGTH) sc -= 5
             if (k == SessionKind.LONG_EASY) sc += if (weekend) 15 else -20
             if (k == SessionKind.KEY) sc += if (dow in listOf(DayOfWeek.TUESDAY, DayOfWeek.WEDNESDAY, DayOfWeek.THURSDAY)) 6 else 0
@@ -708,7 +793,7 @@ object RacePlanner {
     private val PREHAB =
         "Hip-abductor and glute prehab (10 min): side-lying hip abduction 2 x 15 each side, banded lateral walks 2 x 10 steps each way, single-leg glute bridge 2 x 12, side plank 2 x 30 s each side. Slow and controlled; stop if the outside of the knee flares."
 
-    private fun sessionFor(c: Ctx, d: Draft, allowRun: Boolean): PlannedSession = when (d.kind) {
+    internal fun sessionFor(c: Ctx, d: Draft, allowRun: Boolean): PlannedSession = when (d.kind) {
         SessionKind.STRENGTH -> strength(c, d)
         SessionKind.KEY, SessionKind.SIM -> key(c, d, allowRun)
         SessionKind.LONG_EASY -> longEasy(c, d, allowRun)

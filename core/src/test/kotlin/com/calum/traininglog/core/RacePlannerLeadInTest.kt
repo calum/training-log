@@ -34,7 +34,7 @@ class RacePlannerLeadInTest {
         treadmill(d(11, 19), 30, TreadmillStyle.LADDER),
     )
 
-    private fun plan(records: List<SessionRecord> = history, now: LocalDate = today, c: RacePlanSettings = cfg, profile: Profile = Profile()) =
+    private fun plan(records: List<SessionRecord> = history, now: LocalDate = today, c: RacePlanSettings = cfg, profile: Profile = NO_REST) =
         RacePlanner.build(c, records, now, profile)
 
     // ---------------------------------------------------------------------------------------- (a) lead-in
@@ -111,7 +111,7 @@ class RacePlannerLeadInTest {
     }
 
     @Test fun leadInRespectsRestDays() {
-        var prof = Profile()
+        var prof = NO_REST
         prof = RestDays.toggleWeekday(prof, DayOfWeek.FRIDAY)
         prof = RestDays.toggleWeekday(prof, DayOfWeek.SUNDAY)
         val p = plan(profile = prof)

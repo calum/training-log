@@ -96,7 +96,14 @@ data class PlannedSession(
     val isRaceDay: Boolean = false,
     /** True when the session includes running (so the UI can show the knee note). */
     val includesRunning: Boolean = false,
+    /** Set when the session was moved by the user (or re-flowed after a skip): the day it was planned on. */
+    val movedFrom: LocalDate? = null,
+    /** Set when the session was skipped: shown calmly, not counted as planned or done. */
+    val skipReason: SkipReason? = null,
+    /** On a skipped session: the day it was re-flowed to (null: dropped for the week, no catching up). */
+    val reflowedTo: LocalDate? = null,
 ) {
+    val isSkipped: Boolean get() = skipReason != null
     val rpeLabel: String get() = if (rpeTarget.first == rpeTarget.last) "RPE ${rpeTarget.first}" else "RPE ${rpeTarget.first}-${rpeTarget.last}"
 }
 
@@ -126,7 +133,9 @@ data class PlanWeek(
     val end: LocalDate get() = lastDay ?: start.plusDays(6)
     /** True for the kick-off lead-in ([RacePlan.leadIn]), which has [index] 0. */
     val isLeadIn: Boolean get() = phase == RacePhase.KICKOFF
-    private val counted: List<PlannedSession> get() = sessions.filter { !it.isRaceDay && it.kind != SessionKind.REST }
+    private val counted: List<PlannedSession> get() = sessions.filter { !it.isRaceDay && it.kind != SessionKind.REST && it.skipReason == null }
+    /** Sessions skipped this week (shown calmly; they are not part of the planned minutes). */
+    val skippedSessions: List<PlannedSession> get() = sessions.filter { it.skipReason != null }
     val strengthMinutes: Int get() = counted.filter { it.intensity == Intensity.STRENGTH }.sumOf { it.minutes }
     val enduranceMinutes: Int get() = counted.filter { it.intensity != Intensity.STRENGTH }.sumOf { it.minutes }
     val hardMinutes: Int get() = counted.sumOf { it.hardMinutes }
@@ -174,4 +183,6 @@ data class WeekProgress(
     /** 0..1 for a progress bar (capped at 1). */
     val fraction: Double,
     val message: String,
+    /** Sessions skipped this week; they are neither planned nor done, and never framed as a miss. */
+    val skipped: Int = 0,
 )

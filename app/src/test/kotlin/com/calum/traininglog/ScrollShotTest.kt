@@ -39,7 +39,7 @@ class ScrollShotTest(private val s: Scroll) {
         TreadmillEngine.stop()
         val ctx = ApplicationProvider.getApplicationContext<Context>()
         val (records, profile) =
-            if (s.empty) emptyList<SessionRecord>() to Profile() else Fixtures.busyRecords() to Fixtures.busyProfile()
+            if (s.empty) emptyList<SessionRecord>() to Profile(restWeekdays = emptySet()) else Fixtures.busyRecords() to Fixtures.busyProfile()
         Fixtures.seed(ctx, records, profile)
         val vm = AppViewModel(ctx as android.app.Application)
         vm.go(s.screen)

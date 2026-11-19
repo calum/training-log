@@ -134,6 +134,16 @@ The plan only schedules running that the current `RunStage` allows. The stage is
 - **Four sessions a week is about 80/20, plus or minus 3 points** (planned 77-86% in the real-history example).
 - **The plan is a guide.** It adjusts to what was done, never marks anything as a miss, and nothing in it is a guarantee about race day.
 
+## Flexibility and re-planning
+
+These are design choices for a parent whose time and energy are unpredictable, not research findings.
+
+- **Default rest days are Tuesday and Friday** (editable in the plan settings, or per day on Home). The planner schedules around them and avoids a hard session the day before a strength session when it can.
+- **Move**: a session can go to another day of the same week (never the past; moving onto a rest day makes it a one-off training day). Awkward combinations such as two strength days in a row only get a hint ("Fine to do, legs may feel it"), never a block.
+- **Skip**: a skipped session moves to the next free day that respects rest days and spacing, or is dropped for the week. Nothing is carried over or doubled, and a skip is never shown as a failure. Skipping while unwell also drops that week's hard session. After a week that lost sessions, later weeks grow by at most about 10% from what was actually planned; the taper stays anchored to the race and is sized from the peak actually planned.
+- **"I have some time"**: picks an open session of this week for the minutes, feeling and knee (hard if fresh, else strength, else easy; never hard after hard or strength after strength; rough means easy, unwell means rest, knee 4+ means no running), scaled to fit. If everything is done or skipped it offers an optional easy bonus of up to 45 minutes.
+- **Replan alert**: a quiet card suggests a fresh plan after 3 or more planned sessions skipped or left in 10 days, two quiet weeks (under 40% of planned minutes), 3 unwell days in a week, or a sore knee (5/10, or 4/10 twice). Never during the kick-off; "Not now" snoozes it for 5 days. The thresholds are this app's own rules of thumb. The copied summary is for pasting into a chat with Claude.
+
 ## Sources
 
 1. Silva Oliveira R, Boppre G, Fonseca H. Sports Medicine 2024, intensity distribution meta-analysis (17 studies): https://pmc.ncbi.nlm.nih.gov/articles/PMC11329428

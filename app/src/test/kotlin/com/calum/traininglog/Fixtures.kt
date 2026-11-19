@@ -105,7 +105,7 @@ object Fixtures {
     }
 
     /** Write [records]/[profile] where [Store] reads them; call BEFORE constructing the ViewModel. */
-    fun seed(ctx: Context, records: List<SessionRecord>, profile: Profile = Profile()) {
+    fun seed(ctx: Context, records: List<SessionRecord>, profile: Profile = Profile(restWeekdays = emptySet())) {
         File(ctx.filesDir, "training-data.json")
             .writeText(json.encodeToString(AppData.serializer(), AppData(records, profile)))
     }

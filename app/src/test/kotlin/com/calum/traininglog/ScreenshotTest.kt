@@ -147,7 +147,7 @@ class ScreenshotTest(private val shot: Shot) {
             File(System.getProperty("roborazzi.output.dir") ?: "../docs/screenshots").also { it.mkdirs() }
 
         private fun busy() = Fixtures.busyRecords() to Fixtures.busyProfile()
-        private fun empty() = emptyList<com.calum.traininglog.core.SessionRecord>() to Profile()
+        private fun empty() = emptyList<com.calum.traininglog.core.SessionRecord>() to Profile(restWeekdays = emptySet())
 
         /** THE list: add a line here to capture another screen/state. */
         private val shots = listOf(
@@ -222,7 +222,7 @@ class ScreenshotTest(private val shot: Shot) {
                 githubConnected()
                 val recs = Fixtures.busyRecords()
                 force(GithubSync, "_restore", GithubSync.RestoreState.Preview(recs, recs.size))
-                driveConnected(Backup(1, java.time.OffsetDateTime.now().minusDays(2).toString(), AppData(recs, Profile())))
+                driveConnected(Backup(1, java.time.OffsetDateTime.now().minusDays(2).toString(), AppData(recs, Profile(restWeekdays = emptySet()))))
                 vm.go(Screen.Backup)
             },
             Shot("update-banners", content = { _ ->
