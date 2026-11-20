@@ -2,6 +2,13 @@
 
 What changed in each release, in plain language, newest first. The release workflow copies the matching `## vX.Y.Z` section into the GitHub release, and the app shows it as "What's new" before you tap Update.
 
+## v0.11.2
+
+- Fixed: a planned strength session now builds the session it describes. Before, tapping Start treated the planned time like total time available and took 20 minutes off for gym travel, so only squats and calf raises were built. Now a 35 minute strength session is 25 minutes of lifting plus a 10 minute hip prehab.
+- When time is tight, the app now trims each main lift to 2 sets (and shortens the squat warm-up) before dropping a lift, so you still get squat, a hinge (Romanian deadlift or deadlift) and calf raises, plus an upper-body lift when there is time.
+- The hip prehab is now a real guided step: after the lifting is saved, the app offers "Next: hip prehab (about 10 min)". It is a guided hip-only version of Knee care using only the kit you own, and it counts toward your weekly Knee care. Skipping it is fine.
+- The planned session text now matches what the app does instead of naming specific exercises it might not build.
+
 ## v0.11.1
 
 - Knee care tells you what you need before you start: a "You'll need" checklist on the setup card and a "Get ready" screen with a big Ready button, so nothing has to be fetched mid-routine.
