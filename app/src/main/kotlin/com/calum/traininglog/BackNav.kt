@@ -49,6 +49,7 @@ internal fun backActionFor(vm: AppViewModel, screen: Screen): BackAction {
             val sets = g?.exercises?.sumOf { e -> e.sets.count { it.done } } ?: 0
             when {
                 g == null -> BackAction.Do { vm.home() }
+                g.prehabOffered -> BackAction.Do { vm.skipPrehab() }
                 g.finisherOffered -> BackAction.Do { vm.skipFinisher() }
                 sets == 0 -> BackAction.Do { vm.discardGym() }
                 else -> BackAction.Ask(

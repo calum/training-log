@@ -54,6 +54,8 @@ data class KneeCareUi(
     val levelAdjust: Int = 0,
     /** Gear ticked on the checklist: memory only, never required. */
     val checked: Set<String> = emptySet(),
+    /** The 10 minute hip prehab that follows a planned strength session: hips and glutes plus two stretches, no calf work. */
+    val hipOnly: Boolean = false,
 )
 
 /**
@@ -66,9 +68,9 @@ class KneeCareController {
     val ui: StateFlow<KneeCareUi> = _ui.asStateFlow()
 
     /** Opens the setup (a session already running is left alone). */
-    fun prepare(minutes: Int, mode: CalfMode, knee: Int?, calfOnly: Boolean, session: KneeCareSession) {
+    fun prepare(minutes: Int, mode: CalfMode, knee: Int?, calfOnly: Boolean, session: KneeCareSession, hipOnly: Boolean = false) {
         if (_ui.value.phase == KneeCarePhase.RUNNING) return
-        _ui.value = KneeCareUi(minutes = minutes, calfOnly = calfOnly, mode = mode, knee = knee, session = session)
+        _ui.value = KneeCareUi(minutes = minutes, calfOnly = calfOnly, mode = mode, knee = knee, session = session, hipOnly = hipOnly)
     }
 
     fun configure(minutes: Int? = null, mode: CalfMode? = null, knee: Int? = null, clearKnee: Boolean = false, calfOnly: Boolean? = null, reshuffle: Boolean = false, levelStep: Int = 0) =

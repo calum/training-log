@@ -87,6 +87,8 @@ data class KneeCareSession(
     val calfLevel: Int = 1,
     /** True when the last session took him up a level ("You moved up a level"). */
     val levelMoved: Boolean = false,
+    /** True for the hip-only prehab that follows a gym session: the hip block and a short cool-down, no calf work. */
+    val hipOnly: Boolean = false,
 ) {
     val calfSpec: CalfSpec get() = CalfLadder.spec(calfLevel, kit)
 
@@ -135,11 +137,14 @@ object KneeCareLibrary {
 
     val hipFlexor = Move("kc_hip_flexor", "Hip flexor stretch", "Half-kneeling on a pad. Tuck the pelvis under and lean forward gently. No bouncing.", unilateral = true)
     val figure4 = Move("kc_figure4", "Figure-4 glute stretch", "On your back, ankle over the opposite knee, draw the thigh in. Eases the outer hip. No foam rolling here.", unilateral = true)
+    /** The bodyweight stand-in for the banded walk (no band at home). */
+    val lateralStep = Move("kc_lateral_step", "Lateral steps", "Soft knees, toes forward, hips level. Small steps sideways, then back. Slow, no leaning.")
+
     val kneeHug = Move("kc_knee_hug", "Knee hug", "On your back, hug one knee towards the chest. Keep the other leg long and relaxed.", unilateral = true)
 
     val all: List<Move> = listOf(
         hipCircles, legSwings, abduction, clamshell, sidePlank, slBridge, lateralWalk, hipHike, stepDown, slRdl, pistol,
-        calfStraight, calfBent, hipFlexor, figure4, kneeHug,
+        calfStraight, calfBent, hipFlexor, figure4, kneeHug, lateralStep,
     )
     private val byId = all.associateBy { it.id }
     private val byName = all.associateBy { it.name }
@@ -175,6 +180,8 @@ object KneeCareLibrary {
 
 object KneeCareRoutine {
     const val DEFAULT_MINUTES = 15
+    /** The hip-only prehab after a planned strength session ([build] with `hipOnly`). */
+    const val HIP_ONLY_MINUTES = 10
     const val MIN_MINUTES = 12
     const val MAX_MINUTES = 20
     const val VARIANTS = 3
@@ -335,7 +342,9 @@ object KneeCareRoutine {
         calfLevel: Int = 1,
         controlLevels: Map<String, Int> = emptyMap(),
         levelMoved: Boolean = false,
+        hipOnly: Boolean = false,
     ): KneeCareSession {
+        if (hipOnly) return buildHipOnly(minutes, last, kneePain, seed, kit, controlLevels)
         val requested = minutes.coerceIn(MIN_MINUTES, MAX_MINUTES)
         val gate = when {
             (kneePain ?: 0) >= GENTLE_ONLY_KNEE -> KneeGate.GENTLE_ONLY
@@ -397,6 +406,56 @@ object KneeCareRoutine {
         raw += sides(KneeCareLibrary.figure4, coolEach, CoreKind.COOLDOWN)
         val startKg = calfStartKg ?: CalfLadder.loadKg(spec, kit)
         return finish(m, total, variant, calfVariant, gate, physio, calfSets, startKg, raw, calfMode, reps, lastTime, exact = true, kit = kit, calfLevel = spec.level, levelMoved = levelMoved)
+    }
+
+    /**
+     * The hip prehab that follows a strength session ([minutes] about 10, 6..20): the hip abductor and glute block and two
+     * short stretches. No warm-up (the lifting was one), no knee control block and no calf work (the gym calf raises were the
+     * calf work). It uses only what is in [kit]: the banded walk becomes bodyweight lateral steps without a band, and the
+     * step moves are left out without a step. Knee 7 or more gives the gentle mobility routine, 5 or more leaves out the loaded
+     * knee moves. The steps add up to exactly [minutes] x 60 seconds. [controlLevels] is accepted for symmetry and unused.
+     */
+    @Suppress("UNUSED_PARAMETER")
+    private fun buildHipOnly(
+        minutes: Int, last: List<String>?, kneePain: Int?, seed: Long, kit: KneeCareKit, controlLevels: Map<String, Int>,
+    ): KneeCareSession {
+        val requested = minutes.coerceIn(6, MAX_MINUTES)
+        val gate = when {
+            (kneePain ?: 0) >= GENTLE_ONLY_KNEE -> KneeGate.GENTLE_ONLY
+            (kneePain ?: 0) >= STEP_DOWN_OFF_KNEE -> KneeGate.NO_STEP_DOWN
+            else -> KneeGate.FULL
+        }
+        val physio = if (gate == KneeGate.FULL) null else PHYSIO_LINE
+        val variant = variantFor(last, seed)
+        if (gate == KneeGate.GENTLE_ONLY) return gentle(requested, requested * 60, variant, physio, kit).copy(hipOnly = true)
+
+        fun ok(mv: KneeCareLibrary.Move) = KneeCareLibrary.allowed(mv, kit) && (gate == KneeGate.FULL || !mv.kneeLoad)
+        // The hip moves of this variant (no knee control moves), kit-aware; without a band the bodyweight steps close the list.
+        val pool = KneeCareLibrary.variants[variant].filter { it !in KneeCareLibrary.control && ok(it) } +
+            listOfNotNull(KneeCareLibrary.lateralStep.takeIf { !kit.hasBand })
+        val coolEach = 30
+        fun units(l: List<KneeCareLibrary.Move>): Int = l.count { it.unilateral } * 2 + l.count { !it.unilateral }
+        fun fixed(hc: Int): Int = 4 * coolEach + (hc - 1) * HIP_REST_SEC
+        val total0 = requested * 60
+        val maxHip = minOf(5, pool.size)
+        val hipCount: Int = (maxHip downTo minOf(2, maxHip)).firstOrNull { hc -> (total0 - fixed(hc)) / units(pool.take(hc)) >= MIN_HIP_STEP_SEC } ?: minOf(2, maxHip)
+        val hip = pool.take(hipCount)
+        val nUnits = units(hip)
+        val room = total0 - fixed(hipCount)
+        val baseWork = (room / nUnits / 5 * 5).coerceAtLeast(25)
+        var extra = (room - baseWork * nUnits).coerceAtLeast(0) / 5
+
+        val raw = mutableListOf<CoreStep>()
+        hip.forEachIndexed { hi, mv ->
+            raw += sides(mv, baseWork, CoreKind.WORK).map { st -> if (extra > 0) { extra--; st.copy(seconds = st.seconds + 5) } else st }
+            if (hi < hip.lastIndex) raw += rest(HIP_REST_SEC)
+        }
+        raw += sides(KneeCareLibrary.hipFlexor, coolEach, CoreKind.COOLDOWN)
+        raw += sides(KneeCareLibrary.figure4, coolEach, CoreKind.COOLDOWN)
+        return finish(
+            raw.sumOf { it.seconds }.let { maxOf(requested, (it + 59) / 60) }, total0, variant, null, gate, physio, 0, null, raw,
+            CalfMode.HEAVY, CalfMode.HEAVY.repsLow, null, exact = true, kit = kit,
+        ).copy(hipOnly = true)
     }
 
     /**

@@ -782,8 +782,11 @@ object RacePlanner {
         else -> (if (plan) "Run legs: your knee is not cleared for running yet, so use 4 minutes on the rower or SkiErg at RPE 5, or a brisk 1 km incline walk (5-8%), in place of each 1 km run. That keeps the engine work without the impact." else "Run legs: run what your knee allows and walk briskly for the rest; that is a fine race plan.")
     }
 
+    /** Minutes of the guided hip prehab that follows the lifting in a strength session (see [KneeCareRoutine.HIP_ONLY_MINUTES]). */
+    const val PREHAB_MINUTES = KneeCareRoutine.HIP_ONLY_MINUTES
+
     private val PREHAB =
-        "Hip-abductor and glute prehab (10 min): side-lying hip abduction 2 x 15 each side, banded lateral walks 2 x 10 steps each way, single-leg glute bridge 2 x 12, side plank 2 x 30 s each side. Slow and controlled; stop if the outside of the knee flares."
+        "Hip-abductor and glute prehab (about $PREHAB_MINUTES min): guided after the lifting; side-lying hip abduction, single-leg glute bridge, side plank and lateral steps, using only the kit you own. Slow and controlled; stop if the outside of the knee flares."
 
     internal fun sessionFor(c: Ctx, d: Draft, allowRun: Boolean): PlannedSession = when (d.kind) {
         SessionKind.STRENGTH -> strength(c, d)
@@ -794,8 +797,6 @@ object RacePlanner {
     }
 
     private fun strength(c: Ctx, d: Draft): PlannedSession {
-        val hinge = GymBuilder.nextHinge(c.records).name
-        val uppers = GymBuilder.nextUpperMovements(c.records).joinToString(" and ") { it.replace("-", " ") }
         val stations = finisherStations(c.i, min(1, d.strengthNo))
         val phasePrimer = when (c.phase) { RacePhase.BASE -> 10; RacePhase.BUILD -> 15; RacePhase.SPECIFIC -> 10; RacePhase.RACE, RacePhase.KICKOFF -> 0; else -> 8 }
         // Warm-up 5 + prehab 10 + at least 20 minutes of lifts come first; the finisher gets what is left. A short
@@ -805,12 +806,16 @@ object RacePlanner {
         val level = { s: HyroxStation -> stationTargets(c).getValue(s) }
         val detail = mutableListOf<String>()
         detail += "Warm up 5 minutes: easy cardio, then bodyweight squats and hip hinges."
+        // The lifting is built by the app (GymBuilder) from the history to fit its window, so the text names no
+        // exercise or set count the builder might not produce: the window it is fitted to is the session minus the prehab and finisher.
+        val lifting = GuidedPlan.liftingWindow(d.minutes, PREHAB_MINUTES, primer)
+        val builds = "the app builds it from your history to fit the time: squat, a hinge (Romanian deadlift or deadlift), calf raise, and an upper-body lift when there is time; 2-3 sets each, stopping with 2 or more reps in reserve."
         val liftNote = when {
-            c.phase == RacePhase.KICKOFF -> "First session back: squat, $hinge, calf raise, then $uppers, 2 sets each with plenty in reserve (the app picks loads from your history). Keep it easy; the point is to start."
-            c.phase == RacePhase.RACE -> "Race week: same weights as usual, only 2 sets of each lift, and finish feeling fresh. Squat, $hinge, calf raise and one upper-body pair."
-            c.phase == RacePhase.TAPER -> "Taper: keep the weights, do about 60% of the sets. Squat, $hinge, calf raise, then $uppers."
-            c.deload -> "Lighter week: same exercises, 2 sets each, leaving plenty in reserve. Squat, $hinge, calf raise, then $uppers."
-            else -> "Squat, $hinge, calf raise, then $uppers (the app picks loads from your history; keep 2 or more reps in reserve)."
+            c.phase == RacePhase.KICKOFF -> "Lifting (about $lifting min): $builds First session back: keep it easy; the point is to start."
+            c.phase == RacePhase.RACE -> "Lifting (about $lifting min): race week, so keep the weights, do less volume and finish feeling fresh. The app builds it from your history to fit the time."
+            c.phase == RacePhase.TAPER -> "Lifting (about $lifting min): taper, so keep the weights and do fewer sets. The app builds it from your history to fit the time."
+            c.deload -> "Lifting (about $lifting min): lighter week, fewer sets at the same loads with plenty in reserve. The app builds it from your history to fit the time."
+            else -> "Lifting (about $lifting min): $builds"
         }
         detail += liftNote
         detail += PREHAB
@@ -828,7 +833,7 @@ object RacePlanner {
         val title = if (d.strengthNo == 0) "Strength A: legs, hip prehab" + (if (primer > 0 && c.phase != RacePhase.BASE) " + station finisher" else "") else "Strength B: legs, upper, hip prehab" + (if (primer > 0 && c.phase != RacePhase.BASE) " + station finisher" else "")
         return PlannedSession(
             d.date, SessionKind.STRENGTH, title, d.minutes, Intensity.STRENGTH, 0, 6..8, listOf(Modality.GYM), detail, why,
-            LaunchHint(SessionType.GYM, hyroxFocus = if (primer > 0) stations.toSet() else emptySet(), minutes = d.minutes),
+            LaunchHint(SessionType.GYM, hyroxFocus = if (primer > 0) stations.toSet() else emptySet(), minutes = d.minutes, prehabMinutes = PREHAB_MINUTES),
         )
     }
 

@@ -89,6 +89,7 @@ fun GymScreen(vm: AppViewModel) {
     val g by vm.gym.collectAsState()
     val live = g ?: run { vm.home(); return }
     // The lifts are saved and a station finisher is planned: offer it as the next step.
+    if (live.prehabOffered) { GymPrehabPrompt(vm, live); return }
     if (live.finisherOffered) { GymFinisherPrompt(vm, live); return }
     KeepScreenOn()
     val tone = remember { runCatching { ToneGenerator(AudioManager.STREAM_MUSIC, 100) }.getOrNull() }
@@ -155,6 +156,9 @@ fun GymScreen(vm: AppViewModel) {
         ) {
             GymHeader(live.plan.dayLabel, live.plan.deload, doneSets, totalSets, progress)
             SecondaryButton("Guided mode: one set at a time", onClick = { vm.setGymGuided(true) }, Modifier.fillMaxWidth(), accent = AppColors.info)
+            if (live.prehabMinutes > 0) com.calum.traininglog.ui.SectionCard(title = "Next: hip prehab (about ${live.prehabMinutes} min, optional)") {
+                Text(PREHAB_BLURB, style = MaterialTheme.typography.bodyMedium, color = AppColors.textMuted)
+            }
             if (live.finisher.isNotEmpty()) FinisherCard(live.finisher)
             live.plan.rebaseline?.takeIf { it.active }?.let { Pill(it.headline, color = AppColors.info) }
             if (live.plan.dropped.isNotEmpty()) {

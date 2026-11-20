@@ -82,11 +82,19 @@ object GymBuilder {
     fun estimateMinutes(p: PlannedExercise): Double =
         p.prescription.sets * (p.exercise.restSec / 60.0 + 0.75) + p.warmups.size * 1.25
 
+    /** Main lifts are trimmed to this many sets (never lower) when the window is short. */
+    const val MIN_TRIMMED_SETS = 2
+    /** The squat warm-up chain keeps the bar plus this many of the last ramps when time is short. */
+    private val TRIMMED_WARMUP_RAMPS = listOf(3, 2)
+
     /**
      * Recommend a session that fits [liftingMinutes]. Slots: squat and calf every time, one hinge
      * (alternating), two upper movements (least recently trained), plus the other hinge as an
-     * optional extra with lots of time. When over budget, drops in this order: second upper,
-     * extras, first upper, then the hinge. Squat and calf are never dropped.
+     * optional extra with lots of time. When over budget it gives up, in this order: the second upper,
+     * the extra, the first upper; then it shortens the main lifts (squat, hinge, calf) to
+     * [MIN_TRIMMED_SETS] sets (never below that, never lower than a set count that was already lower, e.g.
+     * while easing back in); then it trims the squat warm-up chain (the bar and the last 2-3 ramps stay);
+     * only as a last resort the hinge goes. Squat and calf are never dropped.
      */
     fun build(
         liftingMinutes: Int,
@@ -111,18 +119,42 @@ object GymBuilder {
         val extra = if (liftingMinutes >= EXTRA_HINGE_MIN) p(if (hinge.id == "rdl") ExerciseLibrary.deadlift else ExerciseLibrary.rdl) else null
 
         // Presentation order; drop order is separate (least important first).
-        val dropOrder = listOfNotNull(upper2, extra, upper1, hingeP)
+        val dropOrder = listOfNotNull(upper2, extra, upper1)
         val kept = (listOfNotNull(squat, hingeP, calf, upper1, upper2, extra)).toMutableList()
         val dropped = mutableListOf<Exercise>()
+        fun total() = kept.sumOf { estimateMinutes(it) }
+        fun over() = total() > liftingMinutes
+        fun replace(id: String, f: (PlannedExercise) -> PlannedExercise) {
+            val i = kept.indexOfFirst { it.exercise.id == id }
+            if (i >= 0) kept[i] = f(kept[i])
+        }
         for (candidate in dropOrder) {
-            if (kept.sumOf { estimateMinutes(it) } <= liftingMinutes) break
+            if (!over()) break
             kept.remove(candidate)
             if (candidate !== extra) dropped += candidate.exercise
         }
-        val label = if (kept.any { it === hingeP }) "Squat + ${hingeName(hinge)}" else "Squat + Calf"
+        // Still over: the main lifts keep their place and give up sets first, then warm-up ramps.
+        val mainIds = listOf(squat, hingeP, calf).map { it.exercise.id }
+        if (over() && kept.any { it.exercise.id in mainIds && it.prescription.sets > MIN_TRIMMED_SETS }) {
+            mainIds.forEach { id ->
+                replace(id) { e ->
+                    if (e.prescription.sets <= MIN_TRIMMED_SETS) e
+                    else e.copy(prescription = e.prescription.copy(sets = MIN_TRIMMED_SETS, note = e.prescription.note + " Fewer sets to fit your time."))
+                }
+            }
+        }
+        for (ramps in TRIMMED_WARMUP_RAMPS) {
+            if (!over()) break
+            replace(squat.exercise.id) { e -> if (e.warmups.size <= 1 + ramps) e else e.copy(warmups = listOf(e.warmups.first()) + e.warmups.takeLast(ramps)) }
+        }
+        if (over()) {
+            kept.removeAll { it.exercise.id == hingeP.exercise.id }
+            dropped += hingeP.exercise
+        }
+        val label = if (kept.any { it.exercise.id == hingeP.exercise.id }) "Squat + ${hingeName(hinge)}" else "Squat + Calf"
         return GymPlan(
-            label, deload, kept, dropped, kept.sumOf { estimateMinutes(it) }.toInt(),
-            optionalIds = if (extra != null && kept.any { it === extra }) setOf(extra.exercise.id) else emptySet(),
+            label, deload, kept, dropped, total().toInt(),
+            optionalIds = if (extra != null && kept.any { it.exercise.id == extra.exercise.id }) setOf(extra.exercise.id) else emptySet(),
             rebaseline = easing,
         )
     }

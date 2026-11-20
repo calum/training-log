@@ -77,6 +77,8 @@ data class LaunchHint(
     val sim: SimPreset? = null,
     /** Opens the knee care routine (an optional add-on, see [KneeCare]) instead of a plan session. */
     val kneeCare: Boolean = false,
+    /** Minutes of guided hip prehab that follow the lifting in a strength session (0: the session has none). It is part of [minutes]. */
+    val prehabMinutes: Int = 0,
 )
 
 /**

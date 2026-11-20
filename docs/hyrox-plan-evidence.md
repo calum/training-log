@@ -178,3 +178,5 @@ An optional add-on (`core/.../KneeCare.kt`), never one of the plan's sessions: a
 4. Schumann et al., concurrent strength and endurance training meta-analysis; summary: https://sci-sport.com/en/concurrent-training-does-cardio-affect-muscle-mass-and-strength-gains-233/
 5. ITB rehab (practitioner): https://www.physiotutors.com/wiki/itb-syndrome-rehab
 6. Frontiers in Sports and Active Living 2024, systematic review: https://frontiersin.org/journals/sports-and-active-living/articles/10.3389/fspor.2024.1386456/pdf
+
+Planned strength sessions: the minutes are the whole session. The app fits the lifting to the session minus 10 minutes of hip prehab (and any station finisher), with no gym travel taken off (at least 20 minutes), so a 35 minute session is a 25 minute lifting window. The text names no exercises: the app builds squat, a hinge, calf raise and an upper lift when there is time from the history, trimming sets (never below 2) and warm-up ramps before it would drop the hinge. After the lifts are saved the app offers the 10 minute hip-only Knee care routine (Start or Skip; it counts as Knee care).

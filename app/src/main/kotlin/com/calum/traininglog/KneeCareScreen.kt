@@ -247,7 +247,11 @@ internal fun KneeCareSetupContent(
         Column(verticalArrangement = Arrangement.spacedBy(Spacing.xs)) {
             Text("Knee care", style = MaterialTheme.typography.headlineLarge, color = AppColors.textPrimary)
             Text(
-                if (ui.calfOnly) "Just calf raises, about $minutes minutes" else "$minutes minutes: hips, calves, gentle stretches. No jumping.",
+                when {
+                    ui.hipOnly -> "Hip prehab, about $minutes minutes: hips and glutes, then two stretches. No calf work, no jumping."
+                    ui.calfOnly -> "Just calf raises, about $minutes minutes"
+                    else -> "$minutes minutes: hips, calves, gentle stretches. No jumping."
+                },
                 style = MaterialTheme.typography.titleMedium, color = AppColors.textMuted,
             )
         }
@@ -267,6 +271,7 @@ internal fun KneeCareSetupContent(
         }
         KitRow(kit, onKit)
 
+        if (!ui.hipOnly) {
         Text("CALF RAISES", style = AppType.eyebrow, color = AppColors.textMuted)
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
             SelectChip("Heavy", ui.mode == CalfMode.HEAVY, { onMode(CalfMode.HEAVY) }, Modifier.weight(1f))
@@ -292,6 +297,7 @@ internal fun KneeCareSetupContent(
                 style = MaterialTheme.typography.bodySmall, color = AppColors.textMuted,
             )
         }
+        }
 
         Text("HOW'S THE KNEE RIGHT NOW? 0 (FINE) TO 10", style = AppType.eyebrow, color = AppColors.textMuted)
         ChipGrid((0..10).map<Int, Int?> { it } + null, 6, { ui.knee == it }, { it?.toString() ?: "Skip" }) { onKnee(it) }
@@ -308,18 +314,21 @@ internal fun KneeCareSetupContent(
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
                 StatTile("Time", "$minutes", Modifier.weight(1f), unit = "min", accent = AppColors.primary, compact = true)
                 StatTile("Moves", "${s.names.size}", Modifier.weight(1f), accent = AppColors.reward, compact = true)
-                StatTile("Calf sets", "${s.calfSets}", Modifier.weight(1f), accent = AppColors.info, compact = true)
+                if (!ui.hipOnly) StatTile("Calf sets", "${s.calfSets}", Modifier.weight(1f), accent = AppColors.info, compact = true)
             }
         }
         BigActionButton("Start", onStart, enabled = s != null)
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Spacing.md)) {
             if (!ui.calfOnly) SecondaryButton("Different mix", onShuffle, Modifier.weight(1f))
-            SecondaryButton("Back", onBack, Modifier.weight(1f), accent = AppColors.textMuted)
+            SecondaryButton(if (ui.hipOnly) "Skip prehab" else "Back", onBack, Modifier.weight(1f), accent = AppColors.textMuted)
         }
-        if (ui.calfOnly) SecondaryButton("Full knee care instead", { onCalfOnly(false) }, Modifier.fillMaxWidth())
-        else SecondaryButton("Just calf raises", { onCalfOnly(true) }, Modifier.fillMaxWidth(), accent = AppColors.energy)
+        if (!ui.hipOnly) {
+            if (ui.calfOnly) SecondaryButton("Full knee care instead", { onCalfOnly(false) }, Modifier.fillMaxWidth())
+            else SecondaryButton("Just calf raises", { onCalfOnly(true) }, Modifier.fillMaxWidth(), accent = AppColors.energy)
+        }
         Text(
-            "You get a short beep when each rest ends and at each timed switch. Calf sets are at your own pace: do the reps, then press Done. " +
+            "You get a short beep when each rest ends and at each timed switch. " +
+                (if (ui.hipOnly) "" else "Calf sets are at your own pace: do the reps, then press Done. ") +
                 "The timer runs inside the app: if you leave it, the session pauses and waits for you.",
             style = MaterialTheme.typography.bodyMedium, color = AppColors.textMuted,
         )
@@ -443,15 +452,18 @@ internal fun KneeCareDoneContent(
         ) {
             Text("Nice work", style = MaterialTheme.typography.displaySmall, color = AppColors.textPrimary)
             Text(
-                if (minutes >= 1) "$minutes min of knee care done and saved." else "Under a minute, so nothing will be logged.",
+                if (minutes >= 1) "$minutes min of ${if (ui.hipOnly) "hip prehab" else "knee care"} done and saved." else "Under a minute, so nothing will be logged.",
                 style = MaterialTheme.typography.titleMedium, color = AppColors.textMuted,
             )
             if (minutes >= 1) {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
                     StatTile("Time", "$minutes", Modifier.weight(1f), unit = "min", compact = true)
-                    StatTile("Calf sets", "${calfSets.size}", Modifier.weight(1f), accent = AppColors.reward, compact = true)
-                    val top = calfSets.maxOfOrNull { it.weightKg }
-                    StatTile("Top load", if (top == null || top <= 0.0) "BW" else "${if (top % 1.0 == 0.0) top.toInt() else top}", Modifier.weight(1f), unit = if (top != null && top > 0.0) "kg" else "", accent = AppColors.energy, compact = true)
+                    if (ui.hipOnly) StatTile("Moves", "${ui.session?.names?.size ?: 0}", Modifier.weight(1f), accent = AppColors.reward, compact = true)
+                    else {
+                        StatTile("Calf sets", "${calfSets.size}", Modifier.weight(1f), accent = AppColors.reward, compact = true)
+                        val top = calfSets.maxOfOrNull { it.weightKg }
+                        StatTile("Top load", if (top == null || top <= 0.0) "BW" else "${if (top % 1.0 == 0.0) top.toInt() else top}", Modifier.weight(1f), unit = if (top != null && top > 0.0) "kg" else "", accent = AppColors.energy, compact = true)
+                    }
                 }
                 if (calfSets.isNotEmpty()) {
                     Text(

@@ -136,9 +136,15 @@ class GymBuilderTest {
         val p3 = GymBuilder.build(budget3, emptyList(), d)
         assertEquals(listOf("squat", "rdl", "calf"), ids(p3))
         assertEquals(listOf(upper2, upper1), p3.dropped.map { it.id })
+        // The old behaviour dropped the hinge here, which contradicted "keeping the main lifts": the builder now trims
+        // sets and warm-ups first (see GymBuilderTimeFitTest), so squat + calf worth of time still holds the hinge.
         val tiny = GymBuilder.build(minutesOf("squat", "calf").toInt() + 1, emptyList(), d)
-        assertEquals(listOf("squat", "calf"), ids(tiny))
-        assertEquals("Squat + Calf", tiny.dayLabel)
+        assertEquals(listOf("squat", "rdl", "calf"), ids(tiny))
+        assertTrue(tiny.estimatedMinutes <= minutesOf("squat", "calf").toInt() + 1)
+        // Only when even the trimmed hinge cannot fit is it dropped.
+        val trimmedAll = GymBuilder.build(8, emptyList(), d)
+        assertEquals(listOf("squat", "calf"), ids(trimmedAll))
+        assertEquals("Squat + Calf", trimmedAll.dayLabel)
         val zero = GymBuilder.build(1, emptyList(), d)
         assertEquals(listOf("squat", "calf"), ids(zero))
     }

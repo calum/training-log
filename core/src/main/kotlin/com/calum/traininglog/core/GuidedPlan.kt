@@ -133,6 +133,15 @@ data class GuidedPlan(
             else -> "Comfortably hard: ${target.first}-${target.last}/10, a few words at a time"
         }
 
+        /** The smallest lifting window a planned strength session is built for (squat, hinge and calf at 2 sets fit in it). */
+        const val MIN_LIFTING_WINDOW = 20
+
+        /** Lifting minutes in a strength session of [minutes] with [prehab] minutes of hip prehab and [finisher] minutes of station work (the squat warm-up is inside the builder's estimate; no gym travel). */
+        fun liftingWindow(minutes: Int, prehab: Int, finisher: Int = 0): Int = (minutes - prehab - finisher).coerceAtLeast(MIN_LIFTING_WINDOW)
+
+        /** The window the gym builder is fitted to for a planned strength session. */
+        fun liftingWindow(s: PlannedSession): Int = liftingWindow(s.minutes, s.launch.prehabMinutes, finisherMinutes(s) ?: 0)
+
         /** The "about N min" in a strength session's finisher header, or null when it has none. */
         fun finisherMinutes(s: PlannedSession): Int? =
             finisherLines(s).firstOrNull()?.let { Regex("about (\\d+) min").find(it)?.groupValues?.get(1)?.toIntOrNull() }

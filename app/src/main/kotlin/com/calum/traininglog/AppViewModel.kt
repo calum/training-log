@@ -137,6 +137,10 @@ data class GymLive(
     val finisherMinutes: Int = 0,
     /** True once the lifts are saved and the finisher is offered as the next step. */
     val finisherOffered: Boolean = false,
+    /** Minutes of guided hip prehab planned after the lifts (0: none); it is offered once the lifts are saved. */
+    val prehabMinutes: Int = 0,
+    /** True once the lifts are saved and the hip prehab is offered as the next step (Start or Skip). */
+    val prehabOffered: Boolean = false,
 )
 
 private const val MAX_BACK_STACK = 20
@@ -276,9 +280,13 @@ class AppViewModel @JvmOverloads constructor(
 
     // ---- Gym ----
 
-    private fun startGym(minutes: Int) {
+    /**
+     * Opens the gym builder. [minutes] is the time available including the trip to the gym (travel is taken off unless
+     * [atGym]); a non-null [liftingWindow] is the lifting time itself and is used as it is (planned strength sessions: no travel).
+     */
+    private fun startGym(minutes: Int, liftingWindow: Int? = null) {
         val records = _data.value.records
-        val lifting = if (_inputs.value.atGym) minutes else maxOf(25, GymBuilder.liftingMinutes(minutes, _data.value.profile.settings))
+        val lifting = liftingWindow ?: if (_inputs.value.atGym) minutes else maxOf(25, GymBuilder.liftingMinutes(minutes, _data.value.profile.settings))
         val gymDates = records.filter { it.type == SessionType.GYM }.map { it.date }
         val deload = Progression.deloadDue(gymDates, _data.value.profile.lastDeload, today, settings = _data.value.profile.settings)
         val plan = GymBuilder.build(lifting, records, today, deload, rebaseline = Rebaseline.status(records, today), settings = _data.value.profile.settings)
@@ -404,7 +412,7 @@ class AppViewModel @JvmOverloads constructor(
 
     fun finishGym() {
         val g = _gym.value ?: return
-        if (g.finisherOffered) return // already saved: a second tap must not save again
+        if (g.finisherOffered || g.prehabOffered) return // already saved: a second tap must not save again
         val logs = g.exercises.mapNotNull { e ->
             val done = e.sets.filter { it.done }
             if (done.isEmpty()) null
@@ -429,7 +437,11 @@ class AppViewModel @JvmOverloads constructor(
             }
             val took = "Took $minutes min (the plan was about ${g.plan.estimatedMinutes})."
             _celebration.update { it?.copy(messages = listOf(took) + it.messages) }
-            // The lifts are saved. With a station finisher planned, offer it as the next step (the gym screen shows it).
+            // The lifts are saved. A planned hip prehab is offered first, then a station finisher (the gym screen shows each).
+            if (g.prehabMinutes > 0) {
+                _gym.update { it?.copy(prehabOffered = true) }
+                return
+            }
             if (g.finisherFocus.isNotEmpty() && g.finisher.isNotEmpty()) {
                 _gym.update { it?.copy(finisherOffered = true) }
                 return
@@ -452,6 +464,33 @@ class AppViewModel @JvmOverloads constructor(
     fun discardGym() {
         _gym.value = null
         home()
+    }
+
+    /** The gym state to show as the finisher prompt once the hip prehab is done or skipped (null: nothing planned after it). */
+    private var afterPrehab: GymLive? = null
+
+    private fun hasFinisher(g: GymLive) = g.finisherFocus.isNotEmpty() && g.finisher.isNotEmpty()
+
+    /** "Start" on the hip prehab prompt: the Knee care routine in its hip-only 10 minute form. The lifts are already saved. */
+    fun startPrehab() {
+        val g = _gym.value ?: return
+        afterPrehab = g.takeIf(::hasFinisher)?.copy(prehabOffered = false, finisherOffered = true)
+        _gym.value = null
+        launchKneeCare(hipOnly = true)
+    }
+
+    /** "Skip" on the hip prehab prompt: nothing is recorded or penalised; the finisher prompt follows when one is planned. */
+    fun skipPrehab() {
+        val g = _gym.value ?: return
+        if (hasFinisher(g)) _gym.update { it?.copy(prehabOffered = false, finisherOffered = true) }
+        else { _gym.value = null; home() }
+    }
+
+    /** Leaves the hip-only knee care routine (saved, discarded or backed out of): on to the finisher prompt when one is planned, else home. */
+    private fun afterKneeCare() {
+        val g = afterPrehab
+        afterPrehab = null
+        if (g != null) { _gym.value = g; go(Screen.Gym) } else home()
     }
 
     /** "Skip finisher": the lifts are already saved, so just go home. */
@@ -655,6 +694,9 @@ class AppViewModel @JvmOverloads constructor(
         val plan = KneeCare.calfPlan(d.records, settings, u.mode, u.levelAdjust)
         val last = lastKneeCareIds().ifEmpty { null }
         val lastTime = KneeCare.lastTime(d.records, u.mode)
+        if (u.hipOnly) return KneeCareRoutine.build(
+            minutes = KneeCareRoutine.HIP_ONLY_MINUTES, last = last, kneePain = u.knee, seed = u.seed, kit = settings.kneeKit, hipOnly = true,
+        )
         return if (u.calfOnly) KneeCareRoutine.buildCalfOnly(last, plan.kg, u.mode, plan.reps, lastTime, settings.kneeKit, plan.level, plan.movedUp)
         else KneeCareRoutine.build(
             u.minutes, last, u.knee, plan.kg, u.seed, u.mode, plan.reps, lastTime,
@@ -669,12 +711,13 @@ class AppViewModel @JvmOverloads constructor(
     }
 
     /** Opens the knee care setup: the full routine, or [calfOnly] for just the calf raises. A running session is resumed. */
-    fun launchKneeCare(calfOnly: Boolean = false) {
+    fun launchKneeCare(calfOnly: Boolean = false, hipOnly: Boolean = false) {
         if (kneeCare.ui.value.phase.let { it == KneeCarePhase.RUNNING || it == KneeCarePhase.GET_READY }) { go(Screen.KneeCare); return }
         val mode = KneeCare.lastMode(_data.value.records)
         val knee = _inputs.value.knee ?: lastKneeScore()
-        val u = KneeCareUi(minutes = KneeCareRoutine.DEFAULT_MINUTES, calfOnly = calfOnly, mode = mode, knee = knee)
-        kneeCare.prepare(u.minutes, mode, knee, calfOnly, buildKneeCare(u))
+        val minutes = if (hipOnly) KneeCareRoutine.HIP_ONLY_MINUTES else KneeCareRoutine.DEFAULT_MINUTES
+        val u = KneeCareUi(minutes = minutes, calfOnly = calfOnly && !hipOnly, mode = mode, knee = knee, hipOnly = hipOnly)
+        kneeCare.prepare(u.minutes, mode, knee, u.calfOnly, buildKneeCare(u), hipOnly)
         go(Screen.KneeCare)
     }
 
@@ -719,19 +762,19 @@ class AppViewModel @JvmOverloads constructor(
             if (edited != null) persist { d -> d.copy(records = d.records.map { r -> if (r.id == id) edited else r }) }
         }
         kneeCare.reset()
-        home()
+        afterKneeCare()
     }
 
     /** Leaves the knee care setup without starting. */
     fun kneeCareBack() {
         if (kneeCare.ui.value.phase.let { it != KneeCarePhase.RUNNING && it != KneeCarePhase.GET_READY }) kneeCare.reset()
-        backOr(Screen.Home)
+        if (afterPrehab != null) afterKneeCare() else backOr(Screen.Home)
     }
 
     /** Drops a running knee care session without saving. */
     fun kneeCareDiscard() {
         kneeCare.reset()
-        home()
+        afterKneeCare()
     }
 
     // ---- Hyrox (guided station session and quick log) ----
@@ -1011,7 +1054,10 @@ class AppViewModel @JvmOverloads constructor(
             session.kind == SessionKind.REST || mod == Modality.REST -> home()
             session.kind == SessionKind.STRENGTH || mod == Modality.GYM -> {
                 setInputs { it.copy(minutes = session.minutes.coerceAtLeast(20)) }
-                startGym(session.minutes.coerceAtLeast(20))
+                // A planned session's minutes are the whole session: no gym travel comes off, only the prehab and finisher.
+                val window = GuidedPlan.liftingWindow(session)
+                startGym(session.minutes.coerceAtLeast(20), liftingWindow = window)
+                if (session.launch.prehabMinutes > 0) _gym.update { it?.copy(prehabMinutes = session.launch.prehabMinutes) }
                 val finisher = GuidedPlan.finisherLines(session)
                 if (finisher.isNotEmpty()) {
                     _gym.update {

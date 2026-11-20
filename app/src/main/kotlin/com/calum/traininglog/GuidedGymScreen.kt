@@ -288,6 +288,11 @@ private fun GuidedFinish(vm: AppViewModel, live: GymLive, onFinish: () -> Unit, 
                 style = MaterialTheme.typography.titleMedium, color = AppColors.textMuted, textAlign = TextAlign.Center,
             )
             if (missEi >= 0) MissQuestion(live.exercises[missEi].planned.exercise.name) { vm.setMiss(missEi, it) }
+            if (live.prehabMinutes > 0) {
+                SectionCard(title = "Next: hip prehab (about ${live.prehabMinutes} min, optional)") {
+                    Text(PREHAB_BLURB, style = MaterialTheme.typography.bodyMedium, color = AppColors.textMuted)
+                }
+            }
             if (live.finisher.isNotEmpty()) {
                 SectionCard(title = "Station finisher next (optional)") {
                     Text(live.finisher.first(), style = MaterialTheme.typography.bodyMedium, color = AppColors.textMuted)
