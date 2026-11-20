@@ -2,6 +2,11 @@
 
 What changed in each release, in plain language, newest first. The release workflow copies the matching `## vX.Y.Z` section into the GitHub release, and the app shows it as "What's new" before you tap Update.
 
+## v0.11.3
+
+- Seated calf raises: a Standing | Seated toggle sits right on the calf screen (and on other exercises that have a swap), so one tap switches. Seated calf raises are tracked as their own exercise with their own weight, starting at 50 kg, so they never drag down your standing weight, and each progresses on its own. If you switch after the first set, the sets you have done stay logged under the original variant. The app remembers whichever you used last.
+- Today's session overview: a guided gym session now opens with a card listing every exercise with its sets, reps and load, the estimated time, a note if anything was left out to fit your time, and "Then: hip prehab (about 10 min)" when one follows. A big Start button takes you into the first exercise.
+
 ## v0.11.2
 
 - Fixed: a planned strength session now builds the session it describes. Before, tapping Start treated the planned time like total time available and took 20 minutes off for gym travel, so only squats and calf raises were built. Now a 35 minute strength session is 25 minutes of lifting plus a 10 minute hip prehab.
