@@ -1,6 +1,9 @@
 package com.calum.traininglog
 
+import com.calum.traininglog.core.ExerciseLibrary
+import com.calum.traininglog.core.GymBuilder
 import com.calum.traininglog.core.LoggedSet
+import com.calum.traininglog.core.Exercise
 
 /** The one thing the guided gym screen shows right now. Always derived from [GymLive], never stored. */
 internal sealed interface GymStep {
@@ -71,4 +74,51 @@ internal object GymGuide {
         val total = g.exercises.sumOf { e -> if (e.closed) e.sets.count { it.done } else e.sets.size }
         return done to total
     }
+
+    /** One line of the overview: "1 Squat 2 x 5 · 77.5 kg" is [line]; [name] and [detail] are its two halves. */
+    data class OverviewRow(val number: Int, val name: String, val detail: String, val optional: Boolean = false) {
+        val line: String get() = "$number $name $detail"
+    }
+
+    /** The "Today's session" card: everything the session holds, from the same sets the guided steps use. */
+    data class Overview(
+        val rows: List<OverviewRow>,
+        val minutes: Int,
+        /** One line when sets were trimmed (or exercises left out) to fit the time; null otherwise. */
+        val trimNote: String?,
+        /** "Then: hip prehab (about 10 min)" only when a prehab prompt follows the lifting; null otherwise. */
+        val prehabLine: String?,
+    )
+
+    fun overview(g: GymLive): Overview {
+        val rows = g.exercises.mapIndexed { i, e ->
+            val first = e.sets.firstOrNull()
+            val detail = if (first == null) "no sets" else "${e.sets.size} x ${first.target} · ${loadText(first.kg)}"
+            OverviewRow(i + 1, e.planned.exercise.name, detail, optional = e.planned.exercise.id in g.plan.optionalIds)
+        }
+        val trimmed = g.plan.exercises.any { GymBuilder.TRIM_NOTE in it.prescription.note }
+        val notes = listOfNotNull(
+            if (trimmed) "Sets trimmed to fit your time." else null,
+            g.plan.dropped.takeIf { it.isNotEmpty() }?.let { "Left out to fit your time: ${it.joinToString(", ") { d -> d.name }}." },
+        )
+        return Overview(
+            rows, g.plan.estimatedMinutes, notes.joinToString(" ").ifEmpty { null },
+            if (g.prehabMinutes > 0) "Then: hip prehab (about ${g.prehabMinutes} min)" else null,
+        )
+    }
+
+    /** True while the guided screen should show "Today's session" instead of the first exercise. */
+    fun showOverview(g: GymLive): Boolean =
+        !g.overviewSeen && g.rest == null && g.exercises.isNotEmpty() && g.exercises.none { begun(it) || it.closed }
+
+    /** Short label for a swap chip: "Standing" / "Seated" for the calf raises, else the exercise name. */
+    fun variantLabel(ex: Exercise): String = when (ex.id) {
+        ExerciseLibrary.calf.id -> "Standing"
+        ExerciseLibrary.calfSeated.id -> "Seated"
+        else -> ex.name
+    }
+
+    /** The exercise itself plus its swap options, in library order (so "Standing | Seated" never changes places). */
+    fun variants(current: Exercise, options: List<Exercise>): List<Exercise> =
+        (options + current).sortedBy { ExerciseLibrary.all.indexOfFirst { l -> l.id == it.id }.let { i -> if (i < 0) Int.MAX_VALUE else i } }
 }

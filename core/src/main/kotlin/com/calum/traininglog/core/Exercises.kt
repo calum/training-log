@@ -22,6 +22,9 @@ object ExerciseLibrary {
     val deadlift = Exercise("deadlift", "Deadlift", Role.MAIN, "hinge-heavy", 5.0, 100.0, 2, 3, 3, 120)
     val rdl = Exercise("rdl", "Romanian deadlift", Role.MAIN, "hinge", 2.5, 70.0, 2, 8, 8, 90)
     val calf = Exercise("calf", "Calf raise", Role.MAIN, "calf", 2.5, 60.0, 3, 12, 12, 90)
+    /** Seated calf raise: a different (harder) exercise with its own load and history; swaps with the standing [calf]. */
+    const val CALF_SEATED_ID = "calf_seated"
+    val calfSeated = Exercise(CALF_SEATED_ID, "Seated calf raise", Role.MAIN, "calf", 2.5, 50.0, 3, 12, 12, 90)
 
     private fun acc(id: String, name: String, movement: String, start: Double) =
         Exercise(id, name, Role.ACCESSORY, movement, 2.5, start, 3, 8, 12, 90)
@@ -48,7 +51,7 @@ object ExerciseLibrary {
     const val CALF_HOME_ID = "calf_home"
     val calfHome = Exercise(CALF_HOME_ID, "Calf raise (home)", Role.ACCESSORY, "calf-home", 1.0, 0.0, 3, 12, 15, 45)
 
-    val all: List<Exercise> = listOf(squat, deadlift, rdl, calf) + upper
+    val all: List<Exercise> = listOf(squat, deadlift, rdl, calf, calfSeated) + upper
     private val byId = all.associateBy { it.id }
 
     const val CUSTOM_PREFIX = "custom:"
@@ -97,5 +100,8 @@ object ExerciseLibrary {
         if (ex.movement == OTHER_MOVEMENT) emptyList()
         else (all + customs).filter { groupOf(it.movement) == groupOf(ex.movement) && it.id != ex.id }
 
-    fun firstFor(movement: String): Exercise = upper.first { it.movement == movement }
+    fun firstFor(movement: String): Exercise = if (movement == "calf") calf else upper.first { it.movement == movement }
+
+    /** True for either gym calf raise (standing or seated); the home calf is separate. */
+    fun isGymCalf(id: String) = id == calf.id || id == calfSeated.id
 }

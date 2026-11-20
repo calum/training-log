@@ -89,12 +89,15 @@ fun RepStepCard(
     /** The optional Too easy / Just right / Too hard row: shown when [onEffort] is given (it never blocks Done). */
     effort: Effort? = null,
     onEffort: ((Effort?) -> Unit)? = null,
+    /** Optional content right under the name, such as the Standing | Seated chip row (keep it one line high). */
+    belowName: (@Composable () -> Unit)? = null,
 ) {
     Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(Spacing.md), horizontalAlignment = Alignment.CenterHorizontally) {
         if (badge != null) Pill(badge, color = AppColors.primary, filled = true)
         else if (setCount > 0) Pill("SET $setNumber OF $setCount", color = AppColors.primary, filled = true)
         Text(name, style = MaterialTheme.typography.headlineMedium, color = AppColors.textPrimary, textAlign = TextAlign.Center)
         levelLine?.let { Text(it, style = MaterialTheme.typography.titleSmall, color = AppColors.reward, textAlign = TextAlign.Center) }
+        belowName?.invoke()
 
         Column(
             Modifier.fillMaxWidth().clip(AppShapes.large).background(AppColors.surfaceRaised).padding(vertical = Spacing.lg, horizontal = Spacing.md),

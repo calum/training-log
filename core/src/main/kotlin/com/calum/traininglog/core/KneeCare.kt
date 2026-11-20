@@ -651,7 +651,7 @@ object KneeCare {
 
     /** Gym sessions in [from]..[to] with at least one gym calf set logged. */
     fun gymCalfIn(records: List<SessionRecord>, from: LocalDate, to: LocalDate): Int =
-        records.count { r -> r.type == SessionType.GYM && r.date in from..to && r.exercises.any { it.exerciseId == "calf" && it.sets.isNotEmpty() } }
+        records.count { r -> r.type == SessionType.GYM && r.date in from..to && r.exercises.any { ExerciseLibrary.isGymCalf(it.exerciseId) && it.sets.isNotEmpty() } }
 
     /**
      * Status for the week [from]..[to] as seen on [today]. Only the current week ever gets the nudge: it appears from

@@ -119,7 +119,7 @@ object Projection {
     private const val RECENT_TREADMILL_DAYS = 56L
     private const val RECENT_TREADMILL_COUNT = 6
 
-    private val mainLifts = listOf("squat", "deadlift", "rdl", "calf")
+    private val mainLifts = listOf("squat", "deadlift", "rdl", "calf", "calf_seated")
     private val hitPercent = mapOf(Scenario.CONSERVATIVE to 50, Scenario.EXPECTED to 70, Scenario.BEST to 100)
 
     fun forecast(
@@ -141,7 +141,9 @@ object Projection {
 
         val schedule = buildSchedule(records, horizon, gymN, gymDone, settings.deloadWeeks)
 
-        val lifts = mainLifts.map { id ->
+        // The calf slot is forecast for the variant in use (standing by default, seated once he has swapped to it).
+        val forecastLifts = listOf("squat", "deadlift", "rdl", GymBuilder.preferredFor("calf", records).id)
+        val lifts = forecastLifts.map { id ->
             liftForecast(ExerciseLibrary.get(id), records, today, weekStart, schedule, headlineTarget, settings)
         } + GymBuilder.upperRotation.mapNotNull { m -> upperForecast(m, records, today, schedule, settings) }
         val treadmill = treadmillForecast(records, today, horizon, tmN)
@@ -173,7 +175,7 @@ object Projection {
     private fun dayPattern(label: String) =
         if (label == "A") listOf("squat", "rdl", "calf") else listOf("squat", "deadlift", "calf")
 
-    private fun exposures(ex: Exercise, days: List<String>) = days.count { ex.id in dayPattern(it) }
+    private fun exposures(ex: Exercise, days: List<String>) = days.count { (if (ExerciseLibrary.isGymCalf(ex.id)) "calf" else ex.id) in dayPattern(it) }
 
     // ---- lifts ----
 

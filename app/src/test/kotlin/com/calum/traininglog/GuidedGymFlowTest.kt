@@ -375,8 +375,10 @@ class GuidedGymFlowTest {
         show(vm)
         startGym(vm)
         rule.waitForIdle()
+        rule.onNodeWithText("TODAY'S SESSION").assertExists() // the whole session first ...
+        press("Start")
         rule.onNodeWithText("Squat").assertExists()
-        rule.onNodeWithText("Start").assertExists()          // the next-exercise card
+        rule.onNodeWithText("Start").assertExists()          // ... then the next-exercise card
         press("Start")
         val warmups = vm.gym.value!!.exercises[0].warmups.size
         val sets = vm.gym.value!!.exercises[0].sets.size

@@ -141,6 +141,8 @@ data class GymLive(
     val prehabMinutes: Int = 0,
     /** True once the lifts are saved and the hip prehab is offered as the next step (Start or Skip). */
     val prehabOffered: Boolean = false,
+    /** Guided mode: "Start" was pressed on the "Today's session" overview card (shown once, before the first exercise). */
+    val overviewSeen: Boolean = false,
 )
 
 private const val MAX_BACK_STACK = 20
@@ -368,12 +370,40 @@ class AppViewModel @JvmOverloads constructor(
         return GymGuide.lastTime(last)
     }
 
-    /** Replace exercise [ei] with another one (any exercise in the same movement group, incl. deadlift <-> RDL). */
+    /** "Start" on the guided "Today's session" overview card. */
+    fun startGuidedSession() = editGym { it.copy(overviewSeen = true) }
+
+    /**
+     * Swap exercise [ei] for another one in the same movement group (incl. deadlift <-> RDL, standing <-> seated calf).
+     * Before any set is done it simply replaces the exercise. Once sets are done they stay logged under the original
+     * exercise (which is closed), and the new exercise takes the REMAINING sets with its own prescription (its weight
+     * comes from its own history, or its start weight the first time) right after it.
+     */
     fun swap(ei: Int, newId: String) {
         val g = _gym.value ?: return
         if (ei !in g.exercises.indices) return
+        val cur = g.exercises[ei]
+        if (cur.planned.exercise.id == newId) return
         val planned = GymBuilder.planFor(newId, _data.value.records, today, g.plan.deload, rebaseline = g.plan.rebaseline, settings = _data.value.profile.settings)
-        editExercise(ei) { live(planned) }
+        val doneCount = cur.sets.count { it.done }
+        if (doneCount == 0) {
+            editExercise(ei) { live(planned).copy(started = it.started) }
+            return
+        }
+        val remaining = cur.sets.size - doneCount
+        if (remaining <= 0) return // everything is already done: nothing left to swap
+        val rx = planned.prescription
+        val next = live(planned).copy(
+            warmups = emptyList(), started = true,
+            sets = List(remaining) { LiveSet(rx.weightKg, rx.reps, rx.reps) },
+        )
+        editGym { gl ->
+            val kept = cur.copy(sets = cur.sets.filter { it.done }, closed = true, askMiss = false)
+            gl.copy(
+                exercises = gl.exercises.toMutableList().also { it[ei] = kept; it.add(ei + 1, next) },
+                rest = gl.rest?.let { r -> if (r.ei > ei) r.copy(ei = r.ei + 1) else r },
+            )
+        }
     }
 
     /** Skip an exercise for today. */
@@ -421,7 +451,7 @@ class AppViewModel @JvmOverloads constructor(
                 customName = if (ExerciseLibrary.isCustom(e.planned.exercise.id)) e.planned.exercise.name else null,
                 customMovement = e.planned.exercise.movement.takeIf { ExerciseLibrary.isCustom(e.planned.exercise.id) && it != ExerciseLibrary.OTHER_MOVEMENT },
             )
-        }
+        }.let(::mergeSameExercise)
         val minutes = ((SystemClock.elapsedRealtime() - gymStartedAt) / 60000).toInt().coerceAtLeast(1)
         if (logs.isNotEmpty()) {
             val record = SessionRecord(
@@ -449,6 +479,18 @@ class AppViewModel @JvmOverloads constructor(
         }
         _gym.value = null
         home()
+    }
+
+    /**
+     * One log per exercise: swapping back and forth can leave several parts of the same exercise in a session. Their sets
+     * are joined in order and the log sits at the place of its LAST part, so the variant used last stays last.
+     */
+    private fun mergeSameExercise(logs: List<ExerciseLog>): List<ExerciseLog> {
+        if (logs.map { it.exerciseId }.distinct().size == logs.size) return logs
+        return logs.indices.filter { i -> logs.indexOfLast { it.exerciseId == logs[i].exerciseId } == i }.map { i ->
+            val all = logs.filter { it.exerciseId == logs[i].exerciseId }
+            logs[i].copy(sets = all.flatMap { it.sets }, missReason = all.firstNotNullOfOrNull { it.missReason })
+        }
     }
 
     /** "Do the station finisher": the guided Hyrox session for those stations with the finisher's minutes. */

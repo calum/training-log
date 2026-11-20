@@ -146,7 +146,7 @@ object CalfLadder {
      * level 4) or a "too easy" report on the easy version mean single-leg with the kettlebell; a new user starts at level 1.
      */
     fun startLevel(records: List<SessionRecord>, reportedEasy: Boolean = false): Int {
-        val gym = records.filter { it.type == SessionType.GYM }.flatMap { it.exercises }.filter { it.exerciseId == "calf" }
+        val gym = records.filter { it.type == SessionType.GYM }.flatMap { it.exercises }.filter { ExerciseLibrary.isGymCalf(it.exerciseId) }
             .flatMap { it.sets }.maxOfOrNull { it.weightKg } ?: 0.0
         val fromGym = when { gym >= GYM_HEAVY_KG -> 4; gym >= GYM_START_KG -> 3; else -> 1 }
         return if (reportedEasy) max(fromGym, 3) else fromGym

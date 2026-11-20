@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.background
@@ -33,6 +34,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import com.calum.traininglog.core.Exercise
 import com.calum.traininglog.core.MissReason
 import com.calum.traininglog.ui.AppColors
 import com.calum.traininglog.ui.AppShapes
@@ -78,6 +80,7 @@ internal fun GuidedGymBody(vm: AppViewModel, live: GymLive, remaining: Int, onFi
         GuidedHeader(vm, live, targetEi, done, total, onAdd, onFinish)
         Box(Modifier.weight(1f).fillMaxWidth()) {
             when {
+                GymGuide.showOverview(live) -> GuidedOverview(vm, live)
                 rest != null -> GuidedRest(vm, live, rest, remaining, step, onFinish)
                 step is GymStep.Intro -> GuidedIntro(vm, live, step.ei)
                 step is GymStep.Warmup -> GuidedWarmup(vm, live, step.ei, step.wi)
@@ -191,7 +194,72 @@ private fun GuidedWork(vm: AppViewModel, live: GymLive, ei: Int, si: Int) {
             hint = last,
             onDone = { vm.completeSet(ei, si) },
             modifier = Modifier.weight(1f), pinDone = true,
+            belowName = { SwapChips(vm, ei, ex) },
         )
+    }
+}
+
+/**
+ * One-tap swap between an exercise and its alternatives ("Standing | Seated" for the calf raises): one line of big
+ * toggle chips (48 dp and up) that never grows, so the "Done, next" button stays where it is. Nothing shows when the
+ * exercise has no alternatives. See [AppViewModel.swap] for what a swap keeps.
+ */
+@Composable
+internal fun SwapChips(vm: AppViewModel, ei: Int, current: Exercise, modifier: Modifier = Modifier) {
+    val options = vm.swapOptions(current)
+    if (options.isEmpty()) return
+    SwapChipRow(GymGuide.variants(current, options), current.id, { vm.swap(ei, it) }, modifier)
+}
+
+@Composable
+internal fun SwapChipRow(variants: List<Exercise>, currentId: String, onPick: (String) -> Unit, modifier: Modifier = Modifier) {
+    Row(
+        modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(Spacing.sm, Alignment.CenterHorizontally),
+    ) {
+        variants.forEach { v ->
+            SelectChip(
+                GymGuide.variantLabel(v), selected = v.id == currentId, onClick = { onPick(v.id) },
+                modifier = Modifier.heightIn(min = 48.dp), accent = AppColors.info,
+            )
+        }
+    }
+}
+
+/** "Today's session": every exercise with sets x reps and load, the time, a trim note and the prehab line, then Start. */
+@Composable
+internal fun GuidedOverview(vm: AppViewModel, live: GymLive) {
+    val o = GymGuide.overview(live)
+    OverviewContent(o, onStart = { vm.startGuidedSession() })
+}
+
+@Composable
+internal fun OverviewContent(o: GymGuide.Overview, onStart: () -> Unit) {
+    Column(stepPadding.navigationBarsPadding().fillMaxSize(), verticalArrangement = Arrangement.spacedBy(Spacing.md), horizontalAlignment = Alignment.CenterHorizontally) {
+        Column(
+            Modifier.weight(1f).verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(Spacing.md), horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Pill("TODAY'S SESSION", color = AppColors.primary, filled = true)
+            Text("${o.rows.size} ${if (o.rows.size == 1) "exercise" else "exercises"}, about ${o.minutes} min", style = MaterialTheme.typography.headlineMedium, color = AppColors.textPrimary, textAlign = TextAlign.Center)
+            Column(
+                Modifier.fillMaxWidth().clip(AppShapes.large).background(AppColors.surfaceRaised).padding(Spacing.lg),
+                verticalArrangement = Arrangement.spacedBy(Spacing.md),
+            ) {
+                o.rows.forEach { r ->
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Spacing.md)) {
+                        Text("${r.number}", style = MaterialTheme.typography.titleLarge, color = AppColors.primary)
+                        Column(Modifier.weight(1f)) {
+                            Text(r.name + if (r.optional) " (optional)" else "", style = MaterialTheme.typography.titleMedium, color = AppColors.textPrimary)
+                            Text(r.detail, style = MaterialTheme.typography.titleSmall, color = AppColors.energy)
+                        }
+                    }
+                }
+            }
+            o.trimNote?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = AppColors.textMuted, textAlign = TextAlign.Center) }
+            o.prehabLine?.let { Text(it, style = MaterialTheme.typography.titleSmall, color = AppColors.info, textAlign = TextAlign.Center) }
+        }
+        BigActionButton("Start", onStart, Modifier.fillMaxWidth().heightIn(min = 96.dp))
     }
 }
 
@@ -229,6 +297,7 @@ private fun GuidedIntro(vm: AppViewModel, live: GymLive, ei: Int) {
         ) {
             Pill("NEXT EXERCISE ${ei + 1} OF ${live.exercises.size}", color = AppColors.primary, filled = true)
             Text(ex.name, style = MaterialTheme.typography.displaySmall, color = AppColors.textPrimary, textAlign = TextAlign.Center)
+            SwapChips(vm, ei, ex)
             Column(
                 Modifier.fillMaxWidth().clip(AppShapes.large).background(AppColors.surfaceRaised).padding(Spacing.lg),
                 horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(Spacing.xs),

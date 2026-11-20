@@ -73,7 +73,7 @@ object GymBuilder {
     /** The exercise last used for [movement] (derived from history), else the library default. */
     fun preferredFor(movement: String, records: List<SessionRecord>): Exercise {
         val recent = gymRecords(records).sortedByDescending { it.date }.firstNotNullOfOrNull { r ->
-            r.exercises.firstOrNull { it.sets.isNotEmpty() && ExerciseLibrary.find(it.exerciseId)?.movement == movement }
+            r.exercises.lastOrNull { it.sets.isNotEmpty() && ExerciseLibrary.find(it.exerciseId)?.movement == movement }
         }
         return recent?.let { ExerciseLibrary.find(it.exerciseId) } ?: ExerciseLibrary.firstFor(movement)
     }
@@ -84,6 +84,8 @@ object GymBuilder {
 
     /** Main lifts are trimmed to this many sets (never lower) when the window is short. */
     const val MIN_TRIMMED_SETS = 2
+    /** Appended to a prescription's note when its sets were trimmed to fit the time. */
+    const val TRIM_NOTE = "Fewer sets to fit your time."
     /** The squat warm-up chain keeps the bar plus this many of the last ramps when time is short. */
     private val TRIMMED_WARMUP_RAMPS = listOf(3, 2)
 
@@ -113,7 +115,7 @@ object GymBuilder {
 
         val squat = p(ExerciseLibrary.squat)
         val hingeP = p(hinge)
-        val calf = p(ExerciseLibrary.calf)
+        val calf = p(preferredFor("calf", records))
         val upper1 = p(u1)
         val upper2 = p(u2)
         val extra = if (liftingMinutes >= EXTRA_HINGE_MIN) p(if (hinge.id == "rdl") ExerciseLibrary.deadlift else ExerciseLibrary.rdl) else null
@@ -139,7 +141,7 @@ object GymBuilder {
             mainIds.forEach { id ->
                 replace(id) { e ->
                     if (e.prescription.sets <= MIN_TRIMMED_SETS) e
-                    else e.copy(prescription = e.prescription.copy(sets = MIN_TRIMMED_SETS, note = e.prescription.note + " Fewer sets to fit your time."))
+                    else e.copy(prescription = e.prescription.copy(sets = MIN_TRIMMED_SETS, note = e.prescription.note + " " + TRIM_NOTE))
                 }
             }
         }

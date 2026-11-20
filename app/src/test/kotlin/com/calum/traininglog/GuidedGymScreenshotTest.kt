@@ -71,6 +71,7 @@ private object GuidedFixtures {
         val vm = AppViewModel(ctx as Application, clock = { today })
         vm.setInputs { it.copy(minutes = 75, feeling = Feeling.GOOD) }
         vm.begin(SessionType.GYM, 75)
+        vm.startGuidedSession() // past the "Today's session" overview card (CalfSwapScreenshotTest shows that)
         ShadowSystemClock.advanceBy(Duration.ofMinutes(23))
         return vm
     }
