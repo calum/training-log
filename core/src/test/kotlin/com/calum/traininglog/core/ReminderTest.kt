@@ -74,11 +74,18 @@ class ReminderTest {
         val texts = (0L until 16).map { Reminder.phrase(wed.plusDays(it)) }
         assertEquals(8, texts.toSet().size)
         assertEquals(Reminder.phrase(wed), Reminder.phrase(wed))
+        val planTexts = (0L until 16).map { Reminder.phrase(wed.plusDays(it), planOn = true) }
+        assertEquals(Reminder.planPhrases.size, planTexts.toSet().size)
         val banned = listOf("miss", "streak", "behind", "lost", "break", "should", "skipped", "haven't")
-        Reminder.phrases.forEach { p -> banned.forEach { assertFalse(p.lowercase().contains(it), "$p / $it") } }
+        (Reminder.phrases + Reminder.planPhrases).forEach { p -> banned.forEach { assertFalse(p.lowercase().contains(it), "$p / $it") } }
+        // The race plan is on by default: the wording then names no activity, the suggestion comes from the plan.
         val t = Reminder.nudgeText(emptyList(), profile(), wed, 0)
         assertNotNull(t)
-        assertTrue(t.startsWith(Reminder.phrase(wed)))
+        assertTrue(t.startsWith(Reminder.phrase(wed, planOn = true)))
+        // With the race plan off the original wording is used.
+        val off = Reminder.nudgeText(emptyList(), profile { it.copy(racePlan = it.racePlan.copy(enabled = false)) }, wed, 0)
+        assertNotNull(off)
+        assertTrue(off.startsWith(Reminder.phrase(wed)))
         assertNull(Reminder.nudgeText(listOf(rec(wed)), profile(), wed, 0))
     }
 }
