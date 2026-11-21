@@ -50,6 +50,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import com.calum.traininglog.core.Coach
 import com.calum.traininglog.core.IntensityBalance
 import com.calum.traininglog.core.Intensity
 import com.calum.traininglog.core.MoveOption
@@ -110,7 +111,7 @@ internal fun RacePlanContent(
     onKneeCare: (calfOnly: Boolean) -> Unit = {},
 ) {
     val cfg = profile.settings.racePlan
-    val plan = remember(cfg, records, today, profile) { RacePlanner.build(cfg, records, today, profile) }
+    val plan = remember(cfg, records, today, profile) { Coach.plan(profile, records, today) }
     val week = RacePlanner.thisWeek(plan, today)
     val health = remember(plan, records, profile, today) { PlanHealth.assess(plan, records, profile, today) }
 
@@ -163,6 +164,7 @@ private fun phaseColor(p: RacePhase): Color = when (p) {
     RacePhase.TAPER -> AppColors.rewardDeep
     RacePhase.RACE -> AppColors.textPrimary
     RacePhase.KICKOFF -> AppColors.textMuted
+    RacePhase.MAINTAIN -> AppColors.primary
 }
 
 @Composable

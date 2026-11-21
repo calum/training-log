@@ -82,7 +82,7 @@ Rules for every future change:
 0. (original list, for reference) **Data safety**: pre-restore copy and merge restore, soft delete + Undo, save-failure banner, shrink guard, weekly copies, draft autosave. Tests for each. (First, because everything else touches data.)
 1. **Today engine** (`core/Coach`, done #6) with unit tests; Home, NEXT UP, Start, reminder and "I have some time" switched to it; architecture test added; CLAUDE.md "known gaps" removed.
 2. **Good week on the plan** (done, #7): the Home ring, number, headline and the reminder read `Coach.goodWeek`. Streak and XP never used the targets. The "Early bird week" badge keeps its target-based rule so no earned badge can disappear.
-3. **Maintenance plan** after race day (auto) and when no race plan is on; block goals shown inside the plan. NOT STARTED: needs Calum to confirm the weekly template (proposed: about 2 strength + 2-3 aerobic sessions, easy, knee-friendly). Race day is 27 Feb 2027, so this is not urgent.
+3. **Maintenance plan** after race day (auto) and when no race plan is on; block goals shown inside the plan. Template confirmed by Calum (2 strength + 2-3 easy aerobic, knee-friendly). Built as `RacePlanner.buildMaintenance`, chosen by `Coach.plan` after race week. Block goals inside the plan are still to do.
 4. **Home simplification** (NOT STARTED: a visual change, best reviewed on the phone) and removal of the dead `WeekPlanner`/`NextUp` suggestion code and the legacy cards; screenshot tests refreshed.
 
 ## Open to revisit

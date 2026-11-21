@@ -80,11 +80,9 @@ fun HomeScreen(vm: AppViewModel) {
     val ctx = LocalContext.current
     val today = LocalToday.current ?: LocalDate.now()
     val profile = data.profile
-    val racePlan = remember(profile, data.records, today) {
-        profile.settings.racePlan.takeIf { it.enabled }?.let { RacePlanner.build(it, data.records, today, profile) }
-    }
+    val racePlan = remember(profile, data.records, today) { Coach.racePlan(profile, data.records, today) }
     val plannedToday = racePlan?.let { RacePlanFormat.todaysOpenSession(it, data.records, today) }
-    val health = remember(racePlan, data.records, profile, today) { racePlan?.let { PlanHealth.assess(it, data.records, profile, today) } }
+    val health = remember(racePlan, data.records, profile, today) { racePlan?.takeIf { !it.maintenance }?.let { PlanHealth.assess(it, data.records, profile, today) } }
     val rewards = Rewards.summary(data.records, today, profile.settings)
     val view = WeekPlanner.plan(data.records, profile, today, profile.settings)
     // The ring, its number and its headline all come from Coach: the plan's sessions while a race plan is on.
@@ -278,7 +276,7 @@ private fun RaceHomeCard(
     val days = plan.daysToGo(today)
     SectionCard(onClick = onOpen) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
-            Text("HYROX SIM", style = AppType.eyebrow, color = AppColors.energy, modifier = Modifier.weight(1f))
+            Text(if (plan.maintenance) "TRAINING PLAN" else "HYROX SIM", style = AppType.eyebrow, color = AppColors.energy, modifier = Modifier.weight(1f))
             Pill(RacePlanFormat.weekShort(plan, today), color = AppColors.info)
         }
         Text(RacePlanFormat.countdown(days), style = MaterialTheme.typography.headlineSmall, color = AppColors.textPrimary)

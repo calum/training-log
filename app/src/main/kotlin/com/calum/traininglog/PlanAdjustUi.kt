@@ -34,6 +34,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import com.calum.traininglog.core.Coach
 import com.calum.traininglog.core.Feeling
 import com.calum.traininglog.core.HealthLevel
 import com.calum.traininglog.core.MoveOption
@@ -125,7 +126,7 @@ internal fun ChangeBanner(text: String, onUndo: () -> Unit, modifier: Modifier =
 /** The new profile and the plain 'what changed' line for skipping [s] with [reason]. */
 internal fun skipWithMessage(profile: Profile, records: List<SessionRecord>, today: LocalDate, s: PlannedSession, reason: SkipReason): Pair<Profile, String> {
     val np = RacePlanner.skip(profile, s, reason, today)
-    val after = RacePlanner.build(profile.settings.racePlan, records, today, np)
+    val after = Coach.plan(np, records, today)
     return np to "Skipped. " + RacePlanner.skipOutcome(after, s)
 }
 

@@ -9,6 +9,7 @@ import androidx.lifecycle.viewModelScope
 import com.calum.traininglog.core.TreadmillStatsCalc
 import kotlinx.coroutines.launch
 import com.calum.traininglog.core.CalfMode
+import com.calum.traininglog.core.Coach
 import com.calum.traininglog.core.workResults
 import com.calum.traininglog.core.Effort
 import com.calum.traininglog.core.KneeCare
@@ -265,8 +266,7 @@ class AppViewModel @JvmOverloads constructor(
         )
         // With the race plan on, the plan's own answer (fitted to the time, feeling and knee) is shown first.
         val d = _data.value
-        val cfg = d.profile.settings.racePlan
-        val plan = cfg.takeIf { it.enabled }?.let { RacePlanner.build(it, d.records, today, d.profile) }
+        val plan = Coach.racePlan(d.profile, d.records, today)
         _timeSuggestion.value = plan?.takeIf { it.segmentOf(today) != null }
             ?.let { RacePlanner.suggestForTime(it, d.records, today, i.minutes, i.feeling, i.knee, d.profile) }
     }
