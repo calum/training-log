@@ -165,6 +165,18 @@ internal object RacePlanFormat {
         return if (s in doneSessions(w, records, today)) null else s
     }
 
+    /**
+     * The Home "NEXT UP" line when a race plan is on, so it always agrees with the Hyrox card: today's open session,
+     * else the next open one this week ("Kick-off: easy aerobic, 30 min, Sun 22 Nov"). Null when nothing is left
+     * this week (the card is then hidden rather than falling back to the separate weekly planner).
+     */
+    fun nextUpText(plan: RacePlan, records: List<SessionRecord>, today: LocalDate): String? {
+        val w = RacePlanner.thisWeek(plan, today) ?: return null
+        val next = nextSession(w, doneSessions(w, records, today), today) ?: return null
+        return if (next.date == today) "From your race plan: ${next.title}, ${next.minutes} min."
+        else "${next.title}, ${next.minutes} min, ${shortDay(next.date)}."
+    }
+
     /** "2 of 5 done, 138 of 215 planned minutes" wrapped in encouraging words. */
     fun weekProgressText(done: Int, total: Int, doneMin: Int, plannedMin: Int, weekOver: Boolean, skipped: Int = 0): String {
         val skipNote = when (skipped) { 0 -> ""; 1 -> " 1 skipped, and that is fine."; else -> " $skipped skipped, and that is fine." }
