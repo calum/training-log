@@ -41,4 +41,9 @@ class CoachRulesTest {
         assertEquals(emptySet<String>(), callers("rewards.ring"))
         assertTrue(callers("goodWeekDone").none { it.endsWith("Screen.kt") }, "a screen reads the old good-week numbers")
     }
+
+    @Test fun onlyCoachBuildsPlans() {
+        // Race plan before the race, maintenance plan after it: one place decides which, so no screen can show the wrong one.
+        assertEquals(setOf("Coach.kt"), callers("RacePlanner.build(") + callers("RacePlanner.buildMaintenance("))
+    }
 }

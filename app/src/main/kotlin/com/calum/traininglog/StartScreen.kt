@@ -28,6 +28,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import com.calum.traininglog.core.Coach
 import com.calum.traininglog.core.Feeling
 import com.calum.traininglog.core.RacePlanner
 import com.calum.traininglog.core.RestDays
@@ -138,9 +139,7 @@ fun StartScreen(vm: AppViewModel) {
     val data by vm.data.collectAsState()
     val today = LocalToday.current ?: LocalDate.now()
     val restDay = RestDays.isRestDay(data.profile, today)
-    val racePlan = remember(data.profile, data.records, today) {
-        data.profile.settings.racePlan.takeIf { it.enabled }?.let { cfg -> RacePlanner.build(cfg, data.records, today, data.profile) }
-    }
+    val racePlan = remember(data.profile, data.records, today) { Coach.racePlan(data.profile, data.records, today) }
     val planned = racePlan?.let { RacePlanFormat.todaysOpenSession(it, data.records, today) }
     // Kick-off, today already logged: say plainly that nothing more is needed.
     val kickoffNote = if (planned == null) racePlan?.let { RacePlanFormat.kickoffTodayNote(it, today) } else null
@@ -161,9 +160,9 @@ fun StartScreen(vm: AppViewModel) {
 
         planned?.let { p ->
             SectionCard {
-                Text("HYROX SIM", style = AppType.eyebrow, color = AppColors.energy)
+                Text(if (racePlan?.maintenance == true) "TRAINING PLAN" else "HYROX SIM", style = AppType.eyebrow, color = AppColors.energy)
                 Text(
-                    "From your race plan: ${p.title}", style = MaterialTheme.typography.titleLarge, color = AppColors.textPrimary,
+                    "From your ${if (racePlan?.maintenance == true) "plan" else "race plan"}: ${p.title}", style = MaterialTheme.typography.titleLarge, color = AppColors.textPrimary,
                 )
                 Text(
                     "${p.minutes} min · ${RacePlanFormat.intensityLabel(p.intensity)} · ${p.rpeLabel}",

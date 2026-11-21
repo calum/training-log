@@ -65,6 +65,7 @@ internal object RacePlanFormat {
     fun weekHeadline(plan: RacePlan, today: LocalDate): String {
         val w = RacePlanner.thisWeek(plan, today) ?: return "Plan complete"
         if (w.isLeadIn) return w.headline
+        if (plan.maintenance) return "Maintenance · this week"
         val label = "Week ${w.index} of ${RacePlanner.WEEKS} · ${w.phase.label}"
         return label
     }
@@ -73,6 +74,7 @@ internal object RacePlanFormat {
     fun weekShort(plan: RacePlan, today: LocalDate): String {
         val w = RacePlanner.thisWeek(plan, today) ?: return "Plan complete"
         if (w.isLeadIn) return "Kick-off"
+        if (plan.maintenance) return "Maintenance"
         return "Week ${w.index} ${w.phase.label}"
     }
 
@@ -128,6 +130,7 @@ internal object RacePlanFormat {
         RacePhase.SHARPEN -> "Volume eases while the pace stays race-like. You should feel sharper, not more tired."
         RacePhase.TAPER -> "Training drops by about 40% with the same intensity, so you arrive fresh, not flat."
         RacePhase.RACE -> "Short sharpeners early, nothing hard after Wednesday, rest on Friday. Then the fun part."
+        RacePhase.MAINTAIN -> "Two strength days and easy aerobic work, nothing hard. It keeps what you built and is easy to keep up."
     }
 
     fun intensityLabel(i: Intensity): String = when (i) {

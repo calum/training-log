@@ -18,7 +18,9 @@ The agreed plan to remove the two-planner problem for good, plus the data-safety
 
 The "good week" (Home ring, its number and headline, and when the reminder stops nudging) comes from `Coach.goodWeek` / `Coach.weekProgress`: the plan's own sessions while a race plan is on, the old gym 2 / treadmill 3 targets otherwise. Screens never read `goodWeekDone` or `rewards.ring` themselves (`CoachRulesTest`). Streak and XP never depended on the targets. The "Early bird week" badge still uses the targets on purpose: badges are recomputed from history, so changing its rule could take away one you already earned.
 
-Known gaps: the Start screen's free-choice picker below the planned session still uses `Recommender` on purpose; the maintenance plan after race day (phase 3) and the Home simplification (phase 4) are not built yet.
+After race week (Sunday after the race date) `Coach.plan` returns the maintenance plan (`RacePlanner.buildMaintenance`: 2 strength + 2-3 easy aerobic sessions, nothing hard, no countdown, `RacePlan.maintenance == true`) instead of the race plan. Only `Coach` builds plans (`CoachRulesTest`), so a screen can never show the wrong one. Use `Coach.plan(profile, records, today)` for the Plan screen (always built) and `Coach.racePlan(...)` when the plan may be switched off.
+
+Known gaps: the Start screen's free-choice picker below the planned session still uses `Recommender` on purpose; the Home simplification (phase 4) is waiting for Calum's approval of the mock-up.
 
 ## Working here
 

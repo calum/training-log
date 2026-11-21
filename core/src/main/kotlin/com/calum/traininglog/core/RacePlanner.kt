@@ -276,6 +276,72 @@ object RacePlanner {
             ". That is the honest build from where you are now, and it is kind to a returning knee. If you do more, the plan follows."
     }
 
+
+    // ------------------------------------------------------------------------------------------ after the race
+
+    const val MAINTENANCE_WEEKS = 8
+    const val MAINTENANCE_MIN = 120
+    const val MAINTENANCE_MAX = 240
+
+    /** Sunday of the race week: from the day after it the maintenance plan takes over. */
+    fun raceWeekEnd(raceDate: LocalDate): LocalDate = raceDate.with(TemporalAdjusters.nextOrSame(DayOfWeek.SUNDAY))
+
+    /**
+     * The steady plan that follows the race (and any time the race date has passed): the next [MAINTENANCE_WEEKS]
+     * Monday-Sunday weeks starting with the current one, rebuilt every day so it is always "this week onwards".
+     * Every week is the same shape: two strength sessions with hip prehab, then easy aerobic sessions (one of them
+     * longer with five or more sessions), at a weekly load that follows the real recent minutes between
+     * [MAINTENANCE_MIN] and [MAINTENANCE_MAX] (and the optional cap). Nothing is hard, nothing progresses, there is no
+     * race countdown and no Hyrox finisher. Rest days, moves, skips, the knee-gated running return and knee care all
+     * work exactly as in the race plan, because it is made of the same sessions.
+     */
+    fun buildMaintenance(config: RacePlanSettings, records: List<SessionRecord>, today: LocalDate, profile: Profile = Profile()): RacePlan {
+        val cfg = config.sanitized()
+        val settings = profile.settings
+        val start = today.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY))
+        val status = RunStageLogic.assess(records, today)
+        val bl = baseline(records, start, today)
+        val cap = cfg.maxWeeklyMinutes
+        val total = bl.minutes.coerceIn(MAINTENANCE_MIN, MAINTENANCE_MAX).let { if (cap != null) min(it, cap) else it }
+        val kinds = listOf(SessionKind.STRENGTH, SessionKind.STRENGTH, SessionKind.EASY, SessionKind.EASY, SessionKind.LONG_EASY, SessionKind.EASY)
+            .take(cfg.sessionsPerWeek)
+        val adj = profile.planAdjustments
+        val layoutProfile = if (adj.moves.isEmpty()) profile else profile.copy(workoutOverrides = profile.workoutOverrides - PlanAdjust.moveRestTargets(profile))
+        val kneeCaution = status.flareRecent || (status.steppedBackOn?.let { ChronoUnit.DAYS.between(it, today) <= 14 } == true)
+
+        var prev: List<PlannedSession> = emptyList()
+        val weeks = (1..MAINTENANCE_WEEKS).map { i ->
+            val ws = start.plusWeeks((i - 1).toLong())
+            val ctx = Ctx(i, RacePhase.MAINTAIN, false, ws, status.stage, status.rung, records, settings, layoutProfile, cfg.raceDate, kneeCaution, cap != null)
+            val applied = PlanAdjust.apply(layoutMaintenanceWeek(ctx, total, kinds, prev), ws, ws.plusDays(6), adj, layoutProfile, false)
+            val sessions = applied.sessions
+            prev = sessions.filter { it.skipReason == null }
+            PlanWeek(
+                index = i, start = ws, phase = RacePhase.MAINTAIN, deload = false,
+                plannedMinutes = sessions.filter { !it.isRaceDay && it.kind != SessionKind.REST && it.skipReason == null }.sumOf { it.minutes },
+                easyShareTarget = EASY_TARGET, runStage = status.stage, runStageProjected = false,
+                sessions = sessions, headline = "Maintenance: keeping what you built",
+                focus = "Two strength days and easy aerobic work, nothing hard. It keeps the strength and the base you built, and it is easy to keep up. Set a new goal or race whenever you like.",
+                stationTargets = emptyMap(), adjustment = applied.notes.takeIf { it.isNotEmpty() }?.joinToString(" "),
+                kneeCare = KneeCare.status(ws, ws.plusDays(6), records, today, false),
+            )
+        }
+        return RacePlan(weeks, cfg.raceDate, timeline(weeks), bl.minutes, total, status, null, bl.fromHistory, null, maintenance = true)
+    }
+
+    private fun layoutMaintenanceWeek(c: Ctx, total: Int, wanted: List<SessionKind>, prev: List<PlannedSession>): List<PlannedSession> {
+        val days = freeDays(c)
+        if (days.isEmpty()) return emptyList()
+        val kinds = wanted.take(days.size)
+        val slots = kinds.map { k -> Slot(k, weightOf(k), RAMP_MIN.getValue(k), SLOT_BOUNDS.getValue(k).second) }
+        val mins = allocate(total, slots)
+        val context = prev.filter { it.kind != SessionKind.REST }.associate { it.date to it.kind }
+        val dates = schedule(kinds, days, null, context)
+        val strengthIdx = kinds.indices.filter { kinds[it] == SessionKind.STRENGTH }.sortedBy { dates[it] }
+        val drafts = kinds.indices.map { n -> Draft(dates[n], kinds[n], mins[n], max(0, strengthIdx.indexOf(n))) }.sortedBy { it.date }
+        return finishDrafts(c, drafts)
+    }
+
     // ------------------------------------------------------------------------------------------ kick-off lead-in
 
     private fun loggedLabel(r: SessionRecord): String = when {
@@ -798,7 +864,7 @@ object RacePlanner {
 
     private fun strength(c: Ctx, d: Draft): PlannedSession {
         val stations = finisherStations(c.i, min(1, d.strengthNo))
-        val phasePrimer = when (c.phase) { RacePhase.BASE -> 10; RacePhase.BUILD -> 15; RacePhase.SPECIFIC -> 10; RacePhase.RACE, RacePhase.KICKOFF -> 0; else -> 8 }
+        val phasePrimer = when (c.phase) { RacePhase.BASE -> 10; RacePhase.BUILD -> 15; RacePhase.SPECIFIC -> 10; RacePhase.RACE, RacePhase.KICKOFF, RacePhase.MAINTAIN -> 0; else -> 8 }
         // Warm-up 5 + prehab 10 + at least 20 minutes of lifts come first; the finisher gets what is left. A short
         // (ramp or kick-off) session under 40 minutes in the base, build or specific phases has no finisher at all.
         val shortRamp = d.minutes < 40 && (c.phase == RacePhase.BASE || c.phase == RacePhase.BUILD || c.phase == RacePhase.SPECIFIC)
