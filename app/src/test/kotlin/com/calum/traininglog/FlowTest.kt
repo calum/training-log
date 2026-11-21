@@ -384,6 +384,44 @@ class FlowTest {
         assertEquals(original, main.readText())
     }
 
+    @Test fun aDeletedSessionGoesToTheTrashAndComesBackExactlyAsItWas() {
+        val vm = newVm()
+        vm.saveManual(SessionType.HIKE, 2, 60, null, "keep me")
+        vm.saveManual(SessionType.CORE, 1, 20, null, "delete me")
+        val victim = vm.data.value.records.first { it.note == "delete me" }
+        vm.deleteRecord(victim.id)
+        assertEquals(listOf("keep me"), onDisk().records.map { it.note })
+        assertEquals(listOf(victim), onDisk().trash.map { it.record })
+        vm.dismissCelebration() // from logging the sessions above
+        vm.restoreFromTrash(victim.id)
+        assertEquals(victim, onDisk().records.first { it.id == victim.id })
+        assertEquals(2, onDisk().records.size)
+        assertEquals(emptyList(), onDisk().trash)
+        assertNull(vm.celebration.value) // a restore is not a new achievement
+    }
+
+    @Test fun aRestoreFromBackupDoesNotBringBackASessionYouDeleted() {
+        val vm = newVm()
+        vm.saveManual(SessionType.HIKE, 1, 30, null, "gone")
+        val rec = vm.data.value.records.single()
+        vm.deleteRecord(rec.id)
+        assertEquals(0, vm.mergeData(AppData(listOf(rec))))
+        assertEquals(emptyList(), onDisk().records)
+        assertEquals(1, onDisk().trash.size)
+    }
+
+    @Test fun trashIsKeptForNinetyDaysThenPurgedOnStartup() {
+        val vm = newVm()
+        vm.saveManual(SessionType.HIKE, 1, 30, null, "old")
+        vm.deleteRecord(vm.data.value.records.single().id)
+        today = today.plusDays(90)
+        assertEquals(1, newVm().data.value.trash.size) // exactly 90 days: still there
+        today = today.plusDays(1)
+        val later = newVm()
+        assertEquals(emptyList(), later.data.value.trash)
+        assertEquals(emptyList(), onDisk().trash)
+    }
+
     // Data safety: restores never destroy what is on the phone, and a failed save is never silent.
 
     private fun backupRecord(id: String, note: String) = com.calum.traininglog.core.SessionRecord(

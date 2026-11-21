@@ -41,6 +41,7 @@ import com.calum.traininglog.core.TimeSuggestion
 import com.calum.traininglog.core.Progression
 import com.calum.traininglog.core.RecordMerge
 import com.calum.traininglog.core.Rewards
+import com.calum.traininglog.core.Trash
 import com.calum.traininglog.core.RunMode
 import com.calum.traininglog.core.RunStageLogic
 import com.calum.traininglog.core.SimFormat
@@ -1069,8 +1070,35 @@ class AppViewModel @JvmOverloads constructor(
 
     // ---- History / export ----
 
-    /** A deliberate delete: the one kind of save allowed to leave fewer records (see [Store.save]). */
-    fun deleteRecord(id: String) = persist(allowShrink = true) { d -> d.copy(records = d.records.filterNot { it.id == id }) }
+    /** Delete moves the session to the 90-day trash (see [Trash]); nothing is destroyed, and it can be restored. */
+    fun deleteRecord(id: String) = persist { d ->
+        val r = d.records.firstOrNull { it.id == id } ?: return@persist d
+        d.copy(records = d.records.filterNot { it.id == id }, trash = Trash.add(d.trash, r, today))
+    }
+
+    /** Undo a delete: the session comes back exactly as it was. No celebration, no change to anything else. */
+    fun restoreFromTrash(id: String) {
+        val d = _data.value
+        val t = d.trash.firstOrNull { it.record.id == id } ?: return
+        if (d.records.any { it.id == id }) return
+        val next = d.copy(records = d.records + t.record, trash = d.trash - t)
+        _data.value = next
+        if (saveNow(next) && !store.blocked) {
+            val app = getApplication<Application>()
+            SyncManager.request(app)
+            DriveBackup.requestBackup(app, next)
+        }
+    }
+
+    /** Drops trash entries older than 90 days. The only place sessions leave the data file for good. */
+    private fun purgeExpiredTrash() {
+        val d = _data.value
+        val kept = Trash.purge(d.trash, today)
+        if (kept.size == d.trash.size) return
+        val next = d.copy(trash = kept)
+        _data.value = next
+        saveNow(next, allowShrink = true)
+    }
 
     fun exportText(days: Int?): String {
         val to = today
@@ -1193,7 +1221,8 @@ class AppViewModel @JvmOverloads constructor(
      */
     fun mergeData(remote: AppData): Int {
         val cur = _data.value
-        val add = RecordMerge.missing(cur.records, remote.records)
+        // Sessions the user deleted (now in the trash) must not be quietly brought back by a restore.
+        val add = RecordMerge.missing(cur.records + cur.trash.map { it.record }, remote.records)
         if (add.isEmpty()) return 0
         store.snapshot("restore")
         val next = cur.copy(records = cur.records + add)
@@ -1244,6 +1273,7 @@ class AppViewModel @JvmOverloads constructor(
 
     // Keep this LAST in the class: it runs during construction and reads properties declared above.
     init {
+        purgeExpiredTrash()
         // A finished treadmill session is saved the moment it finishes, before any screen is involved,
         // so nothing the user did can be lost to a stuck or closed screen. The effort question just edits it.
         viewModelScope.launch { TreadmillEngine.ui.collect { autosaveFinishedTreadmill(it) } }
