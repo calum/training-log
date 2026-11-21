@@ -1,6 +1,7 @@
 package com.calum.traininglog
 
 import android.content.Context
+import com.calum.traininglog.core.GymDraft
 import com.calum.traininglog.core.Profile
 import com.calum.traininglog.core.SessionRecord
 import com.calum.traininglog.core.TrashedRecord
@@ -35,7 +36,7 @@ class Migration(val from: Int, val transform: (JsonObject) -> JsonObject)
 
 /** Something the user should be told once about how their data was loaded. */
 data class StoreNote(val kind: Kind, val message: String) {
-    enum class Kind { RESTORED_FROM_BACKUP, COULD_NOT_READ, TOO_NEW, SAVE_FAILED }
+    enum class Kind { RESTORED_FROM_BACKUP, COULD_NOT_READ, TOO_NEW, SAVE_FAILED, RECOVERED_SESSION }
 }
 
 /** Why the last [Store.save] wrote nothing. */
@@ -205,20 +206,55 @@ class Store(
     // ---- writing ----
 
     private fun write(data: AppData) {
-        dir.mkdirs()
         val tree = json.encodeToJsonElement(AppData.serializer(), data).jsonObject
         val text = json.encodeToString(JsonElement.serializer(), JsonObject(tree + ("schemaVersion" to JsonPrimitive(currentVersion))))
-        val tmp = File(dir, file.name + ".tmp")
+        atomicWrite(file, text)
+    }
+
+    /** Temp file, fsync, rename: a reader sees the old file or the new one, never half of one. */
+    private fun atomicWrite(target: File, text: String) {
+        dir.mkdirs()
+        val tmp = File(dir, target.name + ".tmp")
         FileOutputStream(tmp).use { out ->
             out.write(text.toByteArray(Charsets.UTF_8))
             out.flush()
             out.fd.sync()
         }
         try {
-            Files.move(tmp.toPath(), file.toPath(), StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING)
+            Files.move(tmp.toPath(), target.toPath(), StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING)
         } catch (e: Exception) {
-            if (!tmp.renameTo(file)) throw e
+            if (!tmp.renameTo(target)) throw e
         }
+    }
+
+    // ---- gym draft (the session in progress, in a file of its own) ----
+
+    private val draftFile = File(dir, "draft-gym.json")
+
+    /** Best effort: a draft that cannot be written must never break the session itself. */
+    fun saveGymDraft(d: GymDraft) {
+        runCatching { atomicWrite(draftFile, json.encodeToString(GymDraft.serializer(), d)) }
+    }
+
+    /** The draft left behind by a previous run, or null. An unreadable draft is kept aside, never deleted. */
+    fun loadGymDraft(): GymDraft? {
+        if (!draftFile.exists()) return null
+        return runCatching { json.decodeFromString(GymDraft.serializer(), draftFile.readText()) }.getOrElse {
+            moveDraftAside("unreadable")
+            null
+        }
+    }
+
+    /** Removes the draft once its session is safely in the history. */
+    fun clearGymDraft() { runCatching { draftFile.delete() } }
+
+    /** For a deliberate "Discard": the draft is kept under another name instead of being deleted. */
+    fun archiveGymDraft() { moveDraftAside("discarded") }
+
+    private fun moveDraftAside(label: String) {
+        if (!draftFile.exists()) return
+        val dest = File(dir, "draft-gym.$label-${now().format(STAMP_SECONDS)}.json")
+        if (!draftFile.renameTo(dest)) runCatching { draftFile.copyTo(dest, overwrite = true); draftFile.delete() }
     }
 
     // ---- safety copies ----

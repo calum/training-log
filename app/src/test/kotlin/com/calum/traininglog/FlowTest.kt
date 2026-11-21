@@ -422,6 +422,82 @@ class FlowTest {
         assertEquals(emptyList(), onDisk().trash)
     }
 
+    // Data safety: a gym session in progress is kept in a draft, so a killed app cannot lose sets.
+
+    private val draftFile get() = File(app.filesDir, "draft-gym.json")
+    private fun idleMain() = shadowOf(Looper.getMainLooper()).idle()
+    private fun startGymWithSquatDone(vm: AppViewModel): Int {
+        vm.begin(SessionType.GYM, 75)
+        logAllSets(vm, rir = 3, only = { it == "squat" })
+        idleMain()
+        return vm.gym.value!!.exercises.first { it.planned.exercise.id == "squat" }.sets.size
+    }
+
+    @Test fun theGymDraftIsWrittenAsSetsAreDoneAndRemovedWhenTheSessionIsSaved() {
+        val vm = newVm()
+        vm.begin(SessionType.GYM, 75)
+        idleMain()
+        assertFalse(draftFile.exists()) // nothing done yet, nothing to keep
+        logAllSets(vm, rir = 3, only = { it == "squat" })
+        idleMain()
+        assertTrue(draftFile.exists())
+        vm.finishGym()
+        idleMain()
+        assertFalse(draftFile.exists())
+        assertEquals(1, onDisk().records.size)
+    }
+
+    @Test fun aSessionKilledInTheMiddleIsRecoveredWithTheSetsThatWereDone() {
+        val first = newVm()
+        val sets = startGymWithSquatDone(first)
+        // The process is killed here: finishGym is never called.
+        val second = newVm()
+        idleMain()
+        val rec = second.data.value.records.single()
+        assertEquals(SessionType.GYM, rec.type)
+        assertEquals(sets, rec.exercises.single { it.exerciseId == "squat" }.sets.size)
+        assertEquals("Recovered after the app closed", rec.note)
+        assertEquals(StoreNote.Kind.RECOVERED_SESSION, second.storeNote.value!!.kind)
+        assertFalse(draftFile.exists())
+        assertEquals(1, onDisk().records.size)
+        assertEquals(1, newVm().data.value.records.size) // a later start does not add it again
+    }
+
+    @Test fun aDraftOfASessionThatIsAlreadySavedIsNotSavedTwice() {
+        val vm = newVm()
+        startGymWithSquatDone(vm)
+        vm.finishGym()
+        val rec = onDisk().records.single()
+        Store(app).saveGymDraft(
+            com.calum.traininglog.core.GymDraft(
+                rec.date, rec.minutesAvailable, rec.minutesActual, rec.feeling, rec.kneePain, rec.dayLabel, rec.deload, rec.exercises,
+            ),
+        )
+        val again = newVm()
+        assertEquals(1, again.data.value.records.size)
+        assertNull(again.storeNote.value)
+        assertFalse(draftFile.exists())
+    }
+
+    @Test fun discardingKeepsTheLoggedSetsInAFileOfTheirOwn() {
+        val vm = newVm()
+        startGymWithSquatDone(vm)
+        vm.discardGym()
+        idleMain()
+        assertFalse(draftFile.exists())
+        assertTrue(app.filesDir.listFiles()!!.any { it.name.startsWith("draft-gym.discarded-") })
+        assertEquals(emptyList(), newVm().data.value.records) // a deliberate discard is respected
+    }
+
+    @Test fun anUnreadableDraftIsKeptAsideAndNeverBreaksStartup() {
+        draftFile.writeText("{broken")
+        val vm = newVm()
+        assertEquals(emptyList(), vm.data.value.records)
+        assertNull(vm.storeNote.value)
+        assertFalse(draftFile.exists())
+        assertEquals("{broken", app.filesDir.listFiles()!!.single { it.name.startsWith("draft-gym.unreadable-") }.readText())
+    }
+
     // Data safety: restores never destroy what is on the phone, and a failed save is never silent.
 
     private fun backupRecord(id: String, note: String) = com.calum.traininglog.core.SessionRecord(

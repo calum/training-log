@@ -24,6 +24,7 @@ import com.calum.traininglog.core.Export
 import com.calum.traininglog.core.ExerciseGroup
 import com.calum.traininglog.core.Feeling
 import com.calum.traininglog.core.GymBuilder
+import com.calum.traininglog.core.GymDraft
 import com.calum.traininglog.core.GymPlan
 import com.calum.traininglog.core.Rebaseline
 import com.calum.traininglog.core.GuidedPlan
@@ -59,6 +60,8 @@ import com.calum.traininglog.core.TreadmillStyle
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import java.time.LocalDate
 import java.util.UUID
@@ -445,15 +448,7 @@ class AppViewModel @JvmOverloads constructor(
     fun finishGym() {
         val g = _gym.value ?: return
         if (g.finisherOffered || g.prehabOffered) return // already saved: a second tap must not save again
-        val logs = g.exercises.mapNotNull { e ->
-            val done = e.sets.filter { it.done }
-            if (done.isEmpty()) null
-            else ExerciseLog(
-                e.planned.exercise.id, done.map { LoggedSet(it.kg, it.reps, it.target, it.rir) }, e.missReason,
-                customName = if (ExerciseLibrary.isCustom(e.planned.exercise.id)) e.planned.exercise.name else null,
-                customMovement = e.planned.exercise.movement.takeIf { ExerciseLibrary.isCustom(e.planned.exercise.id) && it != ExerciseLibrary.OTHER_MOVEMENT },
-            )
-        }.let(::mergeSameExercise)
+        val logs = gymLogs(g)
         val minutes = ((SystemClock.elapsedRealtime() - gymStartedAt) / 60000).toInt().coerceAtLeast(1)
         if (logs.isNotEmpty()) {
             val record = SessionRecord(
@@ -483,6 +478,48 @@ class AppViewModel @JvmOverloads constructor(
         home()
     }
 
+    /** The done sets of [g] as they are saved: one log per exercise, custom names kept. */
+    private fun gymLogs(g: GymLive): List<ExerciseLog> = g.exercises.mapNotNull { e ->
+        val done = e.sets.filter { it.done }
+        if (done.isEmpty()) null
+        else ExerciseLog(
+            e.planned.exercise.id, done.map { LoggedSet(it.kg, it.reps, it.target, it.rir) }, e.missReason,
+            customName = if (ExerciseLibrary.isCustom(e.planned.exercise.id)) e.planned.exercise.name else null,
+            customMovement = e.planned.exercise.movement.takeIf { ExerciseLibrary.isCustom(e.planned.exercise.id) && it != ExerciseLibrary.OTHER_MOVEMENT },
+        )
+    }.let(::mergeSameExercise)
+
+    /** The session so far, or null when there is nothing worth keeping (no done sets) or the lifts are already saved. */
+    private fun gymDraftOf(g: GymLive?): GymDraft? {
+        if (g == null || g.finisherOffered || g.prehabOffered) return null
+        val logs = gymLogs(g)
+        if (logs.isEmpty()) return null
+        val minutes = ((SystemClock.elapsedRealtime() - gymStartedAt) / 60000).toInt().coerceAtLeast(1)
+        return GymDraft(
+            today, _inputs.value.minutes, minutes, _inputs.value.feeling, _inputs.value.knee, g.plan.dayLabel, g.plan.deload, logs,
+        )
+    }
+
+    /**
+     * The app was killed or the phone died in the middle of a gym session: the sets that were done are saved as a
+     * normal session now (they really happened), with a note on Home. The draft file is removed only once that is
+     * safely on disk. Runs once, before anything new can overwrite a draft.
+     */
+    private fun recoverGymDraft() {
+        val draft = store.loadGymDraft() ?: return
+        if (draft.alreadySavedIn(_data.value.records)) { store.clearGymDraft(); return }
+        val record = draft.toRecord(UUID.randomUUID().toString(), note = "Recovered after the app closed")
+        val next = _data.value.copy(records = _data.value.records + record)
+        _data.value = next
+        if (!saveNow(next)) return // keep the draft; the next start tries again
+        store.clearGymDraft()
+        _storeNote.value = StoreNote(
+            StoreNote.Kind.RECOVERED_SESSION,
+            "The app closed in the middle of your gym session on ${draft.date}. We saved the ${draft.setCount} sets you had done. " +
+                "You can delete it from History if you don't want it.",
+        )
+    }
+
     /**
      * One log per exercise: swapping back and forth can leave several parts of the same exercise in a session. Their sets
      * are joined in order and the log sits at the place of its LAST part, so the variant used last stays last.
@@ -506,6 +543,8 @@ class AppViewModel @JvmOverloads constructor(
 
     /** Leaves the gym screen without saving (nothing logged, or "Discard"): the session is dropped, nothing is deleted from the history. */
     fun discardGym() {
+        // A deliberate discard still keeps the sets that were logged, in a file that is never read again.
+        if (gymDraftOf(_gym.value) != null) store.archiveGymDraft()
         _gym.value = null
         home()
     }
@@ -1274,6 +1313,15 @@ class AppViewModel @JvmOverloads constructor(
     // Keep this LAST in the class: it runs during construction and reads properties declared above.
     init {
         purgeExpiredTrash()
+        recoverGymDraft()
+        // The gym session in progress is written to a draft file after every change, and removed once it is saved.
+        viewModelScope.launch {
+            var hadDraft = false
+            _gym.map { gymDraftOf(it) }.distinctUntilChanged().collect { d ->
+                if (d != null) { store.saveGymDraft(d); hadDraft = true }
+                else if (hadDraft) { store.clearGymDraft(); hadDraft = false }
+            }
+        }
         // A finished treadmill session is saved the moment it finishes, before any screen is involved,
         // so nothing the user did can be lost to a stuck or closed screen. The effort question just edits it.
         viewModelScope.launch { TreadmillEngine.ui.collect { autosaveFinishedTreadmill(it) } }
