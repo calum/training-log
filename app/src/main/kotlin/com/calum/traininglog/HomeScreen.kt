@@ -176,7 +176,8 @@ fun HomeScreen(vm: AppViewModel) {
                     BigActionButton("Start a session", onClick = { vm.go(Screen.Start) })
                 }
             }
-            (plannedToday?.let { "From your race plan: ${it.title}, ${it.minutes} min." } ?: nextUp(data.records, view, today))
+            // With a race plan on, NEXT UP comes only from the plan so it always agrees with the Hyrox card above.
+            (if (racePlan != null) RacePlanFormat.nextUpText(racePlan, data.records, today) else nextUp(data.records, view, today))
                 ?.let { text -> item { NextUpCard(text) } }
             item { BlockHomeCard(vm) }
             item {
