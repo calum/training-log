@@ -7,16 +7,16 @@ There are two planners, and they must never contradict each other on screen:
 - **`RacePlanner`** (`core/.../RacePlanner.kt`): the Hyrox race plan, including the kick-off lead-in. Sessions can be rowing, ski-erg, incline walk, bike, strength and so on, and they respect the knee and run stage.
 - **`WeekPlanner`** (`core/.../WeekPlan.kt`, used by `NextUp.describe`): the older weekly gym and treadmill targets. It knows nothing about the race plan.
 
-**Rule: when the race plan is enabled (`profile.settings.racePlan.enabled`), anything on screen that says what to do next, today or soon must come from the race plan, never from `WeekPlanner`/`NextUp`.** Otherwise Home shows, for example, "Next up: Kick-off: easy aerobic, 30 min, Sun 22 Nov" on the Hyrox card and "Treadmill day" on the NEXT UP card below it.
+**Rule: anything that says what to do next, today or soon (cards, notifications, reminders, widgets) must ask `Coach` (`core/.../Coach.kt`), never `RacePlanner`, `WeekPlanner`, `NextUp` or `Recommender` directly.** While the race plan is on (`profile.settings.racePlan.enabled`, the default) `Coach` answers from the race plan only; otherwise it falls back to the weekly-target text. This stops two cards disagreeing, e.g. "Next up: Kick-off: easy aerobic, 30 min, Sun 22 Nov" on the Hyrox card and "Treadmill day" on the NEXT UP card.
 
-- Home's NEXT UP card uses `RacePlanFormat.nextUpText` when a race plan exists, and `NextUp.describe` only when there is none. If nothing is left this week the card is hidden, not filled from the weekly planner.
-- Reuse the plan helpers (`RacePlanFormat.nextSession`, `todaysOpenSession`, `doneSessions`) rather than re-deriving a suggestion.
-- Any new surface that suggests a session (notifications, reminders such as `core/.../Reminder.kt`, widgets, the Start screen) needs the same check: race plan on means ask the plan.
-- Add a test that the text names the plan's session (see `nextUpTextFollowsThePlan` in `RacePlanFormatTest`).
+- Home's NEXT UP card and the evening reminder both call `Coach.nextUpText`. If nothing is left this week the card is hidden, not filled from the weekly planner.
+- Build the race plan once per screen with `Coach.racePlan(...)` and pass it on; use `Coach.nextPlanned` for "the next open session".
+- `CoachRulesTest` scans the sources and fails if anything other than `Coach` calls `NextUp.describe(`, or if a new file calls `WeekPlanner.plan(` or `Recommender.recommend(`. If you add a legitimate caller, say why in the test's allowlist comment.
+- While the plan is on, reminder wording must not name an activity of its own (`Reminder.planPhrases`).
 
 The agreed plan to remove the two-planner problem for good, plus the data-safety rules, is in `docs/unified-design.md`. Read it before touching planning, Home, rewards or storage, and never drop or rewrite saved records.
 
-Known gap: `Reminder.kt` still calls `NextUp.describe` directly, and the "Start a session" button opens the generic Start screen. Neither has been checked against the plan yet.
+Known gaps: the "good week" ring, streak and `Reminder.shouldNudge` still count the old gym 2 / treadmill 3 targets (phase 2 of the design), and the Start screen's free-choice picker below the planned session still uses `Recommender` on purpose.
 
 ## Working here
 

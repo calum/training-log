@@ -135,16 +135,6 @@ class RacePlanFormatTest {
         assertTrue(RacePlanFormat.nextKickoffText(p, w, w.sessions.toSet(), nov19).startsWith("Kick-off is done"))
     }
 
-    @Test fun nextUpTextFollowsThePlan() {
-        // Home NEXT UP must name the same session as the Hyrox card, never a separate weekly-planner suggestion.
-        val w = plan.leadIn!!
-        val next = RacePlanFormat.nextSession(w, emptySet(), nov19)!!
-        val text = RacePlanFormat.nextUpText(plan, emptyList(), nov19)!!
-        assertTrue(text.contains(next.title))
-        assertTrue(text.contains("${next.minutes} min"))
-        assertTrue(!text.contains("Treadmill day"))
-    }
-
     @Test fun runStageTexts() {
         RunStage.entries.forEach { assertTrue(RacePlanFormat.stageBlurb(it).isNotBlank()) }
         assertNull(RacePlanFormat.rungText(RunStage.NONE, 0))
