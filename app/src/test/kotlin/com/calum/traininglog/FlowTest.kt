@@ -3,19 +3,29 @@ package com.calum.traininglog
 import android.app.Application
 import android.content.Context
 import androidx.activity.ComponentActivity
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.Surface
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.test.core.app.ApplicationProvider
+import com.calum.traininglog.core.BlockState
+import com.calum.traininglog.core.BlockTarget
 import com.calum.traininglog.core.CueType
 import com.calum.traininglog.core.Effort
 import com.calum.traininglog.core.ExerciseLibrary
 import com.calum.traininglog.core.Feeling
 import com.calum.traininglog.core.PublicExport
+import com.calum.traininglog.core.Profile
 import com.calum.traininglog.core.RestDays
 import com.calum.traininglog.core.SessionType
+import com.calum.traininglog.core.TrainingBlock
 import com.calum.traininglog.core.TreadmillStyle
+import com.calum.traininglog.ui.AppColors
+import com.calum.traininglog.ui.TrainingTheme
 import org.junit.After
 import org.junit.Before
 import org.junit.Rule
@@ -421,6 +431,32 @@ class FlowTest {
         val later = newVm()
         assertEquals(emptyList(), later.data.value.trash)
         assertEquals(emptyList(), onDisk().trash)
+    }
+
+    // The current block's goal is shown with the plan (it never changes a session).
+
+    private fun planScreen(profile: Profile) = rule.setContent {
+        CompositionLocalProvider(LocalToday provides today) {
+            TrainingTheme {
+                Surface(Modifier.fillMaxSize(), color = AppColors.background) {
+                    RacePlanContent(emptyList(), profile, today, onSettings = {}, onStart = {}, onBack = {})
+                }
+            }
+        }
+    }
+
+    @Test fun thePlanScreenShowsTheCurrentBlockGoal() {
+        val block = TrainingBlock(id = "b1", name = "Squat 100 push", startDate = today.minusDays(7), weeks = 6, headline = BlockTarget("squat", 100.0, 80.0))
+        planScreen(Profile(blocks = BlockState(listOf(block))))
+        rule.waitForIdle()
+        rule.onNodeWithText("Squat 100 push").assertExists()
+        rule.onNodeWithText("Add a goal").assertDoesNotExist()
+    }
+
+    @Test fun withNoBlocksThePlanScreenInvitesAGoalAndAGoalNeverChangesTheSessions() {
+        planScreen(Profile())
+        rule.waitForIdle()
+        rule.onNodeWithText("Add a goal").assertExists()
     }
 
     // Home: one Today card instead of the Hyrox card, the big Start button and the NEXT UP card.
