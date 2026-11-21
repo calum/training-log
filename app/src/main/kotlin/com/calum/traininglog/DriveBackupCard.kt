@@ -45,6 +45,7 @@ fun DriveBackupCard(vm: AppViewModel) {
     val found by DriveBackup.found.collectAsState()
     val data by vm.data.collectAsState()
     var confirm by remember { mutableStateOf<Backup?>(null) }
+    var confirmReplace by remember { mutableStateOf<Backup?>(null) }
     var message by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
 
@@ -124,20 +125,49 @@ fun DriveBackupCard(vm: AppViewModel) {
     }
 
     confirm?.let { b ->
+        val extra = b.data.records.map { it.id }.toSet() - data.records.map { it.id }.toSet()
         AlertDialog(
             onDismissRequest = { confirm = null },
             title = { Text("Restore from Drive?") },
             text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        "Backup from ${prettyDate(b.savedAt)} with ${b.data.records.size} sessions. " +
+                            "This phone has ${data.records.size}. ${extra.size} of the backup's sessions are not on this phone yet." +
+                            if (b.newerVersion) " It was saved by a newer version of the app, so some details may be missing." else "",
+                    )
+                    Text(
+                        "Adding keeps everything on this phone and only brings in what is missing. A safety copy is taken first either way.",
+                        style = MaterialTheme.typography.bodyMedium, color = AppColors.textMuted,
+                    )
+                    TextButton({ confirm = null; confirmReplace = b }) { Text("Replace everything instead...") }
+                }
+            },
+            confirmButton = {
+                TextButton({
+                    val n = vm.mergeData(b.data)
+                    confirm = null
+                    message = if (n == 0) "Nothing to add: this phone already has all of them." else "Added $n sessions."
+                }) { Text("Add missing sessions") }
+            },
+            dismissButton = { TextButton({ confirm = null }) { Text("Cancel") } },
+        )
+    }
+
+    confirmReplace?.let { b ->
+        AlertDialog(
+            onDismissRequest = { confirmReplace = null },
+            title = { Text("Replace everything?") },
+            text = {
                 Text(
-                    "Backup from ${prettyDate(b.savedAt)} with ${b.data.records.size} sessions. " +
-                        "This replaces everything currently on this phone (${data.records.size} sessions)." +
-                        if (b.newerVersion) " It was saved by a newer version of the app, so some details may be missing." else "",
+                    "Your ${data.records.size} sessions on this phone will be replaced by the backup's ${b.data.records.size}. " +
+                        "Anything logged since the backup is only kept in the safety copy taken just before.",
                 )
             },
             confirmButton = {
-                TextButton({ vm.replaceData(b.data); confirm = null; message = "Restored." }) { Text("Replace my data") }
+                TextButton({ vm.replaceData(b.data); confirmReplace = null; message = "Restored." }) { Text("Replace my data") }
             },
-            dismissButton = { TextButton({ confirm = null }) { Text("Cancel") } },
+            dismissButton = { TextButton({ confirmReplace = null }) { Text("Cancel") } },
         )
     }
 }

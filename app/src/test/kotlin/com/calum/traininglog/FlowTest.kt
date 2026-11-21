@@ -384,6 +384,51 @@ class FlowTest {
         assertEquals(original, main.readText())
     }
 
+    // Data safety: restores never destroy what is on the phone, and a failed save is never silent.
+
+    private fun backupRecord(id: String, note: String) = com.calum.traininglog.core.SessionRecord(
+        id, today.minusDays(40), SessionType.HIKE, 30, 30, Feeling.GOOD, note = note,
+    )
+
+    @Test fun mergeRestoreAddsMissingSessionsKeepsLocalOnesAndTakesASafetyCopy() {
+        val vm = newVm()
+        vm.saveManual(SessionType.HIKE, 1, 30, null, "logged today")
+        vm.saveManual(SessionType.HIKE, 2, 30, null, "logged yesterday") // the first overwrite of the day makes the daily copy
+        val local = vm.data.value.records
+        val remote = AppData(listOf(backupRecord("old-1", "from backup")) + local.take(1).map { it.copy(note = "older copy") })
+
+        assertEquals(1, vm.mergeData(remote))
+
+        val ids = onDisk().records.map { it.id }.toSet()
+        assertEquals(local.map { it.id }.toSet() + "old-1", ids)
+        assertEquals(local.first().note, onDisk().records.first { it.id == local.first().id }.note) // local wins on a shared id
+        assertTrue(File(app.filesDir, "backups").listFiles()!!.any { it.name.endsWith("-pre-restore.json") })
+        assertEquals(0, vm.mergeData(remote)) // again: nothing more to add, nothing rewritten
+    }
+
+    @Test fun replaceRestoreStillKeepsEverythingThatWasOnThePhoneInASafetyCopy() {
+        val vm = newVm()
+        vm.saveManual(SessionType.HIKE, 1, 30, null, "mine")
+        vm.replaceData(AppData(listOf(backupRecord("old-1", "from backup"))))
+        assertEquals(listOf("from backup"), onDisk().records.map { it.note })
+        val snap = File(app.filesDir, "backups").listFiles()!!.single { it.name.endsWith("-pre-restore.json") }
+        assertTrue(snap.readText().contains("mine"))
+    }
+
+    @Test fun aFailedSaveShowsABannerKeepsTheDataOnScreenAndRetrySavesIt() {
+        val vm = newVm()
+        vm.saveManual(SessionType.HIKE, 3, 30, null, "first")
+        File(app.filesDir, "training-data.json.tmp").mkdirs() // the write cannot happen
+        vm.saveManual(SessionType.HIKE, 2, 30, null, "second")
+        assertEquals(StoreNote.Kind.SAVE_FAILED, vm.storeNote.value!!.kind)
+        assertEquals(2, vm.data.value.records.size)          // still there on screen
+        assertEquals(1, onDisk().records.size)                // disk is the old, intact file
+        File(app.filesDir, "training-data.json.tmp").deleteRecursively()
+        vm.retrySave()
+        assertNull(vm.storeNote.value)
+        assertEquals(listOf("first", "second"), onDisk().records.map { it.note })
+    }
+
     private fun androidx.compose.ui.test.SemanticsNodeInteraction.performClickAndSettle() {
         performClick(); rule.waitForIdle()
     }

@@ -15,6 +15,7 @@ import java.io.File
 import java.io.FileOutputStream
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
+import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 
@@ -31,13 +32,19 @@ class Migration(val from: Int, val transform: (JsonObject) -> JsonObject)
 
 /** Something the user should be told once about how their data was loaded. */
 data class StoreNote(val kind: Kind, val message: String) {
-    enum class Kind { RESTORED_FROM_BACKUP, COULD_NOT_READ, TOO_NEW }
+    enum class Kind { RESTORED_FROM_BACKUP, COULD_NOT_READ, TOO_NEW, SAVE_FAILED }
 }
+
+/** Why the last [Store.save] wrote nothing. */
+enum class SaveFailure { BLOCKED, SHRINK_REFUSED, WRITE_FAILED }
 
 /**
  * All data lives in one JSON file on the phone, with safety nets:
  *  - written atomically (temp file, fsync, rename);
- *  - a rolling safety copy in `backups/` (one per day, plus one before any migration, newest 14 kept);
+ *  - a rolling safety copy in `backups/` (one per day, newest 14 kept, then one per week for 12 weeks; plus one before
+ *    any migration or restore, newest 20 of those kept);
+ *  - a save that would leave FEWER records than are on disk is refused unless the caller says it is deliberate;
+ *  - a failed write is reported (never silent) and leaves the previous file untouched;
  *  - a file that fails to read is moved aside and the newest valid safety copy is used instead, never silently replaced by empty data;
  *  - older formats are upgraded by [migrations]; data from a NEWER app is never overwritten ([blocked]).
  */
@@ -62,6 +69,13 @@ class Store(
     var blocked: Boolean = false
         private set
 
+    /** Set when the last [save] wrote nothing, so the app can say so instead of looking saved. Null after a good save. */
+    var lastSaveFailure: SaveFailure? = null
+        private set
+
+    /** Number of records in the file as last loaded or saved; null until known (fresh install). */
+    private var diskRecordCount: Int? = null
+
     private class TooNew(val version: Int) : Exception()
 
     fun load(): AppData {
@@ -75,6 +89,7 @@ class Store(
             if (version in 1 until currentVersion) backup(suffix = "-pre-v$version", copyOf = file)
             val data = decode(tree, version)
             if (version < currentVersion) write(data)
+            diskRecordCount = data.records.size
             data
         } catch (e: TooNew) {
             blocked = true
@@ -89,11 +104,36 @@ class Store(
         }
     }
 
-    /** Returns false when nothing was written (data from a newer app is on disk). */
-    fun save(data: AppData): Boolean {
-        if (blocked) return false
-        if (file.exists()) dailyBackup()
-        write(data)
+    /**
+     * Returns false when nothing was written; [lastSaveFailure] then says why (data from a newer app is on disk, the
+     * save would have dropped records, or the write itself failed). The file on disk is never touched in those cases.
+     * Pass [allowShrink] only for an action the user explicitly chose (delete, replace-restore).
+     */
+    fun save(data: AppData, allowShrink: Boolean = false): Boolean {
+        lastSaveFailure = null
+        if (blocked) { lastSaveFailure = SaveFailure.BLOCKED; return false }
+        val onDisk = diskRecordCount
+        if (!allowShrink && onDisk != null && data.records.size < onDisk) {
+            lastSaveFailure = SaveFailure.SHRINK_REFUSED
+            return false
+        }
+        return try {
+            if (file.exists()) dailyBackup()
+            write(data)
+            diskRecordCount = data.records.size
+            true
+        } catch (e: Exception) {
+            lastSaveFailure = SaveFailure.WRITE_FAILED
+            false
+        }
+    }
+
+    /** Copies the current file into `backups/` as a `-pre-<label>` copy that the daily rotation never removes early. */
+    fun snapshot(label: String): Boolean {
+        if (!file.exists()) return false
+        val ok = runCatching { parseTree(file.readText()); true }.getOrDefault(false)
+        if (!ok) return false
+        backup(suffix = "-pre-$label", copyOf = file)
         return true
     }
 
@@ -132,6 +172,7 @@ class Store(
             }.getOrNull() ?: continue
             if (corruptName != null) moveAside(corruptName)
             write(data)
+            diskRecordCount = data.records.size
             val note = StoreNote(StoreNote.Kind.RESTORED_FROM_BACKUP, "We restored your data from a safety copy.")
             lastLoadNote = note
             writeNote(note)
@@ -194,8 +235,29 @@ class Store(
             backupDir.mkdirs()
             val dest = File(backupDir, "training-data-${now().format(STAMP)}$suffix.json")
             Files.copy(copyOf.toPath(), dest.toPath(), StandardCopyOption.REPLACE_EXISTING)
-            backupFiles().dropLast(KEEP).forEach { it.delete() }
+            prune()
         }
+    }
+
+    /**
+     * Newest [KEEP] daily copies, then the newest copy of each older week for [KEEP_WEEKS] weeks, plus the newest
+     * [KEEP_SPECIAL] pre-migration / pre-restore copies. Everything else goes.
+     */
+    private fun prune() {
+        val all = backupFiles()
+        val (special, daily) = all.partition { "-pre-" in it.name }
+        val weekly = daily.dropLast(KEEP)
+            .groupBy { mondayOf(it) }
+            .map { (_, files) -> files.last() }
+            .sortedBy { it.name }
+            .takeLast(KEEP_WEEKS)
+        val keep = (daily.takeLast(KEEP) + weekly + special.takeLast(KEEP_SPECIAL)).toSet()
+        all.filter { it !in keep }.forEach { it.delete() }
+    }
+
+    private fun mondayOf(f: File): LocalDate {
+        val d = LocalDate.parse(f.name.removePrefix("training-data-").take(8), DAY)
+        return d.minusDays((d.dayOfWeek.value - 1).toLong())
     }
 
     private fun writeNote(n: StoreNote) { runCatching { noteFile.writeText("${n.kind.name}\n${n.message}") } }
@@ -210,7 +272,9 @@ class Store(
         /** Bump together with a [Migration] from the previous number. */
         const val CURRENT_SCHEMA = 1
         const val KEEP = 14
-        private val BACKUP_NAME = Regex("""training-data-\d{8}-\d{4}(-pre-v\d+)?\.json""")
+        const val KEEP_WEEKS = 12
+        const val KEEP_SPECIAL = 20
+        private val BACKUP_NAME = Regex("""training-data-\d{8}-\d{4}(-pre-v\d+|-pre-restore)?\.json""")
         private val STAMP = DateTimeFormatter.ofPattern("yyyyMMdd-HHmm")
         private val STAMP_SECONDS = DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss")
         private val DAY = DateTimeFormatter.ofPattern("yyyyMMdd")
