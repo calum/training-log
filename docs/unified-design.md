@@ -62,7 +62,7 @@ Gaps found and the fix for each:
 | Gap | Fix |
 |---|---|
 | Drive "Replace my data" overwrites with no copy; the daily copy may be hours old | Always write a labelled `pre-restore` safety copy first; restore defaults to **merge by id** (add missing sessions, keep newer edits); a full replace needs a second confirmation |
-| Deleting a session is instant and permanent (copies reach back only 14 days) | Soft delete: move to a `trash` list for 90 days with Undo in the app; purge only after 90 days; GitHub sync deletion happens only after the trash period |
+| Deleting a session is instant and permanent (copies reach back only 14 days) | Soft delete: move to a `trash` list for 90 days with Undo in the app; purge only after 90 days; GitHub's public copy is regenerated from the sessions on the phone, so a trashed session leaves it at once, but git history keeps it |
 | A failed save (disk full, I/O error) is silent while memory shows the change | `save` returns a result; on failure show a clear banner and keep retrying; never mark a session as saved until the write succeeded |
 | A mid-session crash or process kill may lose sets (to verify) | Autosave a draft after every completed set / step; on next launch offer "Resume" or "Save what I did" |
 | Only 14 daily copies | Keep 14 daily + 12 weekly + every pre-migration / pre-restore copy |
@@ -77,7 +77,9 @@ Rules for every future change:
 
 ## Phases (each its own PR, CI green first)
 
-0. **Data safety**: pre-restore copy and merge restore, soft delete + Undo, save-failure banner, shrink guard, weekly copies, draft autosave. Tests for each. (First, because everything else touches data.)
+0a. **Data safety, part 1 (in progress)**: pre-restore safety copy, restore that adds missing sessions by default (replace needs a second confirmation), save-failure banner with Try again, shrink guard, weekly copies kept alongside the daily ones.
+0b. **Data safety, part 2**: soft delete with a 90-day trash and Undo (schema 2), then draft autosave after every set.
+0. (original list, for reference) **Data safety**: pre-restore copy and merge restore, soft delete + Undo, save-failure banner, shrink guard, weekly copies, draft autosave. Tests for each. (First, because everything else touches data.)
 1. **Today engine** (`core`) with unit tests; Home, NEXT UP, Start, reminder and "I have some time" switched to it; architecture test added; CLAUDE.md "known gaps" removed.
 2. **Good week on the plan**: rewards/ring/streak read the engine; historical-equivalence tests.
 3. **Maintenance plan** after race day (auto) and when no race plan is on; block goals shown inside the plan.

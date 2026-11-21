@@ -39,6 +39,7 @@ import com.calum.traininglog.core.Profile
 import com.calum.traininglog.core.RacePlanner
 import com.calum.traininglog.core.TimeSuggestion
 import com.calum.traininglog.core.Progression
+import com.calum.traininglog.core.RecordMerge
 import com.calum.traininglog.core.Rewards
 import com.calum.traininglog.core.RunMode
 import com.calum.traininglog.core.RunStageLogic
@@ -1068,7 +1069,8 @@ class AppViewModel @JvmOverloads constructor(
 
     // ---- History / export ----
 
-    fun deleteRecord(id: String) = persist { d -> d.copy(records = d.records.filterNot { it.id == id }) }
+    /** A deliberate delete: the one kind of save allowed to leave fewer records (see [Store.save]). */
+    fun deleteRecord(id: String) = persist(allowShrink = true) { d -> d.copy(records = d.records.filterNot { it.id == id }) }
 
     fun exportText(days: Int?): String {
         val to = today
@@ -1175,17 +1177,58 @@ class AppViewModel @JvmOverloads constructor(
 
     fun dismissCelebration() { _celebration.value = null }
 
-    /** Replace everything, e.g. after restoring a backup. */
+    /**
+     * Replace everything with [d] (a full restore). A safety copy of what is on the phone is always taken first, so
+     * even a replace can be undone from `backups/`.
+     */
     fun replaceData(d: AppData) {
+        store.snapshot("restore")
         _data.value = d
-        store.save(d)
+        saveNow(d, allowShrink = true)
     }
 
-    private fun persist(f: (AppData) -> AppData) {
+    /**
+     * Restore that only ADDS the sessions [remote] has and the phone lacks (matched by id; what is on the phone wins).
+     * A safety copy is taken first. Returns how many sessions were added.
+     */
+    fun mergeData(remote: AppData): Int {
+        val cur = _data.value
+        val add = RecordMerge.missing(cur.records, remote.records)
+        if (add.isEmpty()) return 0
+        store.snapshot("restore")
+        val next = cur.copy(records = cur.records + add)
+        _data.value = next
+        saveNow(next)
+        return add.size
+    }
+
+    /** Tries again to write what is on screen, after a failed save. */
+    fun retrySave() { saveNow(_data.value) }
+
+    /** Saves, and tells the user (never silently) when nothing could be written. */
+    private fun saveNow(d: AppData, allowShrink: Boolean = false) {
+        if (store.save(d, allowShrink)) {
+            if (_storeNote.value?.kind == StoreNote.Kind.SAVE_FAILED) _storeNote.value = store.lastLoadNote
+            return
+        }
+        _storeNote.value = when (store.lastSaveFailure) {
+            SaveFailure.WRITE_FAILED -> StoreNote(
+                StoreNote.Kind.SAVE_FAILED,
+                "Couldn't save to this phone (is the storage full?). What you did is still on screen and nothing was lost yet. Free some space, then tap Try again.",
+            )
+            SaveFailure.SHRINK_REFUSED -> StoreNote(
+                StoreNote.Kind.SAVE_FAILED,
+                "A change that would have removed saved sessions was blocked. Your saved data was not changed.",
+            )
+            else -> _storeNote.value // BLOCKED already shows its own note
+        }
+    }
+
+    private fun persist(allowShrink: Boolean = false, f: (AppData) -> AppData) {
         val before = _data.value
         val next = f(before)
         _data.value = next
-        store.save(next)
+        saveNow(next, allowShrink)
         val added = next.records.lastOrNull { r -> before.records.none { it.id == r.id } }
         if (added != null) {
             _celebration.value = Celebration(added, Rewards.celebration(added, before.records, before.profile.settings))

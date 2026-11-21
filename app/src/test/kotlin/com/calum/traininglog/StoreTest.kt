@@ -74,18 +74,87 @@ class StoreTest {
         val copy = File(dir, "backups").listFiles()!!.single().readText()
         assertTrue(copy.contains("\"id\": \"a\"") && !copy.contains("\"id\": \"b\""))
         t = t.plusDays(1)
-        s.save(data("z"))
+        s.save(data("a", "b", "c", "z"))
         assertEquals(2, backups.size)
     }
 
-    @Test fun keepsOnlyNewestFourteen() {
+    @Test fun keepsNewestFourteenDailyPlusOneCopyPerOlderWeek() {
         val s = store()
         s.save(data("seed"))
         repeat(20) { i -> t = t.plusDays(1); s.save(data("seed", "r$i")) }
         val names = backups
-        assertEquals(14, names.size)
+        // Daily copies exist for 2 to 21 March 2026 (a Monday is 2 March). The newest 14 (8 to 21 March) stay;
+        // of the older ones only the last of the week (7 March) is kept as the weekly copy.
+        assertEquals(15, names.size)
         assertEquals("training-data-20260321-0900.json", names.last())
+        assertTrue(names.contains("training-data-20260308-0900.json"))
+        assertTrue(names.contains("training-data-20260307-0900.json"))
         assertFalse(names.contains("training-data-20260302-0900.json"))
+        assertFalse(names.contains("training-data-20260306-0900.json"))
+    }
+
+    @Test fun savingFewerRecordsIsRefusedAndTheFileIsUntouched() {
+        val s = store()
+        s.save(data("a", "b", "c"))
+        val before = main.readText()
+        assertFalse(s.save(data("a")))
+        assertEquals(SaveFailure.SHRINK_REFUSED, s.lastSaveFailure)
+        assertEquals(before, main.readText())
+        // Same count or more is fine again, and clears the failure.
+        assertTrue(s.save(data("a", "b", "c", "d")))
+        assertNull(s.lastSaveFailure)
+    }
+
+    @Test fun aDeliberateShrinkIsAllowed() {
+        val s = store()
+        s.save(data("a", "b", "c"))
+        assertTrue(s.save(data("a"), allowShrink = true))
+        assertEquals(listOf("a"), store().load().records.map { it.id })
+        assertTrue(s.save(data("a"))) // the new count is the baseline now
+    }
+
+    @Test fun theShrinkGuardAlsoCoversAFreshStoreThatLoadedExistingData() {
+        store().save(data("a", "b"))
+        val s = store()
+        s.load()
+        assertFalse(s.save(data("a")))
+        assertEquals(listOf("a", "b"), store().load().records.map { it.id })
+    }
+
+    @Test fun aFailedWriteIsReportedAndLeavesThePreviousFileIntact() {
+        val s = store()
+        s.save(data("a"))
+        val before = main.readText()
+        File(dir, "training-data.json.tmp").mkdirs() // makes writing the temp file impossible
+        assertFalse(s.save(data("a", "b")))
+        assertEquals(SaveFailure.WRITE_FAILED, s.lastSaveFailure)
+        assertEquals(before, main.readText())
+        File(dir, "training-data.json.tmp").deleteRecursively()
+        assertTrue(s.save(data("a", "b"))) // retry works once the problem is gone
+        assertNull(s.lastSaveFailure)
+    }
+
+    @Test fun blockedSaveReportsBlocked() {
+        main.writeText("""{"schemaVersion": 7, "records": [], "profile": {}}""")
+        val s = store(); s.load()
+        assertFalse(s.save(data("x")))
+        assertEquals(SaveFailure.BLOCKED, s.lastSaveFailure)
+    }
+
+    @Test fun snapshotKeepsACopyOfTheCurrentFileThatDailyRotationDoesNotPushOut() {
+        val s = store()
+        s.save(data("a", "b"))
+        assertTrue(s.snapshot("restore"))
+        val snap = File(dir, "backups").listFiles()!!.single { it.name.endsWith("-pre-restore.json") }
+        assertEquals(main.readText(), snap.readText())
+        repeat(20) { i -> t = t.plusDays(1); s.save(data("a", "b", "r$i")) }
+        assertTrue(backups.any { it.endsWith("-pre-restore.json") })
+    }
+
+    @Test fun snapshotOfAnUnreadableFileIsNotTaken() {
+        main.writeText("{broken")
+        assertFalse(store().snapshot("restore"))
+        assertEquals(emptyList(), backups)
     }
 
     @Test fun corruptFileFallsBackToNewestValidBackupAndIsMovedAside() {
