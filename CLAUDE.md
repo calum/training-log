@@ -20,7 +20,7 @@ The "good week" (Home ring, its number and headline, and when the reminder stops
 
 After race week (Sunday after the race date) `Coach.plan` returns the maintenance plan (`RacePlanner.buildMaintenance`: 2 strength + 2-3 easy aerobic sessions, nothing hard, no countdown, `RacePlan.maintenance == true`) instead of the race plan. Only `Coach` builds plans (`CoachRulesTest`), so a screen can never show the wrong one. Use `Coach.plan(profile, records, today)` for the Plan screen (always built) and `Coach.racePlan(...)` when the plan may be switched off.
 
-Known gaps: the Start screen's free-choice picker below the planned session still uses `Recommender` on purpose; the Home simplification (phase 4) is waiting for Calum's approval of the mock-up.
+Known gaps: the Start screen's free-choice picker below the planned session still uses `Recommender` on purpose; block goals shown inside the plan are not built yet. Home is one Today card (`TodayCard`: today's session or the next one with Start, plus I have some time / Skip today / Something different), a compact This week card, a level card and six buttons plus More…; `LegacyTodayCard` is only for when no plan is on. Do not bring back a separate NEXT UP card or Start button.
 
 ## Working here
 
