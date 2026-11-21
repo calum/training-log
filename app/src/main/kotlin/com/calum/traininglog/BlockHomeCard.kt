@@ -18,8 +18,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
+import com.calum.traininglog.core.BlockState
 import com.calum.traininglog.core.Blocks
 import com.calum.traininglog.core.ExerciseLibrary
+import com.calum.traininglog.core.SessionRecord
 import com.calum.traininglog.core.roundTo
 import com.calum.traininglog.ui.AppColors
 import com.calum.traininglog.ui.Pill
@@ -43,25 +45,42 @@ internal fun BlockBar(fraction: Double, modifier: Modifier = Modifier, color: an
 fun BlockHomeCard(vm: AppViewModel) {
     val data by vm.data.collectAsState()
     val today = remember { LocalDate.now() }
-    val state = data.profile.blocks
+    BlockGoalCard(data.profile.blocks, data.records, today, onOpen = { vm.go(Screen.Blocks) })
+}
+
+/**
+ * The goal of the current training block (for example "Squat 90 of 100 kg") with its progress, next milestone and
+ * pace. A block is a goal shown next to the plan: it never schedules or changes a session. [showAddPrompt] adds a
+ * quiet "set a goal" card when there are no blocks at all (the Plan screen uses it; Home does not).
+ */
+@Composable
+internal fun BlockGoalCard(state: BlockState, records: List<SessionRecord>, today: LocalDate, onOpen: () -> Unit, showAddPrompt: Boolean = false) {
     val cur = Blocks.current(state, today)
     if (cur == null) {
         if (state.blocks.isNotEmpty()) {
-            SectionCard(title = "Ready for a fresh block?", onClick = { vm.go(Screen.Blocks) }) {
+            SectionCard(title = "Ready for a fresh block?", onClick = onOpen) {
                 Text(
                     "Your last block is done. A new short goal keeps things fresh.",
                     style = MaterialTheme.typography.bodyMedium, color = AppColors.textMuted,
                 )
                 Pill("Start a block", color = AppColors.primary, filled = true)
             }
+        } else if (showAddPrompt) {
+            SectionCard(title = "Add a goal", onClick = onOpen) {
+                Text(
+                    "A short goal, like squat 100 kg in 6 weeks, shows here next to your plan. It never changes your sessions.",
+                    style = MaterialTheme.typography.bodyMedium, color = AppColors.textMuted,
+                )
+                Pill("Set a goal", color = AppColors.primary, filled = true)
+            }
         }
         return
     }
-    val p = remember(cur, data.records, today) { Blocks.progress(cur, data.records, today) }
+    val p = remember(cur, records, today) { Blocks.progress(cur, records, today) }
     val name = ExerciseLibrary.nameOf(cur.headline.exerciseId)
     SectionCard(
         title = cur.name,
-        onClick = { vm.go(Screen.Blocks) },
+        onClick = onOpen,
         action = { Pill("Week ${p.weekNumber} of ${p.weeks}", color = AppColors.reward) },
     ) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
