@@ -3,6 +3,7 @@ package com.calum.traininglog
 import android.content.Context
 import com.calum.traininglog.core.Profile
 import com.calum.traininglog.core.SessionRecord
+import com.calum.traininglog.core.TrashedRecord
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
@@ -23,6 +24,8 @@ import java.time.format.DateTimeFormatter
 data class AppData(
     val records: List<SessionRecord> = emptyList(),
     val profile: Profile = Profile(),
+    /** Deleted sessions kept for 90 days so a delete can be undone (see [Trash]). Added in schema 2. */
+    val trash: List<TrashedRecord> = emptyList(),
     /** Format of the saved file. 1 = the format as it was before versioning existed (files without the field decode as 1). */
     val schemaVersion: Int = Store.CURRENT_SCHEMA,
 )
@@ -50,7 +53,7 @@ enum class SaveFailure { BLOCKED, SHRINK_REFUSED, WRITE_FAILED }
  */
 class Store(
     private val dir: File,
-    private val migrations: List<Migration> = emptyList(),
+    private val migrations: List<Migration> = MIGRATIONS,
     private val currentVersion: Int = CURRENT_SCHEMA,
     private val now: () -> LocalDateTime = { LocalDateTime.now() },
 ) {
@@ -73,8 +76,10 @@ class Store(
     var lastSaveFailure: SaveFailure? = null
         private set
 
-    /** Number of records in the file as last loaded or saved; null until known (fresh install). */
+    /** Sessions in the file as last loaded or saved, trash included (deleting moves a session, it does not shrink this); null until known. */
     private var diskRecordCount: Int? = null
+
+    private fun count(d: AppData) = d.records.size + d.trash.size
 
     private class TooNew(val version: Int) : Exception()
 
@@ -89,7 +94,7 @@ class Store(
             if (version in 1 until currentVersion) backup(suffix = "-pre-v$version", copyOf = file)
             val data = decode(tree, version)
             if (version < currentVersion) write(data)
-            diskRecordCount = data.records.size
+            diskRecordCount = count(data)
             data
         } catch (e: TooNew) {
             blocked = true
@@ -113,14 +118,14 @@ class Store(
         lastSaveFailure = null
         if (blocked) { lastSaveFailure = SaveFailure.BLOCKED; return false }
         val onDisk = diskRecordCount
-        if (!allowShrink && onDisk != null && data.records.size < onDisk) {
+        if (!allowShrink && onDisk != null && count(data) < onDisk) {
             lastSaveFailure = SaveFailure.SHRINK_REFUSED
             return false
         }
         return try {
             if (file.exists()) dailyBackup()
             write(data)
-            diskRecordCount = data.records.size
+            diskRecordCount = count(data)
             true
         } catch (e: Exception) {
             lastSaveFailure = SaveFailure.WRITE_FAILED
@@ -172,7 +177,7 @@ class Store(
             }.getOrNull() ?: continue
             if (corruptName != null) moveAside(corruptName)
             write(data)
-            diskRecordCount = data.records.size
+            diskRecordCount = count(data)
             val note = StoreNote(StoreNote.Kind.RESTORED_FROM_BACKUP, "We restored your data from a safety copy.")
             lastLoadNote = note
             writeNote(note)
@@ -270,7 +275,14 @@ class Store(
 
     companion object {
         /** Bump together with a [Migration] from the previous number. */
-        const val CURRENT_SCHEMA = 1
+        const val CURRENT_SCHEMA = 2
+
+        /**
+         * Upgrade steps, one per version. 1 -> 2 only ADDS the `trash` list (empty by default), so the tree is passed
+         * through unchanged: no record or profile field is touched. Files written at 2 are refused by older apps
+         * (they would drop the trash), which is exactly what the "newer app" guard is for.
+         */
+        val MIGRATIONS: List<Migration> = listOf(Migration(1) { it })
         const val KEEP = 14
         const val KEEP_WEEKS = 12
         const val KEEP_SPECIAL = 20

@@ -211,6 +211,25 @@ fun HomeScreen(vm: AppViewModel) {
             items(sorted, key = { it.id }) { r ->
                 RecordCard(r, isPr = r.id in rewards.prSessionIds, xp = rewards.sessionXp[r.id]?.total, onLongPress = { toDelete = r })
             }
+            if (data.trash.isNotEmpty()) {
+                item {
+                    SectionCard(title = "Recently deleted") {
+                        Text(
+                            "Kept for ${com.calum.traininglog.core.Trash.KEEP_DAYS} days in case it was a slip. Restore puts it back exactly as it was.",
+                            style = MaterialTheme.typography.bodySmall, color = AppColors.textMuted,
+                        )
+                        data.trash.sortedByDescending { it.deletedOn }.forEach { t ->
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Spacing.md)) {
+                                Text(
+                                    "${t.record.date}  ${typeName(t.record.type)}",
+                                    style = MaterialTheme.typography.bodyLarge, color = AppColors.textPrimary, modifier = Modifier.weight(1f),
+                                )
+                                SecondaryButton("Restore", onClick = { vm.restoreFromTrash(t.record.id) })
+                            }
+                        }
+                    }
+                }
+            }
             item { Spacer(Modifier.navigationBarsPadding().height(Spacing.lg)) }
         }
 
@@ -223,7 +242,7 @@ fun HomeScreen(vm: AppViewModel) {
         AlertDialog(
             onDismissRequest = { toDelete = null },
             title = { Text("Delete this session?") },
-            text = { Text("${r.date}  ${typeName(r.type)}. This removes it from your history.") },
+            text = { Text("${r.date}  ${typeName(r.type)}. This removes it from your history. You can restore it from Recently deleted for ${com.calum.traininglog.core.Trash.KEEP_DAYS} days.") },
             confirmButton = { TextButton(onClick = { vm.deleteRecord(r.id); toDelete = null }) { Text("Delete") } },
             dismissButton = { TextButton(onClick = { toDelete = null }) { Text("Keep it") } },
         )

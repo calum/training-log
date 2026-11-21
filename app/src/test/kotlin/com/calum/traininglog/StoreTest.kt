@@ -4,6 +4,7 @@ import com.calum.traininglog.core.Feeling
 import com.calum.traininglog.core.Profile
 import com.calum.traininglog.core.SessionRecord
 import com.calum.traininglog.core.SessionType
+import com.calum.traininglog.core.TrashedRecord
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -241,6 +242,48 @@ class StoreTest {
         assertEquals(original, main.readText())
         assertEquals(emptyList(), backups)
         assertEquals(1, dir.listFiles()!!.count { it.name.startsWith("training-data") })
+    }
+
+    // ---- the real 1 -> 2 migration (adds the trash) ----
+
+    @Test fun realMigrationFromV1KeepsEveryRecordAddsAnEmptyTrashAndTakesACopyFirst() {
+        store().save(data("a", "b")) // a file written by the previous app version (schema 1)
+        val original = main.readText()
+        val s = Store(dir, Store.MIGRATIONS, Store.CURRENT_SCHEMA) { t }
+        val d = s.load()
+        assertEquals(2, Store.CURRENT_SCHEMA)
+        assertEquals(data("a", "b").records, d.records)
+        assertEquals(data("a", "b").profile, d.profile)
+        assertEquals(emptyList(), d.trash)
+        assertNull(s.lastLoadNote)
+        val pre = File(dir, "backups").listFiles()!!.single { it.name.endsWith("-pre-v1.json") }
+        assertEquals(original, pre.readText())
+        assertTrue(main.readText().contains("\"schemaVersion\": 2"))
+    }
+
+    @Test fun anOlderAppRefusesAFileThatHasATrashInsteadOfDroppingIt() {
+        val trashed = TrashedRecord(rec("t"), LocalDate.of(2026, 3, 1))
+        val s = Store(dir, Store.MIGRATIONS, Store.CURRENT_SCHEMA) { t }
+        s.save(AppData(listOf(rec("a")), Profile(), listOf(trashed)))
+        val before = main.readText()
+        val old = store() // schema 1
+        old.load()
+        assertTrue(old.blocked)
+        assertFalse(old.save(data("x")))
+        assertEquals(before, main.readText())
+    }
+
+    @Test fun trashRoundTripsAndMovingASessionIntoItIsNotAShrink() {
+        val s = Store(dir, Store.MIGRATIONS, Store.CURRENT_SCHEMA) { t }
+        s.save(AppData(listOf(rec("a"), rec("b")), Profile()))
+        val trashed = TrashedRecord(rec("b"), LocalDate.of(2026, 3, 1))
+        assertTrue(s.save(AppData(listOf(rec("a")), Profile(), listOf(trashed)))) // deleting b: total unchanged
+        val loaded = Store(dir, Store.MIGRATIONS, Store.CURRENT_SCHEMA) { t }.load()
+        assertEquals(listOf("a"), loaded.records.map { it.id })
+        assertEquals(listOf(trashed), loaded.trash)
+        // Dropping the trash entry itself is a real shrink and needs to be deliberate.
+        assertFalse(s.save(AppData(listOf(rec("a")), Profile())))
+        assertTrue(s.save(AppData(listOf(rec("a")), Profile()), allowShrink = true))
     }
 
     // ---- migrations (fake list) ----
