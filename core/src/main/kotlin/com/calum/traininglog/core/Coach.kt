@@ -40,6 +40,34 @@ object Coach {
         else "${next.title}, ${next.minutes} min, ${next.date.format(shortDate)}."
     }
 
+    /** How many of this week's planned sessions are done, and how many were planned (skipped and rest days excluded). */
+    data class WeekProgress(val done: Int, val total: Int)
+
+    /** Null when there is no race plan or no plan week for [today] (before or after it). */
+    fun weekProgress(plan: RacePlan?, records: List<SessionRecord>, today: LocalDate): WeekProgress? {
+        val w = RacePlanner.thisWeek(plan ?: return null, today) ?: return null
+        return WeekProgress(RacePlanner.doneSessions(w, records, today).size, RacePlanner.counted(w).size)
+    }
+
+    /**
+     * The good week for the Home ring: the plan's sessions this week while a race plan is on, the weekly targets
+     * otherwise. A plan week with nothing planned counts as reached, like a week with no targets.
+     */
+    fun goodWeek(plan: RacePlan?, records: List<SessionRecord>, profile: Profile, today: LocalDate): GoodWeek {
+        val p = weekProgress(plan, records, today)
+        if (p == null) {
+            val view = WeekPlanner.plan(records, profile, today, profile.settings)
+            val ring = Rewards.ring(records.sortedBy { it.date }, today, profile.settings)
+            return GoodWeek(view.goodWeekDone, view.goodWeekTotal, ring.progress, ring.bonus, fromPlan = false)
+        }
+        val range = Stats.weekOf(today)
+        val loggedThisWeek = records.count { it.date in range && it.date <= today && !it.isKneeCare }
+        val extra = (loggedThisWeek - p.done).coerceAtLeast(0)
+        val progress = if (p.total == 0) 1.0 else (p.done.toDouble() / p.total).coerceIn(0.0, 1.0)
+        val bonus = (extra.toDouble() / maxOf(1, p.total)).coerceIn(0.0, 1.0)
+        return GoodWeek(p.done, p.total, progress, bonus, fromPlan = true)
+    }
+
     fun nextUpText(records: List<SessionRecord>, profile: Profile, today: LocalDate): String? =
         nextUpText(racePlan(profile, records, today), records, profile, today)
 }

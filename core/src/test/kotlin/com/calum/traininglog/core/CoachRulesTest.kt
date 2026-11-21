@@ -35,4 +35,10 @@ class CoachRulesTest {
         // "Time and energy" below the planned session on the Start screen; the plan stays first.
         assertEquals(setOf("AppViewModel.kt"), callers("Recommender.recommend("))
     }
+
+    @Test fun theGoodWeekOnHomeComesFromCoachNotFromTheOldTargets() {
+        // Home's ring, number and headline use Coach.goodWeek; the old per-target values stay inside core.
+        assertEquals(emptySet<String>(), callers("rewards.ring"))
+        assertTrue(callers("goodWeekDone").none { it.endsWith("Screen.kt") }, "a screen reads the old good-week numbers")
+    }
 }

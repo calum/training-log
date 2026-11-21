@@ -87,6 +87,8 @@ fun HomeScreen(vm: AppViewModel) {
     val health = remember(racePlan, data.records, profile, today) { racePlan?.let { PlanHealth.assess(it, data.records, profile, today) } }
     val rewards = Rewards.summary(data.records, today, profile.settings)
     val view = WeekPlanner.plan(data.records, profile, today, profile.settings)
+    // The ring, its number and its headline all come from Coach: the plan's sessions while a race plan is on.
+    val goodWeek = remember(racePlan, data.records, profile, today) { Coach.goodWeek(racePlan, data.records, profile, today) }
     val restToday = RestDays.isRestDay(profile, today)
     val sorted = data.records.sortedByDescending { it.date }.take(30)
     var toDelete by remember { mutableStateOf<SessionRecord?>(null) }
@@ -118,19 +120,19 @@ fun HomeScreen(vm: AppViewModel) {
                     Spacer(Modifier.height(Spacing.md))
                     Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
                         ProgressRing(
-                            progress = rewards.ring.progress.toFloat(),
-                            bonusProgress = rewards.ring.bonus.toFloat(),
+                            progress = goodWeek.progress.toFloat(),
+                            bonusProgress = goodWeek.bonus.toFloat(),
                             size = 200.dp, strokeWidth = 16.dp,
                         ) {
                             Column(Modifier.align(Alignment.Center), horizontalAlignment = Alignment.CenterHorizontally) {
-                                Text("${view.goodWeekDone}/${view.goodWeekTotal}", style = AppType.numberL, color = AppColors.onHero)
+                                Text("${goodWeek.done}/${goodWeek.total}", style = AppType.numberL, color = AppColors.onHero)
                                 Text("good week", style = MaterialTheme.typography.labelMedium, color = AppColors.onHero.copy(alpha = 0.8f))
                             }
                         }
                     }
                     Spacer(Modifier.height(Spacing.md))
                     Text(
-                        if (restToday) "Rest day. Recharge, you've earned it." else view.headline(),
+                        if (restToday) "Rest day. Recharge, you've earned it." else goodWeek.headline(view.openDaysLeft),
                         style = MaterialTheme.typography.titleMedium, color = AppColors.onHero,
                         textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth(),
                     )

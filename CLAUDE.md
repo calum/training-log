@@ -16,7 +16,9 @@ There are two planners, and they must never contradict each other on screen:
 
 The agreed plan to remove the two-planner problem for good, plus the data-safety rules, is in `docs/unified-design.md`. Read it before touching planning, Home, rewards or storage, and never drop or rewrite saved records.
 
-Known gaps: the "good week" ring, streak and `Reminder.shouldNudge` still count the old gym 2 / treadmill 3 targets (phase 2 of the design), and the Start screen's free-choice picker below the planned session still uses `Recommender` on purpose.
+The "good week" (Home ring, its number and headline, and when the reminder stops nudging) comes from `Coach.goodWeek` / `Coach.weekProgress`: the plan's own sessions while a race plan is on, the old gym 2 / treadmill 3 targets otherwise. Screens never read `goodWeekDone` or `rewards.ring` themselves (`CoachRulesTest`). Streak and XP never depended on the targets. The "Early bird week" badge still uses the targets on purpose: badges are recomputed from history, so changing its rule could take away one you already earned.
+
+Known gaps: the Start screen's free-choice picker below the planned session still uses `Recommender` on purpose; the maintenance plan after race day (phase 3) and the Home simplification (phase 4) are not built yet.
 
 ## Working here
 
