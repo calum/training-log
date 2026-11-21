@@ -2,6 +2,21 @@
 
 What changed in each release, in plain language, newest first. The release workflow copies the matching `## vX.Y.Z` section into the GitHub release, and the app shows it as "What's new" before you tap Update.
 
+## v0.12.0
+
+- One answer for "what next": the Home card, the evening reminder and the plan screens all get the same answer from one place, so they can no longer disagree (before, Home could say "easy aerobic" on one card and "treadmill day" on another).
+- A simpler Home: one Today card shows today's planned session with a big Start button, or the next one when nothing is planned today (starting early is fine), or a calm rest or "nice work" message. Under it are "I have some time", "Skip today" and "Something different", which opens the time, energy and knee picker. This week is a compact ring with the week strip, level, XP and streak are one slim card, and the rarely used buttons (log a session, settings, export, backup, updates) are under "More...".
+- Your good week now follows your plan: while the Hyrox plan is on, the ring counts the sessions the plan asked for that week, and extra sessions are a bonus, never a requirement. The evening reminder stops once the plan's week is done and no longer names an activity of its own. Your streak, XP, rest tokens and trophies are unchanged.
+- After the race: from the Monday after race week (27 February 2027) the plan rolls into a steady maintenance plan: 2 strength sessions with hip prehab and 2 or 3 easy aerobic sessions a week, nothing hard, sized from what you have really been doing. Moves, skips, rest days, knee care and the knee-friendly running return all work the same. Set a new race date in Settings and it switches back to a race plan.
+- Your goal on the plan: the current training block's goal (for example "Squat 90 of 100 kg") now shows at the top of the Plan screen as well as on Home. A goal never changes your sessions.
+- Your data is safer than ever:
+  - Restoring from Google Drive now adds only the sessions your phone is missing and keeps everything else; "Replace everything" needs a second confirmation. A safety copy is always taken first.
+  - Deleting a session moves it to "Recently deleted" for 90 days, with a Restore button on Home.
+  - If a save ever fails (for example the phone is full), Home says so with a Try again button instead of looking saved.
+  - A save that would lose sessions is refused, and the app keeps daily safety copies plus one a week for 12 weeks.
+  - If the app is closed or the phone dies in the middle of a gym session, the sets you had done are saved as a session next time you open it, with a note.
+- Your saved data is upgraded to a new format the first time you open this version, and a safety copy is taken first. Nothing is rewritten or removed. Older versions of the app cannot open the new format, so update rather than going back.
+
 ## v0.11.3
 
 - Seated calf raises: a Standing | Seated toggle sits right on the calf screen (and on other exercises that have a swap), so one tap switches. Seated calf raises are tracked as their own exercise with their own weight, starting at 50 kg, so they never drag down your standing weight, and each progresses on its own. If you switch after the first set, the sets you have done stay logged under the original variant. The app remembers whichever you used last.
