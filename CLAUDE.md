@@ -14,6 +14,8 @@ There are two planners, and they must never contradict each other on screen:
 - Any new surface that suggests a session (notifications, reminders such as `core/.../Reminder.kt`, widgets, the Start screen) needs the same check: race plan on means ask the plan.
 - Add a test that the text names the plan's session (see `nextUpTextFollowsThePlan` in `RacePlanFormatTest`).
 
+The agreed plan to remove the two-planner problem for good, plus the data-safety rules, is in `docs/unified-design.md`. Read it before touching planning, Home, rewards or storage, and never drop or rewrite saved records.
+
 Known gap: `Reminder.kt` still calls `NextUp.describe` directly, and the "Start a session" button opens the generic Start screen. Neither has been checked against the plan yet.
 
 ## Working here
