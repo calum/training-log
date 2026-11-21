@@ -4,6 +4,8 @@ import android.app.Application
 import android.content.Context
 import androidx.activity.ComponentActivity
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.assertDoesNotExist
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.test.core.app.ApplicationProvider
@@ -420,6 +422,26 @@ class FlowTest {
         val later = newVm()
         assertEquals(emptyList(), later.data.value.trash)
         assertEquals(emptyList(), onDisk().trash)
+    }
+
+    // Home: one Today card instead of the Hyrox card, the big Start button and the NEXT UP card.
+
+    @Test fun homeHasOneTodayCardWithStartAndNoSeparateNextUpOrStartASessionButton() {
+        val vm = newVm()
+        rule.setContent { AppRoot(vm, inPip = false) }
+        rule.waitForIdle()
+        rule.onNodeWithTag("today-start").assertExists()
+        rule.onNodeWithText("Start a session").assertDoesNotExist()
+        rule.onNodeWithText("NEXT UP").assertDoesNotExist()
+        rule.onNodeWithText("I have some time").assertExists()
+    }
+
+    @Test fun somethingDifferentOpensTheTimeAndEnergyPicker() {
+        val vm = newVm()
+        rule.setContent { AppRoot(vm, inPip = false) }
+        rule.waitForIdle()
+        rule.onNodeWithTag("something-different").performClickAndSettle()
+        assertEquals(Screen.Start, vm.screen.value)
     }
 
     // Data safety: a gym session in progress is kept in a draft, so a killed app cannot lose sets.

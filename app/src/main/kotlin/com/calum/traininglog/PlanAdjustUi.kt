@@ -208,6 +208,8 @@ private enum class TodayPanel { NONE, TIME, SKIP }
 internal fun TodayActions(
     plan: RacePlan, records: List<SessionRecord>, profile: Profile, today: LocalDate,
     onStart: (PlannedSession) -> Unit, onProfile: ((Profile) -> Profile) -> Unit, modifier: Modifier = Modifier,
+    /** Opens the time and energy picker ("Something different"); null leaves the button out. */
+    onFreeChoice: (() -> Unit)? = null,
 ) {
     if (plan.segmentOf(today) == null) return
     var panel by remember { mutableStateOf(TodayPanel.NONE) }
@@ -226,6 +228,7 @@ internal fun TodayActions(
                 Modifier.weight(1f).testTag("skip-today"),
             )
         }
+        onFreeChoice?.let { SecondaryButton("Something different", it, Modifier.fillMaxWidth().testTag("something-different"), accent = AppColors.textMuted) }
         banner?.let { (text, skipped) ->
             ChangeBanner(text, onUndo = { onProfile { RacePlanner.undo(it, skipped) }; banner = null })
         }
