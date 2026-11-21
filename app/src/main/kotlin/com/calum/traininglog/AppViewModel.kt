@@ -1206,10 +1206,10 @@ class AppViewModel @JvmOverloads constructor(
     fun retrySave() { saveNow(_data.value) }
 
     /** Saves, and tells the user (never silently) when nothing could be written. */
-    private fun saveNow(d: AppData, allowShrink: Boolean = false) {
+    private fun saveNow(d: AppData, allowShrink: Boolean = false): Boolean {
         if (store.save(d, allowShrink)) {
             if (_storeNote.value?.kind == StoreNote.Kind.SAVE_FAILED) _storeNote.value = store.lastLoadNote
-            return
+            return true
         }
         _storeNote.value = when (store.lastSaveFailure) {
             SaveFailure.WRITE_FAILED -> StoreNote(
@@ -1222,18 +1222,20 @@ class AppViewModel @JvmOverloads constructor(
             )
             else -> _storeNote.value // BLOCKED already shows its own note
         }
+        return false
     }
 
     private fun persist(allowShrink: Boolean = false, f: (AppData) -> AppData) {
         val before = _data.value
         val next = f(before)
         _data.value = next
-        saveNow(next, allowShrink)
+        val saved = saveNow(next, allowShrink)
         val added = next.records.lastOrNull { r -> before.records.none { it.id == r.id } }
         if (added != null) {
             _celebration.value = Celebration(added, Rewards.celebration(added, before.records, before.profile.settings))
-            // Never push a partial picture to the cloud while the real data is locked away.
-            if (store.blocked) return
+            // Never push a partial picture to the cloud while the real data is locked away, and never push data that
+            // could not be saved (a refused shrink must not overwrite a good Drive or GitHub copy).
+            if (store.blocked || !saved) return
             val app = getApplication<Application>()
             SyncManager.request(app)
             DriveBackup.requestBackup(app, next)
