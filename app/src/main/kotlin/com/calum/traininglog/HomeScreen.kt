@@ -42,6 +42,7 @@ import com.calum.traininglog.core.RestDays
 import com.calum.traininglog.core.HealthLevel
 import com.calum.traininglog.core.PlanHealth
 import com.calum.traininglog.core.PlannedSession
+import com.calum.traininglog.core.Coach
 import com.calum.traininglog.core.Profile
 import com.calum.traininglog.core.RacePlan
 import com.calum.traininglog.core.RacePlanner
@@ -176,9 +177,8 @@ fun HomeScreen(vm: AppViewModel) {
                     BigActionButton("Start a session", onClick = { vm.go(Screen.Start) })
                 }
             }
-            // With a race plan on, NEXT UP comes only from the plan so it always agrees with the Hyrox card above.
-            (if (racePlan != null) RacePlanFormat.nextUpText(racePlan, data.records, today) else nextUp(data.records, view, today))
-                ?.let { text -> item { NextUpCard(text) } }
+            // Coach is the single source of "what next", so this always agrees with the Hyrox card above.
+            Coach.nextUpText(racePlan, data.records, profile, today)?.let { text -> item { NextUpCard(text) } }
             item { BlockHomeCard(vm) }
             item {
                 Column(verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
@@ -346,9 +346,6 @@ private fun dayState(s: DayStatus) = when (s) {
     DayStatus.REST_BUT_TRAINED -> DayState.RestTrained
     DayStatus.PAST_EMPTY -> DayState.PastEmpty
 }
-
-private fun nextUp(records: List<SessionRecord>, view: WeekView, today: LocalDate): String? =
-    com.calum.traininglog.core.NextUp.describe(records, view, today)
 
 @Composable
 private fun NextUpCard(text: String) {

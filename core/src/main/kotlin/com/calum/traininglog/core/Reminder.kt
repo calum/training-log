@@ -19,7 +19,19 @@ object Reminder {
         "A calm bit of exercise could be a good way to unwind tonight, if you like.",
     )
 
-    fun phrase(date: LocalDate): String = phrases[Math.floorMod(date.toEpochDay(), phrases.size.toLong()).toInt()]
+    /** Used while a race plan is on: they name no activity, because the suggestion that follows comes from the plan. */
+    val planPhrases = listOf(
+        "Kids down? A short session could be a nice way to end the day, if you fancy it.",
+        "Quiet house? A little movement could be a good way to end the day.",
+        "No pressure at all. Something easy is on offer if the evening suits.",
+        "Evening's yours. Feet up is fine too, but something gentle is waiting if you like.",
+        "Whenever you're ready, a calm session is there. Totally optional.",
+    )
+
+    fun phrase(date: LocalDate, planOn: Boolean = false): String {
+        val list = if (planOn) planPhrases else phrases
+        return list[Math.floorMod(date.toEpochDay(), list.size.toLong()).toInt()]
+    }
 
     /** True when a nudge is appropriate today. [sentThisWeek] is how many were already sent this Mon-Sun week. */
     fun shouldNudge(records: List<SessionRecord>, profile: Profile, today: LocalDate, sentThisWeek: Int): Boolean {
@@ -39,9 +51,9 @@ object Reminder {
     /** The notification text for [today], or null when no nudge should be sent. */
     fun nudgeText(records: List<SessionRecord>, profile: Profile, today: LocalDate, sentThisWeek: Int): String? {
         if (!shouldNudge(records, profile, today, sentThisWeek)) return null
-        val base = phrase(today)
-        val view = WeekPlanner.plan(records, profile, today)
-        val suggestion = NextUp.describe(records, view, today)
+        val plan = Coach.racePlan(profile, records, today)
+        val base = phrase(today, planOn = plan != null)
+        val suggestion = Coach.nextUpText(plan, records, profile, today)
         return if (suggestion == null) base else "$base $suggestion"
     }
 }

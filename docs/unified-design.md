@@ -80,7 +80,7 @@ Rules for every future change:
 0a. **Data safety, part 1 (done, #3)**: pre-restore safety copy, restore that adds missing sessions by default (replace needs a second confirmation), save-failure banner with Try again, shrink guard, weekly copies kept alongside the daily ones.
 0b. **Data safety, part 2**: soft delete with a 90-day trash and restore (schema 2, done #4), then crash-safe gym draft (in progress): the session so far is written to its own file after every change and saved into the history on the next start if the app was killed. Other session types already save the moment they end; a mid-session draft for the timer-based ones is a later step.
 0. (original list, for reference) **Data safety**: pre-restore copy and merge restore, soft delete + Undo, save-failure banner, shrink guard, weekly copies, draft autosave. Tests for each. (First, because everything else touches data.)
-1. **Today engine** (`core`) with unit tests; Home, NEXT UP, Start, reminder and "I have some time" switched to it; architecture test added; CLAUDE.md "known gaps" removed.
+1. **Today engine** (`core`; in progress as `Coach`) with unit tests; Home, NEXT UP, Start, reminder and "I have some time" switched to it; architecture test added; CLAUDE.md "known gaps" removed.
 2. **Good week on the plan**: rewards/ring/streak read the engine; historical-equivalence tests.
 3. **Maintenance plan** after race day (auto) and when no race plan is on; block goals shown inside the plan.
 4. **Home simplification** and removal of the dead `WeekPlanner`/`NextUp` suggestion code and the legacy cards; screenshot tests refreshed.
