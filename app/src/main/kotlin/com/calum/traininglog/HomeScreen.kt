@@ -91,6 +91,7 @@ fun HomeScreen(vm: AppViewModel) {
     val restToday = RestDays.isRestDay(profile, today)
     val sorted = data.records.sortedByDescending { it.date }.take(30)
     var toDelete by remember { mutableStateOf<SessionRecord?>(null) }
+    var toEdit by remember { mutableStateOf<SessionRecord?>(null) }
     var weekdayFor by remember { mutableStateOf<LocalDate?>(null) }
 
     Box(Modifier.fillMaxSize()) {
@@ -242,12 +243,39 @@ fun HomeScreen(vm: AppViewModel) {
     }
 
     toDelete?.let { r ->
+        val options = com.calum.traininglog.core.GuidedRecord.correctionOptions(r)
         AlertDialog(
             onDismissRequest = { toDelete = null },
-            title = { Text("Delete this session?") },
-            text = { Text("${r.date}  ${typeName(r.type)}. This removes it from your history. You can restore it from Recently deleted for ${com.calum.traininglog.core.Trash.KEEP_DAYS} days.") },
+            title = { Text("${r.date}  ${typeName(r.type)}") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+                    Text("Delete moves it to Recently deleted for ${com.calum.traininglog.core.Trash.KEEP_DAYS} days, so you can restore it.")
+                    if (options.isNotEmpty()) {
+                        TextButton(onClick = { toEdit = r; toDelete = null }, Modifier.testTag("change-equipment")) { Text("Change equipment") }
+                    }
+                }
+            },
             confirmButton = { TextButton(onClick = { vm.deleteRecord(r.id); toDelete = null }) { Text("Delete") } },
             dismissButton = { TextButton(onClick = { toDelete = null }) { Text("Keep it") } },
+        )
+    }
+    toEdit?.let { r ->
+        AlertDialog(
+            onDismissRequest = { toEdit = null },
+            title = { Text("What did you use?") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(Spacing.xs)) {
+                    Text(
+                        "Now: ${com.calum.traininglog.core.GuidedRecord.equipmentOf(r)?.label ?: "unknown"}. Only the equipment changes; the time, date and feeling stay.",
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    com.calum.traininglog.core.GuidedRecord.correctionOptions(r).forEach { m ->
+                        TextButton(onClick = { vm.changeEquipment(r.id, m); toEdit = null }, Modifier.testTag("equipment-${m.name}")) { Text(m.label) }
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = { TextButton(onClick = { toEdit = null }) { Text("Cancel") } },
         )
     }
     weekdayFor?.let { d ->

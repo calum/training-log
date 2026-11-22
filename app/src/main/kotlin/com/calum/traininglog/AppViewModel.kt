@@ -1110,6 +1110,17 @@ class AppViewModel @JvmOverloads constructor(
     // ---- History / export ----
 
     /** Delete moves the session to the 90-day trash (see [Trash]); nothing is destroyed, and it can be restored. */
+    /**
+     * Fixes the equipment of a session made by the guided timer (started on the rower, done on the treadmill). Only the
+     * equipment changes; a safety copy of everything is taken first.
+     */
+    fun changeEquipment(id: String, m: Modality) {
+        val old = _data.value.records.firstOrNull { it.id == id } ?: return
+        val changed = GuidedRecord.withEquipment(old, m) ?: return
+        store.snapshot("edit")
+        persist { d -> d.copy(records = d.records.map { if (it.id == id) changed else it }) }
+    }
+
     fun deleteRecord(id: String) = persist { d ->
         val r = d.records.firstOrNull { it.id == id } ?: return@persist d
         d.copy(records = d.records.filterNot { it.id == id }, trash = Trash.add(d.trash, r, today))

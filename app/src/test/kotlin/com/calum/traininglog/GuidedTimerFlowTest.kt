@@ -217,6 +217,36 @@ class GuidedTimerFlowTest {
         assertTrue("skierg" in saved.note!!.lowercase(), saved.note)
     }
 
+    @Test fun aSavedSessionCanBeChangedToTheEquipmentYouReallyUsed() {
+        val vm = newVm()
+        vm.launchPlanned(easy(30))
+        vm.guided.start()
+        vm.runToEnd()
+        vm.saveGuided()
+        val id = onDisk().records.single().id
+        vm.dismissCelebration()
+
+        vm.changeEquipment(id, Modality.TREADMILL_WALK)
+        val t = onDisk().records.single() // rewritten in place, never duplicated
+        assertEquals(id, t.id)
+        assertEquals(SessionType.TREADMILL, t.type)
+        assertEquals(30 * 60, t.treadmill!!.completedSec)
+        assertNull(vm.celebration.value) // an edit is not a new achievement
+        // A safety copy of everything was taken first.
+        assertTrue(java.io.File(app.filesDir, "backups").listFiles()!!.any { it.name.endsWith("-pre-edit.json") })
+
+        vm.changeEquipment(id, Modality.BIKE) // and it can be changed again
+        assertEquals("bike", onDisk().records.single().stations.single().stationId)
+    }
+
+    @Test fun changingTheEquipmentOfAnUnrelatedSessionDoesNothing() {
+        val vm = newVm()
+        vm.saveManual(SessionType.HIKE, 1, 30, null, "walk")
+        val before = onDisk().records
+        vm.changeEquipment(before.single().id, Modality.ROW)
+        assertEquals(before, onDisk().records)
+    }
+
     // ---------------------------------------------------------------------------------------- guided easy
 
     @Test fun wholeEasySessionIsSavedWithTheRightStationLogAndCountsAsEasy() {
