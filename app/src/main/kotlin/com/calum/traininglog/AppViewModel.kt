@@ -1158,9 +1158,38 @@ class AppViewModel @JvmOverloads constructor(
      * guided Hyrox session, the treadmill modalities the treadmill setup with a plan built for the planned minutes,
      * and rower / SkiErg / bike the guided timer. A rest day goes home.
      */
+    // ---- Which equipment a planned easy cardio session is done on ----
+
+    private val cardioPrefs get() = getApplication<Application>().getSharedPreferences("planned_cardio", android.content.Context.MODE_PRIVATE)
+
+    /**
+     * Only easy sessions without running offer a free choice of equipment that is remembered: the rower, SkiErg, bike
+     * and incline walk are interchangeable there. Run-walk, hard and Hyrox sessions keep what the plan says.
+     */
+    private fun equipmentIsYours(s: PlannedSession) = !s.includesRunning && (s.kind == SessionKind.EASY || s.kind == SessionKind.LONG_EASY)
+
+    private val cardioChoices = setOf(Modality.ROW, Modality.SKIERG, Modality.BIKE, Modality.TREADMILL_WALK)
+
+    /** Remembers the equipment picked for [session] so the next easy session starts on it. */
+    fun rememberCardio(session: PlannedSession, m: Modality) {
+        if (equipmentIsYours(session) && m in cardioChoices) cardioPrefs.edit().putString("last", m.name).apply()
+    }
+
+    private fun preferredCardio(s: PlannedSession): Modality? {
+        if (!equipmentIsYours(s)) return null
+        val name = cardioPrefs.getString("last", null) ?: return null
+        return Modality.entries.firstOrNull { it.name == name }?.takeIf { it in s.modalityOptions && it in cardioChoices }
+    }
+
+    /** A chip tapped on the guided timer's setup: the timer's own equipment stays here, the treadmill opens its own flow. */
+    fun chooseGuidedModality(session: PlannedSession, m: Modality) {
+        if (m in GuidedPlan.TIMER_MODALITIES) { guided.setModality(m); rememberCardio(session, m) } else launchPlanned(session, m)
+    }
+
     fun launchPlanned(session: PlannedSession, modality: Modality? = null) {
         if (session.launch.kneeCare) { launchKneeCare(); return }
-        val mod = modality ?: GuidedPlan.defaultModality(session)
+        if (modality != null) rememberCardio(session, modality)
+        val mod = modality ?: preferredCardio(session) ?: GuidedPlan.defaultModality(session)
         when {
             session.kind == SessionKind.REST || mod == Modality.REST -> home()
             session.kind == SessionKind.STRENGTH || mod == Modality.GYM -> {
