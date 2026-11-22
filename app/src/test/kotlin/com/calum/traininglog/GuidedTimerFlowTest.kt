@@ -171,6 +171,52 @@ class GuidedTimerFlowTest {
         assertTrue(seen.containsAll(listOf("GuidedTimer", "Gym")), "$seen")
     }
 
+    // ---------------------------------------------------------------------------------------- choosing the equipment
+
+    @Test fun theEquipmentYouPickIsUsedAndRememberedForTheNextEasySession() {
+        val vm = newVm()
+        val s = easy(30)
+        vm.launchPlanned(s)
+        assertEquals(Modality.ROW, vm.guided.ui.value.modality) // nothing remembered yet: the plan's first option
+        vm.chooseGuidedModality(s, Modality.BIKE)
+        assertEquals(Modality.BIKE, vm.guided.ui.value.modality)
+        vm.guided.reset()
+        vm.launchPlanned(easy(30))
+        assertEquals(Modality.BIKE, vm.guided.ui.value.modality) // remembered
+
+        // The treadmill opens its own flow, and is remembered too.
+        vm.guided.reset()
+        vm.chooseGuidedModality(easy(30), Modality.TREADMILL_WALK)
+        assertEquals(Screen.TreadmillSetup, vm.screen.value)
+        vm.go(Screen.Home)
+        vm.launchPlanned(easy(30))
+        assertEquals(Screen.TreadmillSetup, vm.screen.value)
+    }
+
+    @Test fun aRememberedChoiceNeverChangesARunWalkOrAHardSession() {
+        val vm = newVm()
+        vm.launchPlanned(easy(), Modality.BIKE)
+        vm.guided.reset()
+        vm.launchPlanned(runWalk()) // running stays gated by the knee, whatever was picked before
+        assertEquals(Screen.TreadmillSetup, vm.screen.value)
+        vm.go(Screen.Home)
+        vm.launchPlanned(vo2())
+        assertEquals(Modality.ROW, vm.guided.ui.value.modality)
+    }
+
+    @Test fun theEquipmentCanBeCorrectedOnTheFinishCard() {
+        val vm = newVm()
+        vm.launchPlanned(easy(20))
+        vm.guided.start()
+        vm.runToEnd()
+        assertEquals(HyroxStation.ROW.id, onDisk().records.single().stations.single().stationId)
+        vm.guided.correctModality(Modality.SKIERG)
+        vm.saveGuided()
+        val saved = onDisk().records.single() // rewritten, not duplicated
+        assertEquals(HyroxStation.SKIERG.id, saved.stations.single().stationId)
+        assertTrue("skierg" in saved.note!!.lowercase(), saved.note)
+    }
+
     // ---------------------------------------------------------------------------------------- guided easy
 
     @Test fun wholeEasySessionIsSavedWithTheRightStationLogAndCountsAsEasy() {

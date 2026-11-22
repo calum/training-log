@@ -308,6 +308,7 @@ private fun TodayCard(
                     "${plannedToday.minutes} min · ${RacePlanFormat.intensityLabel(plannedToday.intensity)} · ${plannedToday.rpeLabel}",
                     style = MaterialTheme.typography.bodyMedium, color = AppColors.textMuted,
                 )
+                EquipmentHint(plannedToday)
                 BigActionButton("Start", onClick = { onStart(plannedToday) }, modifier = Modifier.testTag("today-start"))
             }
             todays?.isRaceDay == true -> Text("Race day. Enjoy it.", style = MaterialTheme.typography.titleLarge, color = AppColors.textPrimary)
@@ -333,6 +334,7 @@ private fun TodayCard(
                 if (todays == null || todays.kind == SessionKind.REST) {
                     Text("Nothing planned today, so today is rest or a bonus.", style = MaterialTheme.typography.bodySmall, color = AppColors.textMuted)
                 }
+                EquipmentHint(next)
                 BigActionButton("Start", onClick = { onStart(next) }, modifier = Modifier.testTag("today-start"))
             }
             else -> Text(
@@ -357,6 +359,17 @@ private fun TodayCard(
         }
         TodayActions(plan, records, profile, today, onStart, onProfile, onFreeChoice = onFreeChoice)
     }
+}
+
+/** "Choose when you start: Rower · SkiErg · ..." for a session that can be done on more than one thing. */
+@Composable
+private fun EquipmentHint(s: PlannedSession) {
+    val options = com.calum.traininglog.core.GuidedPlan.chipOptions(s)
+    if (options.size < 2) return
+    Text(
+        "You choose when you start: " + options.joinToString(" · ") { it.label },
+        style = MaterialTheme.typography.bodySmall, color = AppColors.textMuted,
+    )
 }
 
 /** The Today card when no race or maintenance plan is on: the weekly-target suggestion and the Start button, as before. */
