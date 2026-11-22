@@ -2,6 +2,13 @@
 
 What changed in each release, in plain language, newest first. The release workflow copies the matching `## vX.Y.Z` section into the GitHub release, and the app shows it as "What's new" before you tap Update.
 
+## v0.12.1
+
+- Pick what you are doing: a planned easy cardio session (the 30 minute cardio, for example) can be done on the rower, SkiErg, bike or the treadmill. The timer's setup now has a clear "What are you using?" card with big choices, instead of a small row of chips you could miss, and the Today card lists the options and says you choose when you start. Before, it started on the rower and saved the session as a rower session even when you were on the treadmill. The treadmill options open the treadmill screen, which sets the speed and incline for you.
+- Your pick is remembered for the next easy session. Run-walk, hard and Hyrox sessions always follow your plan, so a remembered choice can never change a knee-gated run.
+- If you picked wrong, fix it: the finish screen has "What did you use?" (rower, SkiErg or bike), and any session already in History that came from the guided timer can be changed afterwards. Long-press it, tap "Change equipment" and choose what you used, including the incline treadmill walk. Only the equipment changes; the date, time and how you felt stay, nothing is duplicated, and a safety copy of your data is taken first. A session with hard intervals keeps its structure, so the treadmill is not offered for it.
+- Long-pressing a session in History now shows its date and type, and says that Delete is recoverable from "Recently deleted" for 90 days.
+
 ## v0.12.0
 
 - One answer for "what next": the Home card, the evening reminder and the plan screens all get the same answer from one place, so they can no longer disagree (before, Home could say "easy aerobic" on one card and "treadmill day" on another).
