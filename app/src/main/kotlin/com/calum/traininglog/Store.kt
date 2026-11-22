@@ -322,7 +322,7 @@ class Store(
         const val KEEP = 14
         const val KEEP_WEEKS = 12
         const val KEEP_SPECIAL = 20
-        private val BACKUP_NAME = Regex("""training-data-\d{8}-\d{4}(-pre-v\d+|-pre-restore)?\.json""")
+        private val BACKUP_NAME = Regex("""training-data-\d{8}-\d{4}(-pre-v\d+|-pre-restore|-pre-edit)?\.json""")
         private val STAMP = DateTimeFormatter.ofPattern("yyyyMMdd-HHmm")
         private val STAMP_SECONDS = DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss")
         private val DAY = DateTimeFormatter.ofPattern("yyyyMMdd")

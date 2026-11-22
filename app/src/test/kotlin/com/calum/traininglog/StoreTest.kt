@@ -152,6 +152,14 @@ class StoreTest {
         assertTrue(backups.any { it.endsWith("-pre-restore.json") })
     }
 
+    @Test fun aPreEditCopyIsKeptLikeAPreRestoreCopy() {
+        val s = store()
+        s.save(data("a", "b"))
+        assertTrue(s.snapshot("edit"))
+        repeat(20) { i -> t = t.plusDays(1); s.save(data("a", "b", "r$i")) }
+        assertTrue(backups.any { it.endsWith("-pre-edit.json") })
+    }
+
     @Test fun snapshotOfAnUnreadableFileIsNotTaken() {
         main.writeText("{broken")
         assertFalse(store().snapshot("restore"))
