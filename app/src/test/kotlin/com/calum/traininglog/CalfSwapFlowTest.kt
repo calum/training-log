@@ -301,7 +301,8 @@ class CalfSwapFlowTest {
 
     @Test fun trimmedSetsAreInTheListAndNamedInOneLine() {
         val vm = newVm()
-        startGym(vm, 45) // lifting window of 25 min: sets get trimmed
+        startGym(vm, 45) // lifting window of 25 min: the squat and calf keep 3 sets within the tolerance
+        vm.setGymWindow(20) // 20 min lifting: the calf is trimmed, the squat is protected
         val g = vm.gym.value!!
         val o = GymGuide.overview(g)
         assertTrue(g.plan.exercises.any { it.prescription.sets == 2 })

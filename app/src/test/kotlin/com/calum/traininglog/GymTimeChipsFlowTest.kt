@@ -113,7 +113,7 @@ class GymTimeChipsFlowTest {
         assertEquals(20, g.windowMinutes)
         assertEquals(listOf("squat", "rdl", "calf"), ids(vm))
         assertEquals(30, g.minutesAvailable, "20 lifting + 10 prehab")
-        assertTrue(o.minutes <= 20)
+        assertTrue(o.minutes <= 21)
         assertEquals(20, o.time!!.selected)
         assertEquals(25, o.time!!.plannedWindow, "the plan's window is still the labelled one")
         val at20 = o.rows.map { it.line }
@@ -253,6 +253,32 @@ class GymTimeChipsFlowTest {
         assertEquals(Screen.Home, vm.screen.value)
         // Settings are untouched by a chip.
         assertEquals(profile.settings, onDisk().profile.settings)
+    }
+
+    @Test fun aCalfSwapMadeBeforeTappingAChipSurvivesTheRebuild() {
+        val vm = newVm()
+        vm.launchPlanned(kickoff())
+        val ei = ids(vm).indexOf("calf")
+        vm.swap(ei, "calf_seated")
+        vm.setGymWindow(40)
+        assertEquals("calf_seated", ids(vm)[ei], "the chosen variant is carried through")
+        assertEquals(5, ids(vm).size)
+        assertEquals(listOf(50.0, 50.0, 50.0), vm.gym.value!!.exercises[ei].sets.map { it.kg })
+        vm.setGymWindow(20)
+        assertEquals("calf_seated", ids(vm)[ei])
+        assertEquals(1, ids(vm).count { it.startsWith("calf") })
+    }
+
+    @Test fun theTwentyMinuteWindowOfAThirtyMinutePlanShowsTheHonestEstimateAndKeepsThreeSquatSets() {
+        val vm = newVm()
+        vm.launchPlanned(kickoff())
+        vm.setGymWindow(20)
+        val g = vm.gym.value!!
+        assertEquals(3, g.exercises[0].sets.size, "squat keeps 3 sets")
+        val o = GymGuide.overview(g)
+        assertEquals(g.plan.estimatedMinutes, o.minutes)
+        assertTrue(o.minutes in 20..21, "${o.minutes}")
+        assertNull(o.trimNote?.takeIf { "Squat" in it }, "the squat is not named as trimmed")
     }
 
     @Test fun theChipsRebuildWithTheSameHistoryAsTheOriginalStart() {

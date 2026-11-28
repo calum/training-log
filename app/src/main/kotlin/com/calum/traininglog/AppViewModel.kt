@@ -327,8 +327,17 @@ class AppViewModel @JvmOverloads constructor(
         val g = _gym.value ?: return
         if (!GymGuide.canRetime(g)) return
         val window = minutes.coerceIn(GuidedPlan.MIN_LIFTING_WINDOW, 240)
-        val plan = buildGymPlan(window)
         val before = g.exercises.map { it.planned.exercise }
+        val built = buildGymPlan(window)
+        // A swap made before the chip (e.g. seated calf raises) survives: the same movement keeps the variant picked today, at the rebuilt set count.
+        val kept = built.exercises.map { p ->
+            val chosen = before.firstOrNull { it.movement == p.exercise.movement && it.id != p.exercise.id && p.exercise.movement != ExerciseLibrary.OTHER_MOVEMENT }
+                ?.takeIf { c -> built.exercises.none { it.exercise.id == c.id } }
+            if (chosen == null) p
+            else GymBuilder.planFor(chosen.id, _data.value.records, today, built.deload, rebaseline = built.rebaseline, settings = _data.value.profile.settings)
+                .let { sw -> sw.copy(prescription = sw.prescription.copy(sets = p.prescription.sets)) }
+        }
+        val plan = built.copy(exercises = kept)
         val after = plan.exercises.map { it.exercise }
         val added = after.filter { a -> before.none { it.id == a.id } }
         val dropped = before.filter { b -> after.none { it.id == b.id } }

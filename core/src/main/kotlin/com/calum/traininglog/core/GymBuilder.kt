@@ -86,6 +86,12 @@ object GymBuilder {
     const val MIN_TRIMMED_SETS = 2
     /** The estimate is rough (about 30 s either way): one upper lift at two sets may overshoot the window by this much rather than be left out. */
     private const val UPPER_FIT_SLACK_MIN = 0.5
+    /**
+     * Estimates are deliberately conservative, so keeping the squat at 3 sets (and the calf at 3 when that is the only thing that
+     * does not fit) may overshoot the window by up to this many minutes before their sets are trimmed. The plan's
+     * [GymPlan.estimatedMinutes] stays the honest figure ("about 21 min" in a 20 minute window).
+     */
+    const val PROTECT_TOLERANCE_MIN = 1.5
     /** Appended to a prescription's note when its sets were trimmed to fit the time. */
     const val TRIM_NOTE = "Fewer sets to fit your time."
     /** The squat warm-up chain keeps the bar plus this many of the last ramps when time is short. */
@@ -151,13 +157,15 @@ object GymBuilder {
             if (e.prescription.sets <= MIN_TRIMMED_SETS) e
             else e.copy(prescription = e.prescription.copy(sets = MIN_TRIMMED_SETS, note = e.prescription.note + " " + TRIM_NOTE))
         }
+        // The estimate is conservative, so the squat (and the calf when it is all that does not fit) may overshoot by TOLERANCE.
+        fun tolerated(): Boolean { if (total() <= liftingMinutes + PROTECT_TOLERANCE_MIN) { slack = maxOf(slack, PROTECT_TOLERANCE_MIN); return true }; return false }
         if (over()) trimSets(hingeP.exercise.id)
-        if (over()) trimSets(calf.exercise.id)
+        if (over() && !tolerated()) trimSets(calf.exercise.id)
         for (ramps in TRIMMED_WARMUP_RAMPS) {
             if (!over()) break
             replace(squat.exercise.id) { e -> if (e.warmups.size <= 1 + ramps) e else e.copy(warmups = listOf(e.warmups.first()) + e.warmups.takeLast(ramps)) }
         }
-        if (over()) trimSets(squat.exercise.id)
+        if (over() && !tolerated()) trimSets(squat.exercise.id)
         if (over()) {
             kept.removeAll { it.exercise.id == hingeP.exercise.id }
             dropped += hingeP.exercise
