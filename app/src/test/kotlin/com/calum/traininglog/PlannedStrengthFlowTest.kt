@@ -120,7 +120,8 @@ class PlannedStrengthFlowTest {
         assertTrue(g.plan.estimatedMinutes <= g.windowMinutes)
         assertEquals(10, g.prehabMinutes)
         assertEquals(35, s.minutes); assertEquals(25, g.windowMinutes)
-        assertEquals(listOf(2, 2, 2), g.plan.exercises.take(3).map { it.prescription.sets })
+        // Trim priority: hinge, then calf, then the squat warm-ups; the squat keeps its 3 sets (the RDL is a 2-set lift anyway).
+        assertEquals(listOf(3, 2, 2), g.plan.exercises.take(3).map { it.prescription.sets })
 
         // Finish the lifts: they are saved first and the prehab prompt follows.
         vm.doAllSets()

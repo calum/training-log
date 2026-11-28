@@ -155,6 +155,9 @@ fun GymScreen(vm: AppViewModel) {
             verticalArrangement = Arrangement.spacedBy(Spacing.md),
         ) {
             GymHeader(live.plan.dayLabel, live.plan.deload, doneSets, totalSets, progress)
+            GymGuide.timeControl(live)?.let { t ->
+                com.calum.traininglog.ui.SectionCard { GymTimeControl(t, { vm.setGymWindow(it) }, { vm.setGymPrehab(it) }, compact = true) }
+            }
             SecondaryButton("Guided mode: one set at a time", onClick = { vm.setGymGuided(true) }, Modifier.fillMaxWidth(), accent = AppColors.info)
             if (live.prehabMinutes > 0) com.calum.traininglog.ui.SectionCard(title = "Next: hip prehab (about ${live.prehabMinutes} min, optional)") {
                 Text(PREHAB_BLURB, style = MaterialTheme.typography.bodyMedium, color = AppColors.textMuted)

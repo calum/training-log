@@ -88,7 +88,36 @@ internal object GymGuide {
         val trimNote: String?,
         /** "Then: hip prehab (about 10 min)" only when a prehab prompt follows the lifting; null otherwise. */
         val prehabLine: String?,
+        /** The "How much time do you have for lifting?" control; null once a set is logged. */
+        val time: TimeControl? = null,
     )
+
+    /** State of the time control: chip values are LIFTING minutes. */
+    data class TimeControl(
+        val windows: List<Int>,
+        val selected: Int,
+        /** The chip that is the plan's own window (planned sessions only), else null. */
+        val plannedWindow: Int?,
+        /** Minutes of hip prehab the plan asked for (0: no prehab switch). */
+        val prehabMinutes: Int,
+        val prehabOn: Boolean,
+        /** "Added: Machine chest press" after a change, else null. */
+        val change: String?,
+    )
+
+    val TIME_CHIPS = listOf(20, 25, 30, 40, 50, 60)
+
+    /** The time can be changed (and the session rebuilt) only while no set, warm-up or exercise has been started or closed. */
+    fun canRetime(g: GymLive): Boolean =
+        g.exercises.none { begun(it) || it.closed } && g.rest == null && !g.prehabOffered && !g.finisherOffered
+
+    fun timeControl(g: GymLive): TimeControl? {
+        if (!canRetime(g)) return null
+        val on = g.prehabMinutes > 0
+        val planned = if (g.fromPlan) g.startWindow + if (g.prehabPlanned > 0 && !on) g.prehabPlanned else 0 else null
+        val windows = (TIME_CHIPS + g.windowMinutes + listOfNotNull(planned)).distinct().sorted()
+        return TimeControl(windows, g.windowMinutes, planned, g.prehabPlanned, on, g.windowChange)
+    }
 
     fun overview(g: GymLive): Overview {
         val rows = g.exercises.mapIndexed { i, e ->
@@ -96,14 +125,15 @@ internal object GymGuide {
             val detail = if (first == null) "no sets" else "${e.sets.size} x ${first.target} · ${loadText(first.kg)}"
             OverviewRow(i + 1, e.planned.exercise.name, detail, optional = e.planned.exercise.id in g.plan.optionalIds)
         }
-        val trimmed = g.plan.exercises.any { GymBuilder.TRIM_NOTE in it.prescription.note }
+        val trimmed = g.plan.exercises.filter { GymBuilder.TRIM_NOTE in it.prescription.note }
         val notes = listOfNotNull(
-            if (trimmed) "Sets trimmed to fit your time." else null,
+            trimmed.takeIf { it.isNotEmpty() }?.let { "Trimmed to fit: ${it.joinToString(", ") { e -> "${e.exercise.name} ${e.prescription.sets} sets" }}." },
             g.plan.dropped.takeIf { it.isNotEmpty() }?.let { "Left out to fit your time: ${it.joinToString(", ") { d -> d.name }}." },
         )
         return Overview(
             rows, g.plan.estimatedMinutes, notes.joinToString(" ").ifEmpty { null },
             if (g.prehabMinutes > 0) "Then: hip prehab (about ${g.prehabMinutes} min)" else null,
+            time = timeControl(g),
         )
     }
 

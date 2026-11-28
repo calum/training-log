@@ -1,5 +1,6 @@
 package com.calum.traininglog
 
+import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -230,11 +231,11 @@ internal fun SwapChipRow(variants: List<Exercise>, currentId: String, onPick: (S
 @Composable
 internal fun GuidedOverview(vm: AppViewModel, live: GymLive) {
     val o = GymGuide.overview(live)
-    OverviewContent(o, onStart = { vm.startGuidedSession() })
+    OverviewContent(o, onStart = { vm.startGuidedSession() }, onWindow = { vm.setGymWindow(it) }, onPrehab = { vm.setGymPrehab(it) })
 }
 
 @Composable
-internal fun OverviewContent(o: GymGuide.Overview, onStart: () -> Unit) {
+internal fun OverviewContent(o: GymGuide.Overview, onStart: () -> Unit, onWindow: (Int) -> Unit = {}, onPrehab: (Boolean) -> Unit = {}) {
     Column(stepPadding.navigationBarsPadding().fillMaxSize(), verticalArrangement = Arrangement.spacedBy(Spacing.md), horizontalAlignment = Alignment.CenterHorizontally) {
         Column(
             Modifier.weight(1f).verticalScroll(rememberScrollState()),
@@ -242,8 +243,12 @@ internal fun OverviewContent(o: GymGuide.Overview, onStart: () -> Unit) {
         ) {
             Pill("TODAY'S SESSION", color = AppColors.primary, filled = true)
             Text("${o.rows.size} ${if (o.rows.size == 1) "exercise" else "exercises"}, about ${o.minutes} min", style = MaterialTheme.typography.headlineMedium, color = AppColors.textPrimary, textAlign = TextAlign.Center)
+            o.time?.let { t ->
+                // On the plain background (not a raised card) so the unselected chips, which are raised, stand out.
+                GymTimeControl(t, onWindow, onPrehab, modifier = Modifier.padding(horizontal = Spacing.xs))
+            }
             Column(
-                Modifier.fillMaxWidth().clip(AppShapes.large).background(AppColors.surfaceRaised).padding(Spacing.lg),
+                Modifier.fillMaxWidth().animateContentSize().clip(AppShapes.large).background(AppColors.surfaceRaised).padding(Spacing.lg),
                 verticalArrangement = Arrangement.spacedBy(Spacing.md),
             ) {
                 o.rows.forEach { r ->

@@ -306,7 +306,8 @@ class CalfSwapFlowTest {
         val o = GymGuide.overview(g)
         assertTrue(g.plan.exercises.any { it.prescription.sets == 2 })
         assertEquals(g.plan.exercises.map { "${it.prescription.sets} x ${it.prescription.reps}" }, o.rows.map { it.detail.substringBefore(" ·") })
-        assertEquals("Sets trimmed to fit your time.", o.trimNote?.substringBefore(" Left out"))
+        // The squat is protected longest, and the RDL is already a 2-set lift: only the calf raise was trimmed.
+        assertEquals("Trimmed to fit: Calf raise 2 sets.", o.trimNote?.substringBefore(" Left out"))
         assertTrue(o.trimNote!!.length < 160)
     }
 
