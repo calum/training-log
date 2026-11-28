@@ -2,6 +2,13 @@
 
 What changed in each release, in plain language, newest first. The release workflow copies the matching `## vX.Y.Z` section into the GitHub release, and the app shows it as "What's new" before you tap Update.
 
+## v0.11.4
+
+- Tell the app how much time you have: the Today's session card now asks "How much time do you have for lifting?" with big chips (20, 25, 30, 40, 50, 60 minutes, with your planned time marked). Tap one and the session rebuilds straight away: more time brings the upper-body lifts back, less time trims it, and the card shows what was added or left out. The chips also appear in the list view, and the choice only applies to that session.
+- Include the hip prehab: a switch on the same card. Turn it off and those 10 minutes go to lifting and the prehab prompt does not appear afterwards.
+- Squat stays at 3 sets when time is tight. The app now trims the Romanian deadlift or deadlift to 2 sets first, then the calf raise, then the warm-up ramps, and only then the squat. A 20 minute window now gives squat 3 sets, Romanian deadlift 2 and calf raise 2 (about 21 minutes, shown honestly), and 30 minutes gives 3 sets of squat and calf raise plus an upper-body lift.
+- If you swap calf raises to seated before changing the time, the swap is kept.
+
 ## v0.11.3
 
 - Seated calf raises: a Standing | Seated toggle sits right on the calf screen (and on other exercises that have a swap), so one tap switches. Seated calf raises are tracked as their own exercise with their own weight, starting at 50 kg, so they never drag down your standing weight, and each progresses on its own. If you switch after the first set, the sets you have done stay logged under the original variant. The app remembers whichever you used last.
