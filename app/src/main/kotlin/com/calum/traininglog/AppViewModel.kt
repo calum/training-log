@@ -149,6 +149,18 @@ data class GymLive(
     val prehabOffered: Boolean = false,
     /** Guided mode: "Start" was pressed on the "Today's session" overview card (shown once, before the first exercise). */
     val overviewSeen: Boolean = false,
+    /** Minutes the whole session was chosen for (lifting window plus prehab/finisher/travel); saved as the record's `minutesAvailable` (0: use the Start inputs). */
+    val minutesAvailable: Int = 0,
+    /** Minutes that sit on top of the lifting window and prehab (finisher, or gym travel), constant for the session. */
+    val overheadMinutes: Int = 0,
+    /** The lifting window the session started with (the plan's own when [fromPlan]), with the hip prehab included as planned. */
+    val startWindow: Int = 0,
+    /** Hip prehab minutes the plan asked for (kept when the "Include the hip prehab" switch is off); [prehabMinutes] is 0 then. */
+    val prehabPlanned: Int = 0,
+    /** True when the session came from the plan (its window is "planned"). */
+    val fromPlan: Boolean = false,
+    /** What the last time change did to the list ("Added: Machine chest press"), null when nothing changed. */
+    val windowChange: String? = null,
 )
 
 private const val MAX_BACK_STACK = 20
@@ -292,15 +304,68 @@ class AppViewModel @JvmOverloads constructor(
      * [atGym]); a non-null [liftingWindow] is the lifting time itself and is used as it is (planned strength sessions: no travel).
      */
     private fun startGym(minutes: Int, liftingWindow: Int? = null) {
-        val records = _data.value.records
         val lifting = liftingWindow ?: if (_inputs.value.atGym) minutes else maxOf(25, GymBuilder.liftingMinutes(minutes, _data.value.profile.settings))
-        val gymDates = records.filter { it.type == SessionType.GYM }.map { it.date }
-        val deload = Progression.deloadDue(gymDates, _data.value.profile.lastDeload, today, settings = _data.value.profile.settings)
-        val plan = GymBuilder.build(lifting, records, today, deload, rebaseline = Rebaseline.status(records, today), settings = _data.value.profile.settings)
+        val plan = buildGymPlan(lifting)
         gymStartedAt = SystemClock.elapsedRealtime()
         _gymGuided.value = _data.value.profile.settings.guidedGym
-        _gym.value = GymLive(plan, plan.exercises.map { live(it) }, startedAt = gymStartedAt, windowMinutes = lifting)
+        val overhead = if (liftingWindow != null || _inputs.value.atGym) 0 else 2 * _data.value.profile.settings.travelMinEachWay
+        _gym.value = GymLive(
+            plan, plan.exercises.map { live(it) }, startedAt = gymStartedAt, windowMinutes = lifting,
+            minutesAvailable = minutes, overheadMinutes = overhead, startWindow = lifting,
+        )
         go(Screen.Gym)
+    }
+
+    /** The one place a gym session is built, at the start and whenever the lifting time is changed: same records, deload, easing back in and settings. */
+    private fun buildGymPlan(lifting: Int): GymPlan {
+        val records = _data.value.records
+        val gymDates = records.filter { it.type == SessionType.GYM }.map { it.date }
+        val deload = Progression.deloadDue(gymDates, _data.value.profile.lastDeload, today, settings = _data.value.profile.settings)
+        return GymBuilder.build(lifting, records, today, deload, rebaseline = Rebaseline.status(records, today), settings = _data.value.profile.settings)
+    }
+
+    /**
+     * "How much time do you have for lifting?": rebuilds today's session for [minutes] of lifting. Only before any set is
+     * done; it changes nothing in Settings and lasts for this session only. [prehabOn] is the state of the hip prehab switch.
+     */
+    private fun retime(minutes: Int, prehabOn: Boolean) {
+        val g = _gym.value ?: return
+        if (!GymGuide.canRetime(g)) return
+        val window = minutes.coerceIn(GuidedPlan.MIN_LIFTING_WINDOW, 240)
+        val before = g.exercises.map { it.planned.exercise }
+        val built = buildGymPlan(window)
+        // A swap made before the chip (e.g. seated calf raises) survives: the same movement keeps the variant picked today, at the rebuilt set count.
+        val kept = built.exercises.map { p ->
+            val chosen = before.firstOrNull { it.movement == p.exercise.movement && it.id != p.exercise.id && p.exercise.movement != ExerciseLibrary.OTHER_MOVEMENT }
+                ?.takeIf { c -> built.exercises.none { it.exercise.id == c.id } }
+            if (chosen == null) p
+            else GymBuilder.planFor(chosen.id, _data.value.records, today, built.deload, rebaseline = built.rebaseline, settings = _data.value.profile.settings)
+                .let { sw -> sw.copy(prescription = sw.prescription.copy(sets = p.prescription.sets)) }
+        }
+        val plan = built.copy(exercises = kept)
+        val after = plan.exercises.map { it.exercise }
+        val added = after.filter { a -> before.none { it.id == a.id } }
+        val dropped = before.filter { b -> after.none { it.id == b.id } }
+        val note = listOfNotNull(
+            added.takeIf { it.isNotEmpty() }?.let { "Added: ${it.joinToString(", ") { e -> e.name }}" },
+            dropped.takeIf { it.isNotEmpty() }?.let { "Left out: ${it.joinToString(", ") { e -> e.name }}" },
+        ).joinToString(". ").ifEmpty { null }
+        val prehab = if (prehabOn) g.prehabPlanned else 0
+        _gym.value = g.copy(
+            plan = plan, exercises = plan.exercises.map { live(it) }, windowMinutes = window, prehabMinutes = prehab,
+            minutesAvailable = window + g.overheadMinutes + prehab, windowChange = note,
+        )
+    }
+
+    /** A time chip on the gym overview or list: lifting minutes for today. */
+    fun setGymWindow(minutes: Int) { _gym.value?.let { retime(minutes, it.prehabMinutes > 0) } }
+
+    /** The "Include the hip prehab" switch: off adds the prehab minutes to the lifting window (and no prehab prompt follows), on takes them back. */
+    fun setGymPrehab(on: Boolean) {
+        val g = _gym.value ?: return
+        if (g.prehabPlanned <= 0 || (g.prehabMinutes > 0) == on) return
+        val window = if (on) (g.windowMinutes - g.prehabPlanned).coerceAtLeast(GuidedPlan.MIN_LIFTING_WINDOW) else g.windowMinutes + g.prehabPlanned
+        retime(window, on)
     }
 
     private fun live(p: PlannedExercise) = LiveExercise(
@@ -453,7 +518,7 @@ class AppViewModel @JvmOverloads constructor(
         if (logs.isNotEmpty()) {
             val record = SessionRecord(
                 id = UUID.randomUUID().toString(), date = today, type = SessionType.GYM,
-                minutesAvailable = _inputs.value.minutes, minutesActual = minutes, feeling = _inputs.value.feeling,
+                minutesAvailable = g.minutesAvailable.takeIf { it > 0 } ?: _inputs.value.minutes, minutesActual = minutes, feeling = _inputs.value.feeling,
                 kneePain = _inputs.value.knee, dayLabel = g.plan.dayLabel, deload = g.plan.deload, exercises = logs,
             )
             persist { d ->
@@ -1208,8 +1273,14 @@ class AppViewModel @JvmOverloads constructor(
                 // A planned session's minutes are the whole session: no gym travel comes off, only the prehab and finisher.
                 val window = GuidedPlan.liftingWindow(session)
                 startGym(session.minutes.coerceAtLeast(20), liftingWindow = window)
-                if (session.launch.prehabMinutes > 0) _gym.update { it?.copy(prehabMinutes = session.launch.prehabMinutes) }
                 val finisher = GuidedPlan.finisherLines(session)
+                val finisherMin = if (finisher.isNotEmpty()) GuidedPlan.finisherMinutes(session) ?: 10 else 0
+                _gym.update {
+                    it?.copy(
+                        prehabMinutes = session.launch.prehabMinutes, prehabPlanned = session.launch.prehabMinutes, fromPlan = true,
+                        overheadMinutes = finisherMin, minutesAvailable = window + session.launch.prehabMinutes + finisherMin,
+                    )
+                }
                 if (finisher.isNotEmpty()) {
                     _gym.update {
                         it?.copy(

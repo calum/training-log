@@ -301,12 +301,14 @@ class CalfSwapFlowTest {
 
     @Test fun trimmedSetsAreInTheListAndNamedInOneLine() {
         val vm = newVm()
-        startGym(vm, 45) // lifting window of 25 min: sets get trimmed
+        startGym(vm, 45) // lifting window of 25 min: the squat and calf keep 3 sets within the tolerance
+        vm.setGymWindow(20) // 20 min lifting: the calf is trimmed, the squat is protected
         val g = vm.gym.value!!
         val o = GymGuide.overview(g)
         assertTrue(g.plan.exercises.any { it.prescription.sets == 2 })
         assertEquals(g.plan.exercises.map { "${it.prescription.sets} x ${it.prescription.reps}" }, o.rows.map { it.detail.substringBefore(" ·") })
-        assertEquals("Sets trimmed to fit your time.", o.trimNote?.substringBefore(" Left out"))
+        // The squat is protected longest, and the RDL is already a 2-set lift: only the calf raise was trimmed.
+        assertEquals("Trimmed to fit: Calf raise 2 sets.", o.trimNote?.substringBefore(" Left out"))
         assertTrue(o.trimNote!!.length < 160)
     }
 

@@ -12,6 +12,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      # Free runner disk (the Android build plus Robolectric is big): drop big toolchains we never use.
+      # The Android SDK is kept. Never fails the build.
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/share/boost "$AGENT_TOOLSDIRECTORY/CodeQL" || true
+          df -h / | tail -1
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -29,3 +35,4 @@ jobs:
           name: screenshots
           path: docs/screenshots
           if-no-files-found: ignore
+          retention-days: 3

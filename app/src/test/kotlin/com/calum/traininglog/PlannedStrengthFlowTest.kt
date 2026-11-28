@@ -117,10 +117,11 @@ class PlannedStrengthFlowTest {
         val g = vm.gym.value!!
         assertEquals(s.minutes - 10, g.windowMinutes, "no gym travel comes off a planned session")
         assertEquals(listOf("squat", "rdl", "calf"), g.plan.exercises.map { it.exercise.id }.take(3), "the deadlift was last, so the RDL is next")
-        assertTrue(g.plan.estimatedMinutes <= g.windowMinutes)
+        assertTrue(g.plan.estimatedMinutes <= g.windowMinutes + com.calum.traininglog.core.GymBuilder.PROTECT_TOLERANCE_MIN, "estimate within the squat-protecting tolerance")
         assertEquals(10, g.prehabMinutes)
         assertEquals(35, s.minutes); assertEquals(25, g.windowMinutes)
-        assertEquals(listOf(2, 2, 2), g.plan.exercises.take(3).map { it.prescription.sets })
+        // Trim priority: hinge, then calf, then the squat warm-ups; the squat keeps its 3 sets (the RDL is a 2-set lift anyway; the calf keeps 3 within the tolerance).
+        assertEquals(listOf(3, 2, 3), g.plan.exercises.take(3).map { it.prescription.sets })
 
         // Finish the lifts: they are saved first and the prehab prompt follows.
         vm.doAllSets()
@@ -208,7 +209,7 @@ class PlannedStrengthFlowTest {
         assertEquals(GuidedPlan.liftingWindow(b), g.windowMinutes)
         assertTrue(g.windowMinutes >= 20)
         assertEquals(listOf("squat", "rdl", "calf"), g.plan.exercises.map { it.exercise.id }.take(3))
-        assertTrue(g.plan.estimatedMinutes <= g.windowMinutes)
+        assertTrue(g.plan.estimatedMinutes <= g.windowMinutes + com.calum.traininglog.core.GymBuilder.PROTECT_TOLERANCE_MIN, "estimate within the squat-protecting tolerance")
         assertEquals(10, g.prehabMinutes)
         vm.doAllSets(); vm.finishGym(); idle()
         assertTrue(vm.gym.value!!.prehabOffered)

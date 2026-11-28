@@ -1,0 +1,65 @@
+# Frees storage by deleting OLD build artifacts and OLD workflow run logs.
+# It never touches releases, tags or the APKs attached to them, and never touches the newest builds.
+#
+# Runs: every Sunday, on demand (Actions tab > Cleanup > Run workflow), and straight after a CI or
+# Release run FAILS, so a "no space left" failure is cleared up before you re-run it.
+name: Cleanup
+on:
+  schedule:
+    - cron: "17 3 * * 0"
+  workflow_dispatch:
+  workflow_run:
+    workflows: ["CI", "Release"]
+    types: [completed]
+
+permissions:
+  actions: write
+  contents: read
+
+concurrency:
+  group: cleanup
+  cancel-in-progress: false
+
+jobs:
+  cleanup:
+    # After a CI/Release run, only clean up when that run failed.
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'failure'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/github-script@v7
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const KEEP_ARTIFACTS_PER_NAME = 3;   // always keep the newest few of each artifact name
+            const ARTIFACT_MAX_AGE_DAYS = 3;     // and delete anything older than this
+            const KEEP_RUNS = 30;                // always keep the newest run logs
+            const RUN_MAX_AGE_DAYS = 30;         // delete run logs older than this beyond those
+            const DAY = 86400000;
+            const now = Date.now();
+            const newestFirst = (a, b) => new Date(b.created_at) - new Date(a.created_at);
+
+            // 1) Old artifacts (the screenshots uploaded by CI are the bulk of the storage)
+            const artifacts = (await github.paginate(github.rest.actions.listArtifactsForRepo, { owner, repo, per_page: 100 })).sort(newestFirst);
+            const seen = {};
+            let artifactsDeleted = 0, bytes = 0;
+            for (const a of artifacts) {
+              seen[a.name] = (seen[a.name] || 0) + 1;
+              const ageDays = (now - new Date(a.created_at)) / DAY;
+              if (seen[a.name] > KEEP_ARTIFACTS_PER_NAME || ageDays > ARTIFACT_MAX_AGE_DAYS) {
+                await github.rest.actions.deleteArtifact({ owner, repo, artifact_id: a.id });
+                artifactsDeleted++; bytes += a.size_in_bytes || 0;
+              }
+            }
+            core.info(`Deleted ${artifactsDeleted} old artifacts (${(bytes / 1048576).toFixed(1)} MB), kept ${artifacts.length - artifactsDeleted}.`);
+
+            // 2) Old run logs (completed runs only; the newest KEEP_RUNS are always kept)
+            const runs = (await github.paginate(github.rest.actions.listWorkflowRunsForRepo, { owner, repo, status: 'completed', per_page: 100 })).sort(newestFirst);
+            let runsDeleted = 0;
+            for (const [i, r] of runs.entries()) {
+              const ageDays = (now - new Date(r.created_at)) / DAY;
+              if (i >= KEEP_RUNS && ageDays > RUN_MAX_AGE_DAYS) {
+                await github.rest.actions.deleteWorkflowRun({ owner, repo, run_id: r.id });
+                runsDeleted++;
+              }
+            }
+            core.info(`Deleted ${runsDeleted} old workflow runs, kept ${runs.length - runsDeleted}.`);

@@ -29,11 +29,46 @@ class GymBuilderTimeFitTest {
     private fun ids(p: GymPlan) = p.exercises.map { it.exercise.id }
     private fun build(min: Int) = GymBuilder.build(min, history, today)
 
-    @Test fun aTwentyFiveMinuteWindowKeepsSquatHingeAndCalfAtTwoSets() {
+    private fun sets(p: GymPlan, id: String) = p.exercises.first { it.exercise.id == id }.prescription.sets
+
+    /** Trim priority: the squat keeps 3 sets longest (hinge, then calf, then the squat warm-ups give way first). */
+    @Test fun theSquatKeepsThreeSetsWhileTheHingeAndCalfGiveWayFirst() {
+        val p20 = build(20); val p25 = build(25); val p30 = build(30)
+        assertEquals(2, sets(p25, "rdl")); assertTrue(sets(p25, "calf") in 2..3); assertEquals(3, sets(p25, "squat"))
+        // 20 minutes (a planned 30 minute session minus 10 prehab): the estimate is conservative, so squat keeps 3 sets within the tolerance; the plan says the honest ~21 min.
+        assertEquals(3, sets(p20, "squat")); assertEquals(2, sets(p20, "rdl")); assertEquals(2, sets(p20, "calf"))
+        assertTrue(p20.estimatedMinutes in 20..21, "${p20.estimatedMinutes}")
+        // 15 minutes: even the tolerance cannot fit, so only now is the squat trimmed to 2 sets.
+        assertEquals(2, sets(build(15), "squat"))
+        assertTrue(p20.exercises.first().warmups.size < 5)
+        assertEquals(5, p25.exercises.first().warmups.size, "at 25 the full warm-up chain still fits")
+        // 30 minutes: all three main lifts at their full sets (the RDL is a 2-set lift) plus one upper lift.
+        assertEquals(3, sets(p30, "squat")); assertEquals(3, sets(p30, "calf")); assertEquals(2, sets(p30, "rdl"))
+        assertEquals(4, ids(p30).size, ids(p30).toString())
+    }
+
+    /** 20 to 60 minute windows for his history: more time never takes a lift or a set away. */
+    @Test fun windowsFrom20To60AreMonotonicAndSensible() {
+        val plans = listOf(20, 25, 30, 40, 50, 60).map { it to build(it) }
+        plans.forEach { (m, p) -> assertTrue(p.estimatedMinutes <= m + GymBuilder.PROTECT_TOLERANCE_MIN, "$m: ${p.estimatedMinutes}") }
+        plans.zipWithNext().forEach { (a, b) ->
+            assertTrue(ids(b.second).containsAll(ids(a.second)), "${a.first} -> ${b.first}")
+            assertTrue(b.second.estimatedMinutes >= a.second.estimatedMinutes)
+            ids(a.second).forEach { id -> assertTrue(sets(b.second, id) >= sets(a.second, id), "$id sets ${a.first} -> ${b.first}") }
+        }
+        assertEquals(4, ids(build(30)).size)
+        assertEquals(5, ids(build(40)).size, "two upper lifts from 40 minutes")
+        assertEquals(5, ids(build(60)).size)
+        assertEquals(listOf("squat", "rdl", "calf"), ids(build(20)))
+    }
+
+    @Test fun aTwentyFiveMinuteWindowKeepsSquatAtThreeSetsAndTrimsHingeAndCalf() {
         val p = build(25)
         assertEquals(listOf("squat", "rdl", "calf"), ids(p)) // deadlift was last (11-16), so the RDL is next
-        assertTrue(p.exercises.all { it.prescription.sets == 2 }, p.exercises.map { it.prescription.sets }.toString())
-        assertTrue(p.estimatedMinutes <= 25, "estimated ${p.estimatedMinutes}")
+        // Earlier builds trimmed all three equally to 2 sets; the squat is now protected (heavy squats are the main work, calf helps the knee).
+        assertEquals(listOf(3, 2), p.exercises.take(2).map { it.prescription.sets })
+        assertTrue(sets(p, "calf") in 2..3, "the calf keeps 3 when it fits within the tolerance")
+        assertTrue(p.estimatedMinutes <= 26, "estimated ${p.estimatedMinutes}")
         assertTrue(p.dropped.none { it.id in listOf("squat", "rdl", "calf") }, "only the upper lifts are dropped")
         assertEquals("Squat + RDL", p.dayLabel)
     }
@@ -41,8 +76,8 @@ class GymBuilderTimeFitTest {
     @Test fun aTwentyMinuteWindowStillHasAllThreeWithAShortWarmUp() {
         val p = build(20)
         assertEquals(listOf("squat", "rdl", "calf"), ids(p))
-        assertTrue(p.exercises.all { it.prescription.sets == 2 })
-        assertTrue(p.estimatedMinutes <= 20, "estimated ${p.estimatedMinutes}")
+        assertEquals(listOf(3, 2, 2), p.exercises.map { it.prescription.sets }, "squat protected within the tolerance")
+        assertTrue(p.estimatedMinutes <= 21, "estimated ${p.estimatedMinutes}")
         val warm = p.exercises.first().warmups
         assertTrue(warm.size in 2..4, "warm-ups ${warm.map { it.weightKg }}")
         assertEquals(20.0, warm.first().weightKg, "the bar stays")

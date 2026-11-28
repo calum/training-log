@@ -2,6 +2,13 @@
 
 What changed in each release, in plain language, newest first. The release workflow copies the matching `## vX.Y.Z` section into the GitHub release, and the app shows it as "What's new" before you tap Update.
 
+## v0.12.2
+
+- Tell the app how much time you have: the Today's session card now asks "How much time do you have for lifting?" with big chips (20, 25, 30, 40, 50, 60 minutes, with your planned time marked). Tap one and the session rebuilds straight away: more time brings the upper-body lifts back, less time trims it, and the card shows what was added or left out. The chips also appear in the list view, and the choice only applies to that session.
+- Include the hip prehab: a switch on the same card. Turn it off and those 10 minutes go to lifting and the prehab prompt does not appear afterwards.
+- Squat stays at 3 sets when time is tight. The app now trims the Romanian deadlift or deadlift to 2 sets first, then the calf raise, then the warm-up ramps, and only then the squat. A 20 minute window now gives squat 3 sets, Romanian deadlift 2 and calf raise 2 (about 21 minutes, shown honestly), and 30 minutes gives 3 sets of squat and calf raise plus an upper-body lift.
+- If you swap calf raises to seated before changing the time, the swap is kept.
+
 ## v0.12.1
 
 - Pick what you are doing: a planned easy cardio session (the 30 minute cardio, for example) can be done on the rower, SkiErg, bike or the treadmill. The timer's setup now has a clear "What are you using?" card with big choices, instead of a small row of chips you could miss, and the Today card lists the options and says you choose when you start. Before, it started on the rower and saved the session as a rower session even when you were on the treadmill. The treadmill options open the treadmill screen, which sets the speed and incline for you.

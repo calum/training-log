@@ -84,6 +84,14 @@ object GymBuilder {
 
     /** Main lifts are trimmed to this many sets (never lower) when the window is short. */
     const val MIN_TRIMMED_SETS = 2
+    /** The estimate is rough (about 30 s either way): one upper lift at two sets may overshoot the window by this much rather than be left out. */
+    private const val UPPER_FIT_SLACK_MIN = 0.5
+    /**
+     * Estimates are deliberately conservative, so keeping the squat at 3 sets (and the calf at 3 when that is the only thing that
+     * does not fit) may overshoot the window by up to this many minutes before their sets are trimmed. The plan's
+     * [GymPlan.estimatedMinutes] stays the honest figure ("about 21 min" in a 20 minute window).
+     */
+    const val PROTECT_TOLERANCE_MIN = 1.5
     /** Appended to a prescription's note when its sets were trimmed to fit the time. */
     const val TRIM_NOTE = "Fewer sets to fit your time."
     /** The squat warm-up chain keeps the bar plus this many of the last ramps when time is short. */
@@ -93,8 +101,8 @@ object GymBuilder {
      * Recommend a session that fits [liftingMinutes]. Slots: squat and calf every time, one hinge
      * (alternating), two upper movements (least recently trained), plus the other hinge as an
      * optional extra with lots of time. When over budget it gives up, in this order: the second upper,
-     * the extra, the first upper; then it shortens the main lifts (squat, hinge, calf) to
-     * [MIN_TRIMMED_SETS] sets (never below that, never lower than a set count that was already lower, e.g.
+     * the extra, the first upper; then it shortens the hinge, then the calf, to
+     * [MIN_TRIMMED_SETS] sets, then the squat warm-ups, and only then the squat (never below that sets count, never lower than a set count that was already lower, e.g.
      * while easing back in); then it trims the squat warm-up chain (the bar and the last 2-3 ramps stay);
      * only as a last resort the hinge goes. Squat and calf are never dropped.
      */
@@ -125,30 +133,39 @@ object GymBuilder {
         val kept = (listOfNotNull(squat, hingeP, calf, upper1, upper2, extra)).toMutableList()
         val dropped = mutableListOf<Exercise>()
         fun total() = kept.sumOf { estimateMinutes(it) }
-        fun over() = total() > liftingMinutes
+        var slack = 0.0
+        fun over() = total() > liftingMinutes + slack
         fun replace(id: String, f: (PlannedExercise) -> PlannedExercise) {
             val i = kept.indexOfFirst { it.exercise.id == id }
             if (i >= 0) kept[i] = f(kept[i])
         }
         for (candidate in dropOrder) {
             if (!over()) break
+            if (candidate === upper1 && candidate.prescription.sets > MIN_TRIMMED_SETS) {
+                // The last upper lift first tries to fit at two sets before it is left out (more time brings it back, a little less trims it).
+                val i = kept.indexOf(candidate)
+                kept[i] = candidate.copy(prescription = candidate.prescription.copy(sets = MIN_TRIMMED_SETS, note = candidate.prescription.note + " " + TRIM_NOTE))
+                if (total() <= liftingMinutes + UPPER_FIT_SLACK_MIN) { slack = UPPER_FIT_SLACK_MIN; break }
+                kept[i] = candidate
+            }
             kept.remove(candidate)
             if (candidate !== extra) dropped += candidate.exercise
         }
-        // Still over: the main lifts keep their place and give up sets first, then warm-up ramps.
-        val mainIds = listOf(squat, hingeP, calf).map { it.exercise.id }
-        if (over() && kept.any { it.exercise.id in mainIds && it.prescription.sets > MIN_TRIMMED_SETS }) {
-            mainIds.forEach { id ->
-                replace(id) { e ->
-                    if (e.prescription.sets <= MIN_TRIMMED_SETS) e
-                    else e.copy(prescription = e.prescription.copy(sets = MIN_TRIMMED_SETS, note = e.prescription.note + " " + TRIM_NOTE))
-                }
-            }
+        // Still over: the main lifts keep their place. Sets go in this order (the squat is protected longest: heavy squats are the
+        // main strength work and calf raises help the knee): hinge, then calf, then the squat warm-up ramps, only then the squat.
+        fun trimSets(id: String) = replace(id) { e ->
+            if (e.prescription.sets <= MIN_TRIMMED_SETS) e
+            else e.copy(prescription = e.prescription.copy(sets = MIN_TRIMMED_SETS, note = e.prescription.note + " " + TRIM_NOTE))
         }
+        // The estimate is conservative, so the squat (and the calf when it is all that does not fit) may overshoot by TOLERANCE.
+        fun tolerated(): Boolean { if (total() <= liftingMinutes + PROTECT_TOLERANCE_MIN) { slack = maxOf(slack, PROTECT_TOLERANCE_MIN); return true }; return false }
+        if (over()) trimSets(hingeP.exercise.id)
+        if (over() && !tolerated()) trimSets(calf.exercise.id)
         for (ramps in TRIMMED_WARMUP_RAMPS) {
             if (!over()) break
             replace(squat.exercise.id) { e -> if (e.warmups.size <= 1 + ramps) e else e.copy(warmups = listOf(e.warmups.first()) + e.warmups.takeLast(ramps)) }
         }
+        if (over() && !tolerated()) trimSets(squat.exercise.id)
         if (over()) {
             kept.removeAll { it.exercise.id == hingeP.exercise.id }
             dropped += hingeP.exercise
