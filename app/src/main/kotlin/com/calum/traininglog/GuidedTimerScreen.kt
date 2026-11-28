@@ -8,6 +8,8 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -104,7 +106,7 @@ fun GuidedTimerScreen(vm: AppViewModel, session: PlannedSession) {
             val plan = ui.plan ?: return
             GuidedSetupContent(
                 session, ui.modality, plan,
-                onModality = { m -> if (m in GuidedPlan.TIMER_MODALITIES) vm.guided.setModality(m) else vm.launchPlanned(session, m) },
+                onModality = { m -> vm.chooseGuidedModality(session, m) },
                 onStart = { vm.guided.start() },
                 onBack = { vm.guidedBack() },
             )
@@ -116,12 +118,14 @@ fun GuidedTimerScreen(vm: AppViewModel, session: PlannedSession) {
             onRpe = { vm.guided.setRpe(it) },
             onFeeling = { vm.guided.setFeeling(it) },
             onSave = { vm.saveGuided() },
+            onModality = { vm.guided.correctModality(it) },
         )
     }
 }
 
 // ---------------- Setup ----------------
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun GuidedSetupContent(
     session: PlannedSession,
@@ -137,14 +141,21 @@ internal fun GuidedSetupContent(
             .statusBarsPadding().padding(Spacing.screen),
         verticalArrangement = Arrangement.spacedBy(Spacing.lg),
     ) {
-        if (chips.size > 1) {
-            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
-                chips.forEach { m -> SelectChip(chipLabel(m), m == modality, { onModality(m) }) }
-            }
-        }
         Column(verticalArrangement = Arrangement.spacedBy(Spacing.xs)) {
             Text(session.title, style = MaterialTheme.typography.headlineLarge, color = AppColors.textPrimary)
             Text("${session.minutes} minutes, ${modality.label.lowercase()}", style = MaterialTheme.typography.titleMedium, color = AppColors.textMuted)
+        }
+        if (chips.size > 1) {
+            // The choice is the first thing to settle, so it is a labelled card, not a small row of chips.
+            SectionCard(title = "What are you using?") {
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(Spacing.sm), verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+                    chips.forEach { m -> SelectChip(chipLabel(m), m == modality, { onModality(m) }) }
+                }
+                Text(
+                    "Pick what you are on. The treadmill options open the treadmill, which sets the speed and incline. We remember your pick for next time.",
+                    style = MaterialTheme.typography.bodySmall, color = AppColors.textMuted,
+                )
+            }
         }
         EffortCard(plan, session)
         BigActionButton("Start", onStart, Modifier.heightIn(min = 96.dp))
@@ -411,6 +422,7 @@ internal fun GuidedDoneContent(
     onRpe: (Int) -> Unit,
     onFeeling: (Feeling) -> Unit,
     onSave: () -> Unit,
+    onModality: (Modality) -> Unit = {},
 ) {
     var burst by remember { mutableIntStateOf(0) }
     LaunchedEffect(Unit) { burst = 1 }
@@ -447,6 +459,14 @@ internal fun GuidedDoneContent(
                         }
                     }
                     Text("${ui.rpe}/10: ${rpeHint(ui.rpe)}", style = MaterialTheme.typography.titleSmall, color = AppColors.textMuted)
+                }
+                val used = ui.session?.let { s -> GuidedPlan.chipOptions(s).filter { it in GuidedPlan.TIMER_MODALITIES } }.orEmpty()
+                if (used.size > 1) {
+                    SectionCard(title = "What did you use?") {
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+                            used.forEach { m -> SelectChip(chipLabel(m), ui.modality == m, { onModality(m) }, Modifier.weight(1f)) }
+                        }
+                    }
                 }
                 SectionCard(title = "Feeling") {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {

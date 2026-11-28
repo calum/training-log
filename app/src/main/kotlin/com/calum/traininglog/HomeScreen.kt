@@ -34,6 +34,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.calum.traininglog.core.DayStatus
@@ -42,6 +43,7 @@ import com.calum.traininglog.core.RestDays
 import com.calum.traininglog.core.HealthLevel
 import com.calum.traininglog.core.PlanHealth
 import com.calum.traininglog.core.PlannedSession
+import com.calum.traininglog.core.Coach
 import com.calum.traininglog.core.Profile
 import com.calum.traininglog.core.RacePlan
 import com.calum.traininglog.core.RacePlanner
@@ -79,16 +81,17 @@ fun HomeScreen(vm: AppViewModel) {
     val ctx = LocalContext.current
     val today = LocalToday.current ?: LocalDate.now()
     val profile = data.profile
-    val racePlan = remember(profile, data.records, today) {
-        profile.settings.racePlan.takeIf { it.enabled }?.let { RacePlanner.build(it, data.records, today, profile) }
-    }
+    val racePlan = remember(profile, data.records, today) { Coach.racePlan(profile, data.records, today) }
     val plannedToday = racePlan?.let { RacePlanFormat.todaysOpenSession(it, data.records, today) }
-    val health = remember(racePlan, data.records, profile, today) { racePlan?.let { PlanHealth.assess(it, data.records, profile, today) } }
+    val health = remember(racePlan, data.records, profile, today) { racePlan?.takeIf { !it.maintenance }?.let { PlanHealth.assess(it, data.records, profile, today) } }
     val rewards = Rewards.summary(data.records, today, profile.settings)
     val view = WeekPlanner.plan(data.records, profile, today, profile.settings)
+    // The ring, its number and its headline all come from Coach: the plan's sessions while a race plan is on.
+    val goodWeek = remember(racePlan, data.records, profile, today) { Coach.goodWeek(racePlan, data.records, profile, today) }
     val restToday = RestDays.isRestDay(profile, today)
     val sorted = data.records.sortedByDescending { it.date }.take(30)
     var toDelete by remember { mutableStateOf<SessionRecord?>(null) }
+    var toEdit by remember { mutableStateOf<SessionRecord?>(null) }
     var weekdayFor by remember { mutableStateOf<LocalDate?>(null) }
 
     Box(Modifier.fillMaxSize()) {
@@ -104,46 +107,46 @@ fun HomeScreen(vm: AppViewModel) {
             }
             racePlan?.let { rp ->
                 if (health?.level == HealthLevel.SUGGEST) item { ReplanCard(health, rp, data.records, profile, today, { f -> vm.updateProfile(f) }) }
-                item {
-                    RaceHomeCard(
-                        rp, data.records, profile, today, plannedToday, { vm.go(Screen.RacePlan) }, { vm.launchPlanned(it) }, { f -> vm.updateProfile(f) },
-                        onKneeCare = { vm.launchKneeCare() },
+            }
+            // One Today card: what to do, for how long, and Start. It replaces the Hyrox card, the big Start button and
+            // the NEXT UP card, and it comes from Coach so it can never disagree with anything else on screen.
+            item {
+                if (racePlan != null) {
+                    TodayCard(
+                        racePlan, data.records, profile, today, plannedToday, restToday,
+                        onOpen = { vm.go(Screen.RacePlan) }, onStart = { vm.launchPlanned(it) }, onProfile = { f -> vm.updateProfile(f) },
+                        onFreeChoice = { vm.go(Screen.Start) },
+                        onTrainAnyway = { vm.updateProfile { RestDays.trainAnyway(it, today) }; vm.go(Screen.Start) },
+                    )
+                } else {
+                    LegacyTodayCard(
+                        Coach.nextUpText(null, data.records, profile, today), restToday,
+                        onStart = { vm.go(Screen.Start) },
+                        onTrainAnyway = { vm.updateProfile { RestDays.trainAnyway(it, today) }; vm.go(Screen.Start) },
                     )
                 }
             }
             item {
-                HeroCard {
-                    Text(if (restToday) "REST DAY" else "THIS WEEK", style = AppType.eyebrow, color = AppColors.onHero.copy(alpha = 0.8f))
-                    Spacer(Modifier.height(Spacing.md))
-                    Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                SectionCard {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Spacing.md)) {
                         ProgressRing(
-                            progress = rewards.ring.progress.toFloat(),
-                            bonusProgress = rewards.ring.bonus.toFloat(),
-                            size = 200.dp, strokeWidth = 16.dp,
+                            progress = goodWeek.progress.toFloat(),
+                            bonusProgress = goodWeek.bonus.toFloat(),
+                            size = 76.dp, strokeWidth = 7.dp,
                         ) {
-                            Column(Modifier.align(Alignment.Center), horizontalAlignment = Alignment.CenterHorizontally) {
-                                Text("${view.goodWeekDone}/${view.goodWeekTotal}", style = AppType.numberL, color = AppColors.onHero)
-                                Text("good week", style = MaterialTheme.typography.labelMedium, color = AppColors.onHero.copy(alpha = 0.8f))
-                            }
+                            Text(
+                                "${goodWeek.done}/${goodWeek.total}", Modifier.align(Alignment.Center),
+                                style = MaterialTheme.typography.titleMedium, color = AppColors.textPrimary,
+                            )
+                        }
+                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Text(if (restToday) "Rest day" else "This week", style = MaterialTheme.typography.titleMedium, color = AppColors.textPrimary)
+                            Text(
+                                if (restToday) "Recharge, you've earned it." else goodWeek.headline(view.openDaysLeft) + if (goodWeek.bonus > 0.0) ". Your extra sessions are a bonus." else "",
+                                style = MaterialTheme.typography.bodyMedium, color = AppColors.textMuted,
+                            )
                         }
                     }
-                    Spacer(Modifier.height(Spacing.md))
-                    Text(
-                        if (restToday) "Rest day. Recharge, you've earned it." else view.headline(),
-                        style = MaterialTheme.typography.titleMedium, color = AppColors.onHero,
-                        textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth(),
-                    )
-                    Spacer(Modifier.height(Spacing.md))
-                    XpBar(rewards.xpIntoLevel, rewards.xpForNextLevel, rewards.level, rewards.levelName)
-                    Spacer(Modifier.height(Spacing.sm))
-                    Row(horizontalArrangement = Arrangement.spacedBy(Spacing.sm), verticalAlignment = Alignment.CenterVertically) {
-                        Pill("${rewards.activeWeekStreak} week streak", color = AppColors.energy, filled = true)
-                        Pill("${rewards.restTokens} rest token${if (rewards.restTokens == 1) "" else "s"}", color = AppColors.info)
-                    }
-                }
-            }
-            item {
-                SectionCard(title = "Your week") {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                         view.days.forEach { d ->
                             Box(
@@ -167,39 +170,41 @@ fun HomeScreen(vm: AppViewModel) {
                 }
             }
             item {
-                if (restToday) {
-                    BigActionButton("I've got time: build me a session", onClick = {
-                        vm.updateProfile { RestDays.trainAnyway(it, today) }
-                        vm.go(Screen.Start)
-                    }, brush = AppColors.gradientEnergy)
-                } else {
-                    BigActionButton("Start a session", onClick = { vm.go(Screen.Start) })
+                HeroCard {
+                    XpBar(rewards.xpIntoLevel, rewards.xpForNextLevel, rewards.level, rewards.levelName)
+                    Spacer(Modifier.height(Spacing.sm))
+                    Row(horizontalArrangement = Arrangement.spacedBy(Spacing.sm), verticalAlignment = Alignment.CenterVertically) {
+                        Pill("${rewards.activeWeekStreak} week streak", color = AppColors.energy, filled = true)
+                        Pill("${rewards.restTokens} rest token${if (rewards.restTokens == 1) "" else "s"}", color = AppColors.info)
+                    }
                 }
             }
-            (plannedToday?.let { "From your race plan: ${it.title}, ${it.minutes} min." } ?: nextUp(data.records, view, today))
-                ?.let { text -> item { NextUpCard(text) } }
             item { BlockHomeCard(vm) }
             item {
+                var more by remember { mutableStateOf(false) }
                 Column(verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
-                    SecondaryButton("Log a session I already did", onClick = { vm.go(Screen.Manual) }, modifier = Modifier.fillMaxWidth())
+                    Row(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+                        SecondaryButton("Knee care · 15 min", onClick = { vm.launchKneeCare() }, accent = AppColors.primary, modifier = Modifier.weight(1f))
+                        SecondaryButton("Just calf raises · 8 min", onClick = { vm.launchKneeCare(calfOnly = true) }, accent = AppColors.energy, modifier = Modifier.weight(1f))
+                    }
                     Row(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
                         SecondaryButton("Plan", onClick = { vm.go(Screen.Plan) }, modifier = Modifier.weight(1f))
                         SecondaryButton("Progress", onClick = { vm.go(Screen.Progress) }, accent = AppColors.info, modifier = Modifier.weight(1f))
                         SecondaryButton("Trophies", onClick = { vm.go(Screen.Trophies) }, accent = AppColors.reward, modifier = Modifier.weight(1f))
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+                        SecondaryButton("Hyrox", onClick = { vm.go(Screen.Hyrox) }, accent = AppColors.energy, modifier = Modifier.weight(1f))
                         SecondaryButton("Blocks", onClick = { vm.go(Screen.Blocks) }, modifier = Modifier.weight(1f))
-                        SecondaryButton("Settings", onClick = { vm.go(Screen.Settings) }, modifier = Modifier.weight(1f))
+                        SecondaryButton(if (more) "Less" else "More…", onClick = { more = !more }, accent = AppColors.textMuted, modifier = Modifier.weight(1f).testTag("home-more"))
                     }
-                    SecondaryButton("Hyrox", onClick = { vm.go(Screen.Hyrox) }, accent = AppColors.energy, modifier = Modifier.fillMaxWidth())
-                    Row(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
-                        SecondaryButton("Knee care · 15 min", onClick = { vm.launchKneeCare() }, accent = AppColors.primary, modifier = Modifier.weight(1f))
-                        SecondaryButton("Just calf raises · 8 min", onClick = { vm.launchKneeCare(calfOnly = true) }, accent = AppColors.energy, modifier = Modifier.weight(1f))
-                    }
-                    SecondaryButton("Export for Claude", onClick = { vm.go(Screen.Export) }, modifier = Modifier.fillMaxWidth())
-                    SecondaryButton("Backup & sync", onClick = { vm.go(Screen.Backup) }, modifier = Modifier.fillMaxWidth())
-                    TextButton(onClick = { UpdateManager.check(ctx, quiet = false) }, Modifier.align(Alignment.CenterHorizontally)) {
-                        Text("Check for updates (v${UpdateManager.currentVersion(ctx)})", color = AppColors.textMuted)
+                    if (more) {
+                        SecondaryButton("Log a session I already did", onClick = { vm.go(Screen.Manual) }, modifier = Modifier.fillMaxWidth())
+                        SecondaryButton("Settings", onClick = { vm.go(Screen.Settings) }, modifier = Modifier.fillMaxWidth())
+                        SecondaryButton("Export for Claude", onClick = { vm.go(Screen.Export) }, modifier = Modifier.fillMaxWidth())
+                        SecondaryButton("Backup & sync", onClick = { vm.go(Screen.Backup) }, modifier = Modifier.fillMaxWidth())
+                        TextButton(onClick = { UpdateManager.check(ctx, quiet = false) }, Modifier.align(Alignment.CenterHorizontally)) {
+                            Text("Check for updates (v${UpdateManager.currentVersion(ctx)})", color = AppColors.textMuted)
+                        }
                     }
                 }
             }
@@ -210,6 +215,25 @@ fun HomeScreen(vm: AppViewModel) {
             items(sorted, key = { it.id }) { r ->
                 RecordCard(r, isPr = r.id in rewards.prSessionIds, xp = rewards.sessionXp[r.id]?.total, onLongPress = { toDelete = r })
             }
+            if (data.trash.isNotEmpty()) {
+                item {
+                    SectionCard(title = "Recently deleted") {
+                        Text(
+                            "Kept for ${com.calum.traininglog.core.Trash.KEEP_DAYS} days in case it was a slip. Restore puts it back exactly as it was.",
+                            style = MaterialTheme.typography.bodySmall, color = AppColors.textMuted,
+                        )
+                        data.trash.sortedByDescending { it.deletedOn }.forEach { t ->
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Spacing.md)) {
+                                Text(
+                                    "${t.record.date}  ${typeName(t.record.type)}",
+                                    style = MaterialTheme.typography.bodyLarge, color = AppColors.textPrimary, modifier = Modifier.weight(1f),
+                                )
+                                SecondaryButton("Restore", onClick = { vm.restoreFromTrash(t.record.id) })
+                            }
+                        }
+                    }
+                }
+            }
             item { Spacer(Modifier.navigationBarsPadding().height(Spacing.lg)) }
         }
 
@@ -219,12 +243,39 @@ fun HomeScreen(vm: AppViewModel) {
     }
 
     toDelete?.let { r ->
+        val options = com.calum.traininglog.core.GuidedRecord.correctionOptions(r)
         AlertDialog(
             onDismissRequest = { toDelete = null },
-            title = { Text("Delete this session?") },
-            text = { Text("${r.date}  ${typeName(r.type)}. This removes it from your history.") },
+            title = { Text("${r.date}  ${typeName(r.type)}") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+                    Text("Delete moves it to Recently deleted for ${com.calum.traininglog.core.Trash.KEEP_DAYS} days, so you can restore it.")
+                    if (options.isNotEmpty()) {
+                        TextButton(onClick = { toEdit = r; toDelete = null }, Modifier.testTag("change-equipment")) { Text("Change equipment") }
+                    }
+                }
+            },
             confirmButton = { TextButton(onClick = { vm.deleteRecord(r.id); toDelete = null }) { Text("Delete") } },
             dismissButton = { TextButton(onClick = { toDelete = null }) { Text("Keep it") } },
+        )
+    }
+    toEdit?.let { r ->
+        AlertDialog(
+            onDismissRequest = { toEdit = null },
+            title = { Text("What did you use?") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(Spacing.xs)) {
+                    Text(
+                        "Now: ${com.calum.traininglog.core.GuidedRecord.equipmentOf(r)?.label ?: "unknown"}. Only the equipment changes; the time, date and feeling stay.",
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    com.calum.traininglog.core.GuidedRecord.correctionOptions(r).forEach { m ->
+                        TextButton(onClick = { vm.changeEquipment(r.id, m); toEdit = null }, Modifier.testTag("equipment-${m.name}")) { Text(m.label) }
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = { TextButton(onClick = { toEdit = null }) { Text("Cancel") } },
         )
     }
     weekdayFor?.let { d ->
@@ -244,77 +295,119 @@ fun HomeScreen(vm: AppViewModel) {
     }
 }
 
-/** Race plan summary for Home: countdown, this week's progress dots and today's planned session. Tap opens the plan. */
+/** "today", "tomorrow, Sun 22 Nov" or "Sun 22 Nov": when [date] is, for the Today card. */
+private fun whenText(date: LocalDate, today: LocalDate): String = when (date) {
+    today -> "today"
+    today.plusDays(1) -> "tomorrow, ${RacePlanFormat.shortDay(date)}"
+    else -> RacePlanFormat.shortDay(date)
+}
+
+/**
+ * The Today card: the one place on Home that says what to do. It is today's planned session with a Start button; or,
+ * when nothing is planned today, the next one (starting it early is fine); or a calm rest / done message. Under it
+ * "I have some time", "Skip today" and "Something different" (the time and energy picker). Tap the header for the plan.
+ */
 @Composable
-private fun RaceHomeCard(
-    plan: RacePlan, records: List<SessionRecord>, profile: Profile, today: LocalDate, plannedToday: PlannedSession?,
-    onOpen: () -> Unit, onStart: (PlannedSession) -> Unit, onProfile: ((Profile) -> Profile) -> Unit, onKneeCare: () -> Unit = {},
+private fun TodayCard(
+    plan: RacePlan, records: List<SessionRecord>, profile: Profile, today: LocalDate, plannedToday: PlannedSession?, restToday: Boolean,
+    onOpen: () -> Unit, onStart: (PlannedSession) -> Unit, onProfile: ((Profile) -> Profile) -> Unit,
+    onFreeChoice: () -> Unit, onTrainAnyway: () -> Unit,
 ) {
     val week = RacePlanner.thisWeek(plan, today)
     val done = if (week != null) RacePlanFormat.doneSessions(week, records, today) else emptySet()
     val counted = if (week != null) RacePlanFormat.counted(week) else emptyList()
-    val days = plan.daysToGo(today)
+    val next = if (week != null) RacePlanFormat.nextSession(week, done, today) else null
+    val todays = week?.sessions?.firstOrNull { it.date == today }
     SectionCard(onClick = onOpen) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
-            Text("HYROX SIM", style = AppType.eyebrow, color = AppColors.energy, modifier = Modifier.weight(1f))
+            val days = plan.daysToGo(today)
+            Text(
+                if (plan.maintenance) "TRAINING PLAN" else "HYROX SIM · ${RacePlanFormat.countdown(days).uppercase()}",
+                style = AppType.eyebrow, color = AppColors.energy, modifier = Modifier.weight(1f),
+            )
             Pill(RacePlanFormat.weekShort(plan, today), color = AppColors.info)
         }
-        Text(RacePlanFormat.countdown(days), style = MaterialTheme.typography.headlineSmall, color = AppColors.textPrimary)
-        RacePlanFormat.kickoffStatus(plan, today)?.let {
-            Text(it, style = MaterialTheme.typography.titleSmall, color = AppColors.info)
-        }
-        if (counted.isNotEmpty()) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
-                counted.sortedBy { it.date }.forEach { s ->
-                    val state = RacePlanFormat.stateOf(s, done, today)
-                    val color = when (state) {
-                        SessionState.DONE -> AppColors.primary
-                        SessionState.UPCOMING -> AppColors.textMuted
-                        SessionState.OPTIONAL -> AppColors.track
-                    }
-                    Box(
-                        Modifier.size(18.dp).clip(CircleShape)
-                            .then(if (state == SessionState.DONE) Modifier.background(color) else Modifier.border(2.dp, color, CircleShape)),
-                    )
-                }
-                Text(
-                    "${done.size} of ${counted.size} this ${if (week?.isLeadIn == true) "kick-off" else "week"}", style = MaterialTheme.typography.labelMedium,
-                    color = AppColors.textMuted, modifier = Modifier.padding(start = Spacing.xs),
-                )
-            }
-        }
-        week?.let { w ->
-            // An optional add-on, not one of the sessions: a small chip that opens the knee care routine.
-            Pill(w.kneeCare.label, Modifier.clickable(onClick = onKneeCare), color = AppColors.info)
-        }
-        val todays = week?.sessions?.firstOrNull { it.date == today }
         when {
-            week == null -> Text("The plan has finished. Well done.", style = MaterialTheme.typography.bodyLarge, color = AppColors.textPrimary)
-            plannedToday != null -> Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Spacing.md)) {
-                Column(Modifier.weight(1f)) {
-                    Text("TODAY", style = AppType.eyebrow, color = AppColors.primary)
-                    Text(plannedToday.title, style = MaterialTheme.typography.titleSmall, color = AppColors.textPrimary)
-                    Text("${plannedToday.minutes} min", style = MaterialTheme.typography.bodyMedium, color = AppColors.textMuted)
-                }
-                SecondaryButton("Start", onClick = { onStart(plannedToday) }, accent = AppColors.primary)
-            }
-            todays != null && todays.kind != SessionKind.REST && !todays.isRaceDay ->
-                Text("Today's session is done. Nice work.", style = MaterialTheme.typography.bodyLarge, color = AppColors.textPrimary)
-            week.isLeadIn -> Text(
-                RacePlanFormat.kickoffTodayNote(plan, today) ?: RacePlanFormat.nextKickoffText(plan, week, done, today),
-                style = MaterialTheme.typography.bodyLarge, color = AppColors.textPrimary,
-            )
-            today < plan.start -> {
-                val first = week.sessions.minByOrNull { it.date }
+            week == null -> Text("The plan has finished. Well done.", style = MaterialTheme.typography.titleLarge, color = AppColors.textPrimary)
+            plannedToday != null -> {
+                Text("TODAY", style = AppType.eyebrow, color = AppColors.primary)
+                Text(plannedToday.title, style = MaterialTheme.typography.headlineSmall, color = AppColors.textPrimary)
                 Text(
-                    "Week 1 starts ${RacePlanFormat.shortDay(plan.start)}" + (first?.let { ". First up: ${it.title}, ${it.minutes} min." } ?: "."),
+                    "${plannedToday.minutes} min · ${RacePlanFormat.intensityLabel(plannedToday.intensity)} · ${plannedToday.rpeLabel}",
                     style = MaterialTheme.typography.bodyMedium, color = AppColors.textMuted,
                 )
+                EquipmentHint(plannedToday)
+                BigActionButton("Start", onClick = { onStart(plannedToday) }, modifier = Modifier.testTag("today-start"))
             }
-            todays?.isRaceDay == true -> Text("Race day. Enjoy it.", style = MaterialTheme.typography.bodyLarge, color = AppColors.textPrimary)
-            else -> Text("Rest day. Nothing planned, enjoy it.", style = MaterialTheme.typography.bodyLarge, color = AppColors.textPrimary)
+            todays?.isRaceDay == true -> Text("Race day. Enjoy it.", style = MaterialTheme.typography.titleLarge, color = AppColors.textPrimary)
+            todays != null && todays.kind != SessionKind.REST && !todays.isSkipped -> {
+                Text("DONE TODAY", style = AppType.eyebrow, color = AppColors.primary)
+                Text("Nice work.", style = MaterialTheme.typography.headlineSmall, color = AppColors.textPrimary)
+                next?.let { Text("Next: ${it.title}, ${it.minutes} min, ${RacePlanFormat.shortDay(it.date)}. Anything more today is a bonus.", style = MaterialTheme.typography.bodyMedium, color = AppColors.textMuted) }
+            }
+            restToday || todays?.kind == SessionKind.REST -> {
+                Text("REST DAY", style = AppType.eyebrow, color = AppColors.info)
+                Text("Recharge, you've earned it.", style = MaterialTheme.typography.headlineSmall, color = AppColors.textPrimary)
+                next?.let { Text("Next: ${it.title}, ${it.minutes} min, ${RacePlanFormat.shortDay(it.date)}.", style = MaterialTheme.typography.bodyMedium, color = AppColors.textMuted) }
+                SecondaryButton("I've got time: build me a session", onClick = onTrainAnyway, modifier = Modifier.fillMaxWidth(), accent = AppColors.energy)
+            }
+            next != null -> {
+                RacePlanFormat.kickoffTodayNote(plan, today)?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = AppColors.textPrimary) }
+                Text("NEXT · ${whenText(next.date, today).uppercase()}", style = AppType.eyebrow, color = AppColors.primary)
+                Text(next.title, style = MaterialTheme.typography.headlineSmall, color = AppColors.textPrimary)
+                Text(
+                    "${next.minutes} min · ${RacePlanFormat.intensityLabel(next.intensity)} · ${next.rpeLabel}",
+                    style = MaterialTheme.typography.bodyMedium, color = AppColors.textMuted,
+                )
+                if (todays == null || todays.kind == SessionKind.REST) {
+                    Text("Nothing planned today, so today is rest or a bonus.", style = MaterialTheme.typography.bodySmall, color = AppColors.textMuted)
+                }
+                EquipmentHint(next)
+                BigActionButton("Start", onClick = { onStart(next) }, modifier = Modifier.testTag("today-start"))
+            }
+            else -> Text(
+                RacePlanFormat.kickoffTodayNote(plan, today) ?: "Nothing more planned this week. Rest and enjoy it.",
+                style = MaterialTheme.typography.bodyLarge, color = AppColors.textPrimary,
+            )
         }
-        TodayActions(plan, records, profile, today, onStart, onProfile)
+        if (week != null && counted.isNotEmpty()) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+                Text(
+                    "${done.size} of ${counted.size} this ${if (week.isLeadIn) "kick-off" else "week"}",
+                    style = MaterialTheme.typography.labelMedium, color = AppColors.textMuted,
+                )
+                // An optional add-on, not one of the sessions: a small chip that opens the knee care routine.
+                Pill(week.kneeCare.label, color = AppColors.info)
+            }
+        } else if (week != null) {
+            Pill(week.kneeCare.label, color = AppColors.info)
+        }
+        RacePlanFormat.kickoffStatus(plan, today)?.let {
+            Text(it, style = MaterialTheme.typography.bodySmall, color = AppColors.info)
+        }
+        TodayActions(plan, records, profile, today, onStart, onProfile, onFreeChoice = onFreeChoice)
+    }
+}
+
+/** "Choose when you start: Rower · SkiErg · ..." for a session that can be done on more than one thing. */
+@Composable
+private fun EquipmentHint(s: PlannedSession) {
+    val options = com.calum.traininglog.core.GuidedPlan.chipOptions(s)
+    if (options.size < 2) return
+    Text(
+        "You choose when you start: " + options.joinToString(" · ") { it.label },
+        style = MaterialTheme.typography.bodySmall, color = AppColors.textMuted,
+    )
+}
+
+/** The Today card when no race or maintenance plan is on: the weekly-target suggestion and the Start button, as before. */
+@Composable
+private fun LegacyTodayCard(text: String?, restToday: Boolean, onStart: () -> Unit, onTrainAnyway: () -> Unit) {
+    SectionCard {
+        Text(if (restToday) "REST DAY" else "TODAY", style = AppType.eyebrow, color = if (restToday) AppColors.info else AppColors.primary)
+        text?.let { Text(it, style = MaterialTheme.typography.titleMedium, color = AppColors.textPrimary) }
+        if (restToday) BigActionButton("I've got time: build me a session", onClick = onTrainAnyway, brush = AppColors.gradientEnergy)
+        else BigActionButton("Start a session", onClick = onStart)
     }
 }
 
@@ -325,17 +418,6 @@ private fun dayState(s: DayStatus) = when (s) {
     DayStatus.REST -> DayState.Rest
     DayStatus.REST_BUT_TRAINED -> DayState.RestTrained
     DayStatus.PAST_EMPTY -> DayState.PastEmpty
-}
-
-private fun nextUp(records: List<SessionRecord>, view: WeekView, today: LocalDate): String? =
-    com.calum.traininglog.core.NextUp.describe(records, view, today)
-
-@Composable
-private fun NextUpCard(text: String) {
-    SectionCard {
-        Text("NEXT UP", style = AppType.eyebrow, color = AppColors.primary)
-        Text(text, style = MaterialTheme.typography.titleMedium, color = AppColors.textPrimary)
-    }
 }
 
 @OptIn(ExperimentalFoundationApi::class)

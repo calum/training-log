@@ -48,6 +48,8 @@ enum class RacePhase(val label: String) {
     SHARPEN("Sharpen"),
     TAPER("Taper"),
     RACE("Race week"),
+    /** After the race: the steady weekly plan of [RacePlanner.buildMaintenance]. Never part of the 14 race weeks. */
+    MAINTAIN("Maintenance"),
 }
 
 enum class SessionKind { STRENGTH, KEY, LONG_EASY, EASY, SIM, REST }
@@ -175,6 +177,8 @@ data class RacePlan(
     val baselineFromHistory: Boolean = false,
     /** Plain-words note on where the starting load came from and why the peak is what it is (null for the default). */
     val startNote: String? = null,
+    /** True for the after-race maintenance plan ([RacePlanner.buildMaintenance]): no race countdown, no phases. */
+    val maintenance: Boolean = false,
 ) {
     val start: LocalDate get() = weeks.first().start
     fun week(index: Int): PlanWeek? = weeks.firstOrNull { it.index == index }

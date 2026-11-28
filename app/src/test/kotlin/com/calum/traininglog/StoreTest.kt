@@ -4,6 +4,7 @@ import com.calum.traininglog.core.Feeling
 import com.calum.traininglog.core.Profile
 import com.calum.traininglog.core.SessionRecord
 import com.calum.traininglog.core.SessionType
+import com.calum.traininglog.core.TrashedRecord
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -74,18 +75,95 @@ class StoreTest {
         val copy = File(dir, "backups").listFiles()!!.single().readText()
         assertTrue(copy.contains("\"id\": \"a\"") && !copy.contains("\"id\": \"b\""))
         t = t.plusDays(1)
-        s.save(data("z"))
+        s.save(data("a", "b", "c", "z"))
         assertEquals(2, backups.size)
     }
 
-    @Test fun keepsOnlyNewestFourteen() {
+    @Test fun keepsNewestFourteenDailyPlusOneCopyPerOlderWeek() {
         val s = store()
         s.save(data("seed"))
         repeat(20) { i -> t = t.plusDays(1); s.save(data("seed", "r$i")) }
         val names = backups
-        assertEquals(14, names.size)
+        // Daily copies exist for 2 to 21 March 2026 (a Monday is 2 March). The newest 14 (8 to 21 March) stay;
+        // of the older ones only the last of the week (7 March) is kept as the weekly copy.
+        assertEquals(15, names.size)
         assertEquals("training-data-20260321-0900.json", names.last())
+        assertTrue(names.contains("training-data-20260308-0900.json"))
+        assertTrue(names.contains("training-data-20260307-0900.json"))
         assertFalse(names.contains("training-data-20260302-0900.json"))
+        assertFalse(names.contains("training-data-20260306-0900.json"))
+    }
+
+    @Test fun savingFewerRecordsIsRefusedAndTheFileIsUntouched() {
+        val s = store()
+        s.save(data("a", "b", "c"))
+        val before = main.readText()
+        assertFalse(s.save(data("a")))
+        assertEquals(SaveFailure.SHRINK_REFUSED, s.lastSaveFailure)
+        assertEquals(before, main.readText())
+        // Same count or more is fine again, and clears the failure.
+        assertTrue(s.save(data("a", "b", "c", "d")))
+        assertNull(s.lastSaveFailure)
+    }
+
+    @Test fun aDeliberateShrinkIsAllowed() {
+        val s = store()
+        s.save(data("a", "b", "c"))
+        assertTrue(s.save(data("a"), allowShrink = true))
+        assertEquals(listOf("a"), store().load().records.map { it.id })
+        assertTrue(s.save(data("a"))) // the new count is the baseline now
+    }
+
+    @Test fun theShrinkGuardAlsoCoversAFreshStoreThatLoadedExistingData() {
+        store().save(data("a", "b"))
+        val s = store()
+        s.load()
+        assertFalse(s.save(data("a")))
+        assertEquals(listOf("a", "b"), store().load().records.map { it.id })
+    }
+
+    @Test fun aFailedWriteIsReportedAndLeavesThePreviousFileIntact() {
+        val s = store()
+        s.save(data("a"))
+        val before = main.readText()
+        File(dir, "training-data.json.tmp").mkdirs() // makes writing the temp file impossible
+        assertFalse(s.save(data("a", "b")))
+        assertEquals(SaveFailure.WRITE_FAILED, s.lastSaveFailure)
+        assertEquals(before, main.readText())
+        File(dir, "training-data.json.tmp").deleteRecursively()
+        assertTrue(s.save(data("a", "b"))) // retry works once the problem is gone
+        assertNull(s.lastSaveFailure)
+    }
+
+    @Test fun blockedSaveReportsBlocked() {
+        main.writeText("""{"schemaVersion": 7, "records": [], "profile": {}}""")
+        val s = store(); s.load()
+        assertFalse(s.save(data("x")))
+        assertEquals(SaveFailure.BLOCKED, s.lastSaveFailure)
+    }
+
+    @Test fun snapshotKeepsACopyOfTheCurrentFileThatDailyRotationDoesNotPushOut() {
+        val s = store()
+        s.save(data("a", "b"))
+        assertTrue(s.snapshot("restore"))
+        val snap = File(dir, "backups").listFiles()!!.single { it.name.endsWith("-pre-restore.json") }
+        assertEquals(main.readText(), snap.readText())
+        repeat(20) { i -> t = t.plusDays(1); s.save(data("a", "b", "r$i")) }
+        assertTrue(backups.any { it.endsWith("-pre-restore.json") })
+    }
+
+    @Test fun aPreEditCopyIsKeptLikeAPreRestoreCopy() {
+        val s = store()
+        s.save(data("a", "b"))
+        assertTrue(s.snapshot("edit"))
+        repeat(20) { i -> t = t.plusDays(1); s.save(data("a", "b", "r$i")) }
+        assertTrue(backups.any { it.endsWith("-pre-edit.json") })
+    }
+
+    @Test fun snapshotOfAnUnreadableFileIsNotTaken() {
+        main.writeText("{broken")
+        assertFalse(store().snapshot("restore"))
+        assertEquals(emptyList(), backups)
     }
 
     @Test fun corruptFileFallsBackToNewestValidBackupAndIsMovedAside() {
@@ -172,6 +250,48 @@ class StoreTest {
         assertEquals(original, main.readText())
         assertEquals(emptyList(), backups)
         assertEquals(1, dir.listFiles()!!.count { it.name.startsWith("training-data") })
+    }
+
+    // ---- the real 1 -> 2 migration (adds the trash) ----
+
+    @Test fun realMigrationFromV1KeepsEveryRecordAddsAnEmptyTrashAndTakesACopyFirst() {
+        store().save(data("a", "b")) // a file written by the previous app version (schema 1)
+        val original = main.readText()
+        val s = Store(dir, Store.MIGRATIONS, Store.CURRENT_SCHEMA) { t }
+        val d = s.load()
+        assertEquals(2, Store.CURRENT_SCHEMA)
+        assertEquals(data("a", "b").records, d.records)
+        assertEquals(data("a", "b").profile, d.profile)
+        assertEquals(emptyList(), d.trash)
+        assertNull(s.lastLoadNote)
+        val pre = File(dir, "backups").listFiles()!!.single { it.name.endsWith("-pre-v1.json") }
+        assertEquals(original, pre.readText())
+        assertTrue(main.readText().contains("\"schemaVersion\": 2"))
+    }
+
+    @Test fun anOlderAppRefusesAFileThatHasATrashInsteadOfDroppingIt() {
+        val trashed = TrashedRecord(rec("t"), LocalDate.of(2026, 3, 1))
+        val s = Store(dir, Store.MIGRATIONS, Store.CURRENT_SCHEMA) { t }
+        s.save(AppData(listOf(rec("a")), Profile(), listOf(trashed)))
+        val before = main.readText()
+        val old = store() // schema 1
+        old.load()
+        assertTrue(old.blocked)
+        assertFalse(old.save(data("x")))
+        assertEquals(before, main.readText())
+    }
+
+    @Test fun trashRoundTripsAndMovingASessionIntoItIsNotAShrink() {
+        val s = Store(dir, Store.MIGRATIONS, Store.CURRENT_SCHEMA) { t }
+        s.save(AppData(listOf(rec("a"), rec("b")), Profile()))
+        val trashed = TrashedRecord(rec("b"), LocalDate.of(2026, 3, 1))
+        assertTrue(s.save(AppData(listOf(rec("a")), Profile(), listOf(trashed)))) // deleting b: total unchanged
+        val loaded = Store(dir, Store.MIGRATIONS, Store.CURRENT_SCHEMA) { t }.load()
+        assertEquals(listOf("a"), loaded.records.map { it.id })
+        assertEquals(listOf(trashed), loaded.trash)
+        // Dropping the trash entry itself is a real shrink and needs to be deliberate.
+        assertFalse(s.save(AppData(listOf(rec("a")), Profile())))
+        assertTrue(s.save(AppData(listOf(rec("a")), Profile()), allowShrink = true))
     }
 
     // ---- migrations (fake list) ----

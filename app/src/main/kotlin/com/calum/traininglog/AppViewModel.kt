@@ -9,6 +9,7 @@ import androidx.lifecycle.viewModelScope
 import com.calum.traininglog.core.TreadmillStatsCalc
 import kotlinx.coroutines.launch
 import com.calum.traininglog.core.CalfMode
+import com.calum.traininglog.core.Coach
 import com.calum.traininglog.core.workResults
 import com.calum.traininglog.core.Effort
 import com.calum.traininglog.core.KneeCare
@@ -24,6 +25,7 @@ import com.calum.traininglog.core.Export
 import com.calum.traininglog.core.ExerciseGroup
 import com.calum.traininglog.core.Feeling
 import com.calum.traininglog.core.GymBuilder
+import com.calum.traininglog.core.GymDraft
 import com.calum.traininglog.core.GymPlan
 import com.calum.traininglog.core.Rebaseline
 import com.calum.traininglog.core.GuidedPlan
@@ -39,7 +41,9 @@ import com.calum.traininglog.core.Profile
 import com.calum.traininglog.core.RacePlanner
 import com.calum.traininglog.core.TimeSuggestion
 import com.calum.traininglog.core.Progression
+import com.calum.traininglog.core.RecordMerge
 import com.calum.traininglog.core.Rewards
+import com.calum.traininglog.core.Trash
 import com.calum.traininglog.core.RunMode
 import com.calum.traininglog.core.RunStageLogic
 import com.calum.traininglog.core.SimFormat
@@ -57,6 +61,8 @@ import com.calum.traininglog.core.TreadmillStyle
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import java.time.LocalDate
 import java.util.UUID
@@ -272,8 +278,7 @@ class AppViewModel @JvmOverloads constructor(
         )
         // With the race plan on, the plan's own answer (fitted to the time, feeling and knee) is shown first.
         val d = _data.value
-        val cfg = d.profile.settings.racePlan
-        val plan = cfg.takeIf { it.enabled }?.let { RacePlanner.build(it, d.records, today, d.profile) }
+        val plan = Coach.racePlan(d.profile, d.records, today)
         _timeSuggestion.value = plan?.takeIf { it.segmentOf(today) != null }
             ?.let { RacePlanner.suggestForTime(it, d.records, today, i.minutes, i.feeling, i.knee, d.profile) }
     }
@@ -508,15 +513,7 @@ class AppViewModel @JvmOverloads constructor(
     fun finishGym() {
         val g = _gym.value ?: return
         if (g.finisherOffered || g.prehabOffered) return // already saved: a second tap must not save again
-        val logs = g.exercises.mapNotNull { e ->
-            val done = e.sets.filter { it.done }
-            if (done.isEmpty()) null
-            else ExerciseLog(
-                e.planned.exercise.id, done.map { LoggedSet(it.kg, it.reps, it.target, it.rir) }, e.missReason,
-                customName = if (ExerciseLibrary.isCustom(e.planned.exercise.id)) e.planned.exercise.name else null,
-                customMovement = e.planned.exercise.movement.takeIf { ExerciseLibrary.isCustom(e.planned.exercise.id) && it != ExerciseLibrary.OTHER_MOVEMENT },
-            )
-        }.let(::mergeSameExercise)
+        val logs = gymLogs(g)
         val minutes = ((SystemClock.elapsedRealtime() - gymStartedAt) / 60000).toInt().coerceAtLeast(1)
         if (logs.isNotEmpty()) {
             val record = SessionRecord(
@@ -546,6 +543,48 @@ class AppViewModel @JvmOverloads constructor(
         home()
     }
 
+    /** The done sets of [g] as they are saved: one log per exercise, custom names kept. */
+    private fun gymLogs(g: GymLive): List<ExerciseLog> = g.exercises.mapNotNull { e ->
+        val done = e.sets.filter { it.done }
+        if (done.isEmpty()) null
+        else ExerciseLog(
+            e.planned.exercise.id, done.map { LoggedSet(it.kg, it.reps, it.target, it.rir) }, e.missReason,
+            customName = if (ExerciseLibrary.isCustom(e.planned.exercise.id)) e.planned.exercise.name else null,
+            customMovement = e.planned.exercise.movement.takeIf { ExerciseLibrary.isCustom(e.planned.exercise.id) && it != ExerciseLibrary.OTHER_MOVEMENT },
+        )
+    }.let(::mergeSameExercise)
+
+    /** The session so far, or null when there is nothing worth keeping (no done sets) or the lifts are already saved. */
+    private fun gymDraftOf(g: GymLive?): GymDraft? {
+        if (g == null || g.finisherOffered || g.prehabOffered) return null
+        val logs = gymLogs(g)
+        if (logs.isEmpty()) return null
+        val minutes = ((SystemClock.elapsedRealtime() - gymStartedAt) / 60000).toInt().coerceAtLeast(1)
+        return GymDraft(
+            today, _inputs.value.minutes, minutes, _inputs.value.feeling, _inputs.value.knee, g.plan.dayLabel, g.plan.deload, logs,
+        )
+    }
+
+    /**
+     * The app was killed or the phone died in the middle of a gym session: the sets that were done are saved as a
+     * normal session now (they really happened), with a note on Home. The draft file is removed only once that is
+     * safely on disk. Runs once, before anything new can overwrite a draft.
+     */
+    private fun recoverGymDraft() {
+        val draft = store.loadGymDraft() ?: return
+        if (draft.alreadySavedIn(_data.value.records)) { store.clearGymDraft(); return }
+        val record = draft.toRecord(UUID.randomUUID().toString(), note = "Recovered after the app closed")
+        val next = _data.value.copy(records = _data.value.records + record)
+        _data.value = next
+        if (!saveNow(next)) return // keep the draft; the next start tries again
+        store.clearGymDraft()
+        _storeNote.value = StoreNote(
+            StoreNote.Kind.RECOVERED_SESSION,
+            "The app closed in the middle of your gym session on ${draft.date}. We saved the ${draft.setCount} sets you had done. " +
+                "You can delete it from History if you don't want it.",
+        )
+    }
+
     /**
      * One log per exercise: swapping back and forth can leave several parts of the same exercise in a session. Their sets
      * are joined in order and the log sits at the place of its LAST part, so the variant used last stays last.
@@ -569,6 +608,8 @@ class AppViewModel @JvmOverloads constructor(
 
     /** Leaves the gym screen without saving (nothing logged, or "Discard"): the session is dropped, nothing is deleted from the history. */
     fun discardGym() {
+        // A deliberate discard still keeps the sets that were logged, in a file that is never read again.
+        if (gymDraftOf(_gym.value) != null) store.archiveGymDraft()
         _gym.value = null
         home()
     }
@@ -1133,7 +1174,46 @@ class AppViewModel @JvmOverloads constructor(
 
     // ---- History / export ----
 
-    fun deleteRecord(id: String) = persist { d -> d.copy(records = d.records.filterNot { it.id == id }) }
+    /** Delete moves the session to the 90-day trash (see [Trash]); nothing is destroyed, and it can be restored. */
+    /**
+     * Fixes the equipment of a session made by the guided timer (started on the rower, done on the treadmill). Only the
+     * equipment changes; a safety copy of everything is taken first.
+     */
+    fun changeEquipment(id: String, m: Modality) {
+        val old = _data.value.records.firstOrNull { it.id == id } ?: return
+        val changed = GuidedRecord.withEquipment(old, m) ?: return
+        store.snapshot("edit")
+        persist { d -> d.copy(records = d.records.map { if (it.id == id) changed else it }) }
+    }
+
+    fun deleteRecord(id: String) = persist { d ->
+        val r = d.records.firstOrNull { it.id == id } ?: return@persist d
+        d.copy(records = d.records.filterNot { it.id == id }, trash = Trash.add(d.trash, r, today))
+    }
+
+    /** Undo a delete: the session comes back exactly as it was. No celebration, no change to anything else. */
+    fun restoreFromTrash(id: String) {
+        val d = _data.value
+        val t = d.trash.firstOrNull { it.record.id == id } ?: return
+        if (d.records.any { it.id == id }) return
+        val next = d.copy(records = d.records + t.record, trash = d.trash - t)
+        _data.value = next
+        if (saveNow(next) && !store.blocked) {
+            val app = getApplication<Application>()
+            SyncManager.request(app)
+            DriveBackup.requestBackup(app, next)
+        }
+    }
+
+    /** Drops trash entries older than 90 days. The only place sessions leave the data file for good. */
+    private fun purgeExpiredTrash() {
+        val d = _data.value
+        val kept = Trash.purge(d.trash, today)
+        if (kept.size == d.trash.size) return
+        val next = d.copy(trash = kept)
+        _data.value = next
+        saveNow(next, allowShrink = true)
+    }
 
     fun exportText(days: Int?): String {
         val to = today
@@ -1154,9 +1234,38 @@ class AppViewModel @JvmOverloads constructor(
      * guided Hyrox session, the treadmill modalities the treadmill setup with a plan built for the planned minutes,
      * and rower / SkiErg / bike the guided timer. A rest day goes home.
      */
+    // ---- Which equipment a planned easy cardio session is done on ----
+
+    private val cardioPrefs get() = getApplication<Application>().getSharedPreferences("planned_cardio", android.content.Context.MODE_PRIVATE)
+
+    /**
+     * Only easy sessions without running offer a free choice of equipment that is remembered: the rower, SkiErg, bike
+     * and incline walk are interchangeable there. Run-walk, hard and Hyrox sessions keep what the plan says.
+     */
+    private fun equipmentIsYours(s: PlannedSession) = !s.includesRunning && (s.kind == SessionKind.EASY || s.kind == SessionKind.LONG_EASY)
+
+    private val cardioChoices = setOf(Modality.ROW, Modality.SKIERG, Modality.BIKE, Modality.TREADMILL_WALK)
+
+    /** Remembers the equipment picked for [session] so the next easy session starts on it. */
+    fun rememberCardio(session: PlannedSession, m: Modality) {
+        if (equipmentIsYours(session) && m in cardioChoices) cardioPrefs.edit().putString("last", m.name).apply()
+    }
+
+    private fun preferredCardio(s: PlannedSession): Modality? {
+        if (!equipmentIsYours(s)) return null
+        val name = cardioPrefs.getString("last", null) ?: return null
+        return Modality.entries.firstOrNull { it.name == name }?.takeIf { it in s.modalityOptions && it in cardioChoices }
+    }
+
+    /** A chip tapped on the guided timer's setup: the timer's own equipment stays here, the treadmill opens its own flow. */
+    fun chooseGuidedModality(session: PlannedSession, m: Modality) {
+        if (m in GuidedPlan.TIMER_MODALITIES) { guided.setModality(m); rememberCardio(session, m) } else launchPlanned(session, m)
+    }
+
     fun launchPlanned(session: PlannedSession, modality: Modality? = null) {
         if (session.launch.kneeCare) { launchKneeCare(); return }
-        val mod = modality ?: GuidedPlan.defaultModality(session)
+        if (modality != null) rememberCardio(session, modality)
+        val mod = modality ?: preferredCardio(session) ?: GuidedPlan.defaultModality(session)
         when {
             session.kind == SessionKind.REST || mod == Modality.REST -> home()
             session.kind == SessionKind.STRENGTH || mod == Modality.GYM -> {
@@ -1246,22 +1355,66 @@ class AppViewModel @JvmOverloads constructor(
 
     fun dismissCelebration() { _celebration.value = null }
 
-    /** Replace everything, e.g. after restoring a backup. */
+    /**
+     * Replace everything with [d] (a full restore). A safety copy of what is on the phone is always taken first, so
+     * even a replace can be undone from `backups/`.
+     */
     fun replaceData(d: AppData) {
+        store.snapshot("restore")
         _data.value = d
-        store.save(d)
+        saveNow(d, allowShrink = true)
     }
 
-    private fun persist(f: (AppData) -> AppData) {
+    /**
+     * Restore that only ADDS the sessions [remote] has and the phone lacks (matched by id; what is on the phone wins).
+     * A safety copy is taken first. Returns how many sessions were added.
+     */
+    fun mergeData(remote: AppData): Int {
+        val cur = _data.value
+        // Sessions the user deleted (now in the trash) must not be quietly brought back by a restore.
+        val add = RecordMerge.missing(cur.records + cur.trash.map { it.record }, remote.records)
+        if (add.isEmpty()) return 0
+        store.snapshot("restore")
+        val next = cur.copy(records = cur.records + add)
+        _data.value = next
+        saveNow(next)
+        return add.size
+    }
+
+    /** Tries again to write what is on screen, after a failed save. */
+    fun retrySave() { saveNow(_data.value) }
+
+    /** Saves, and tells the user (never silently) when nothing could be written. */
+    private fun saveNow(d: AppData, allowShrink: Boolean = false): Boolean {
+        if (store.save(d, allowShrink)) {
+            if (_storeNote.value?.kind == StoreNote.Kind.SAVE_FAILED) _storeNote.value = store.lastLoadNote
+            return true
+        }
+        _storeNote.value = when (store.lastSaveFailure) {
+            SaveFailure.WRITE_FAILED -> StoreNote(
+                StoreNote.Kind.SAVE_FAILED,
+                "Couldn't save to this phone (is the storage full?). What you did is still on screen and nothing was lost yet. Free some space, then tap Try again.",
+            )
+            SaveFailure.SHRINK_REFUSED -> StoreNote(
+                StoreNote.Kind.SAVE_FAILED,
+                "A change that would have removed saved sessions was blocked. Your saved data was not changed.",
+            )
+            else -> _storeNote.value // BLOCKED already shows its own note
+        }
+        return false
+    }
+
+    private fun persist(allowShrink: Boolean = false, f: (AppData) -> AppData) {
         val before = _data.value
         val next = f(before)
         _data.value = next
-        store.save(next)
+        val saved = saveNow(next, allowShrink)
         val added = next.records.lastOrNull { r -> before.records.none { it.id == r.id } }
         if (added != null) {
             _celebration.value = Celebration(added, Rewards.celebration(added, before.records, before.profile.settings))
-            // Never push a partial picture to the cloud while the real data is locked away.
-            if (store.blocked) return
+            // Never push a partial picture to the cloud while the real data is locked away, and never push data that
+            // could not be saved (a refused shrink must not overwrite a good Drive or GitHub copy).
+            if (store.blocked || !saved) return
             val app = getApplication<Application>()
             SyncManager.request(app)
             DriveBackup.requestBackup(app, next)
@@ -1270,6 +1423,16 @@ class AppViewModel @JvmOverloads constructor(
 
     // Keep this LAST in the class: it runs during construction and reads properties declared above.
     init {
+        purgeExpiredTrash()
+        recoverGymDraft()
+        // The gym session in progress is written to a draft file after every change, and removed once it is saved.
+        viewModelScope.launch {
+            var hadDraft = false
+            _gym.map { gymDraftOf(it) }.distinctUntilChanged().collect { d ->
+                if (d != null) { store.saveGymDraft(d); hadDraft = true }
+                else if (hadDraft) { store.clearGymDraft(); hadDraft = false }
+            }
+        }
         // A finished treadmill session is saved the moment it finishes, before any screen is involved,
         // so nothing the user did can be lost to a stuck or closed screen. The effort question just edits it.
         viewModelScope.launch { TreadmillEngine.ui.collect { autosaveFinishedTreadmill(it) } }

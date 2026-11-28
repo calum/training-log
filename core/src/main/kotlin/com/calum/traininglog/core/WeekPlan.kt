@@ -70,15 +70,7 @@ data class WeekView(
         }
 
     /** Positive framing only; never mentions misses. */
-    fun headline(): String {
-        if (goodWeekDone >= goodWeekTotal) return "Good week reached: $goodWeekDone of $goodWeekTotal done. Anything more is a bonus."
-        val days = when (openDaysLeft) {
-            0 -> return "$goodWeekDone of $goodWeekTotal done. Rest up, fresh week soon."
-            1 -> "1 open day left"
-            else -> "$openDaysLeft open days left"
-        }
-        return "$goodWeekDone of $goodWeekTotal done, $days"
-    }
+    fun headline(): String = GoodWeek.headline(goodWeekDone, goodWeekTotal, openDaysLeft)
 }
 
 object WeekPlanner {

@@ -183,6 +183,9 @@ class RacePlanScreenshotTest(private val s: Case) {
             Case("home-race-kickoff", LocalDate.of(2026, 11, 19), fx::real, settings = mine, screen = "home"),
             Case("start-race-kickoff", LocalDate.of(2026, 11, 19), fx::real, settings = mine, screen = "start"),
             Case("start-race",LocalDate.of(2026, 12, 31), fx::midPlan, screen = "start"),
+            // After race week the maintenance plan takes over (Wednesday 10 March 2027).
+            Case("racePlan-maintenance", LocalDate.of(2027, 3, 10), fx::midPlan, settings = mine),
+            Case("home-maintenance", LocalDate.of(2027, 3, 10), fx::midPlan, settings = mine, screen = "home"),
         ).map { arrayOf(it) }
     }
 }

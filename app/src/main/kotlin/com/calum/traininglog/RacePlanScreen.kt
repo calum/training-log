@@ -50,6 +50,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import com.calum.traininglog.core.Coach
 import com.calum.traininglog.core.IntensityBalance
 import com.calum.traininglog.core.Intensity
 import com.calum.traininglog.core.MoveOption
@@ -94,6 +95,7 @@ fun RacePlanScreen(vm: AppViewModel) {
         onBack = { vm.back() },
         onProfile = { f -> vm.updateProfile(f) },
         onKneeCare = { calfOnly -> vm.launchKneeCare(calfOnly) },
+        onOpenBlocks = { vm.go(Screen.Blocks) },
     )
 }
 
@@ -108,9 +110,10 @@ internal fun RacePlanContent(
     allWeeksOpen: Boolean = false,
     onProfile: ((Profile) -> Profile) -> Unit = {},
     onKneeCare: (calfOnly: Boolean) -> Unit = {},
+    onOpenBlocks: () -> Unit = {},
 ) {
     val cfg = profile.settings.racePlan
-    val plan = remember(cfg, records, today, profile) { RacePlanner.build(cfg, records, today, profile) }
+    val plan = remember(cfg, records, today, profile) { Coach.plan(profile, records, today) }
     val week = RacePlanner.thisWeek(plan, today)
     val health = remember(plan, records, profile, today) { PlanHealth.assess(plan, records, profile, today) }
 
@@ -120,7 +123,7 @@ internal fun RacePlanContent(
         verticalArrangement = Arrangement.spacedBy(Spacing.lg),
     ) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Spacing.md)) {
-            Text("Race plan", Modifier.weight(1f), style = MaterialTheme.typography.headlineMedium, color = AppColors.textPrimary)
+            Text(if (plan.maintenance) "Training plan" else "Race plan", Modifier.weight(1f), style = MaterialTheme.typography.headlineMedium, color = AppColors.textPrimary)
             SecondaryButton("Back", onBack)
         }
 
@@ -128,9 +131,11 @@ internal fun RacePlanContent(
             PausedCard { onSettings { it.copy(enabled = true) } }
         } else {
             RaceHero(plan, today, week)
-            ReplanCard(health, plan, records, profile, today, onProfile)
+            // The current block's goal sits with the plan (it never changes a session).
+            BlockGoalCard(profile.blocks, records, today, onOpenBlocks, showAddPrompt = true)
+            if (!plan.maintenance) ReplanCard(health, plan, records, profile, today, onProfile)
             TodayActions(plan, records, profile, today, onStart, onProfile)
-            PhaseTimeline(plan, week, today)
+            if (!plan.maintenance) PhaseTimeline(plan, week, today)
             if (week != null) {
                 ThisWeekCard(plan, week, records, profile, today, onStart, onProfile, health)
                 KneeCareCard(week, onKneeCare)
@@ -163,6 +168,7 @@ private fun phaseColor(p: RacePhase): Color = when (p) {
     RacePhase.TAPER -> AppColors.rewardDeep
     RacePhase.RACE -> AppColors.textPrimary
     RacePhase.KICKOFF -> AppColors.textMuted
+    RacePhase.MAINTAIN -> AppColors.primary
 }
 
 @Composable
@@ -255,6 +261,24 @@ private fun DrawScope.drawRest(c: Color) {
 @Composable
 private fun RaceHero(plan: RacePlan, today: LocalDate, week: PlanWeek?) {
     val days = plan.daysToGo(today)
+    if (plan.maintenance) {
+        HeroCard {
+            Text("TRAINING PLAN", style = AppType.eyebrow, color = AppColors.onHero.copy(alpha = 0.8f))
+            Spacer(Modifier.height(Spacing.sm))
+            Text("Keeping what you built", style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold), color = AppColors.onHero)
+            Spacer(Modifier.height(Spacing.xs))
+            Text(
+                week?.focus ?: RacePlanFormat.phasePurpose(RacePhase.MAINTAIN),
+                style = MaterialTheme.typography.bodyMedium, color = AppColors.onHero.copy(alpha = 0.9f),
+            )
+            Spacer(Modifier.height(Spacing.xs))
+            Text(
+                "The race is done. To train for another, set a new race date in Settings below and the plan switches back.",
+                style = MaterialTheme.typography.bodySmall, color = AppColors.onHero.copy(alpha = 0.8f),
+            )
+        }
+        return
+    }
     HeroCard {
         Text("HYROX SIMULATION", style = AppType.eyebrow, color = AppColors.onHero.copy(alpha = 0.8f))
         Spacer(Modifier.height(Spacing.sm))

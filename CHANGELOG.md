@@ -2,12 +2,34 @@
 
 What changed in each release, in plain language, newest first. The release workflow copies the matching `## vX.Y.Z` section into the GitHub release, and the app shows it as "What's new" before you tap Update.
 
-## v0.11.4
+## v0.12.2
 
 - Tell the app how much time you have: the Today's session card now asks "How much time do you have for lifting?" with big chips (20, 25, 30, 40, 50, 60 minutes, with your planned time marked). Tap one and the session rebuilds straight away: more time brings the upper-body lifts back, less time trims it, and the card shows what was added or left out. The chips also appear in the list view, and the choice only applies to that session.
 - Include the hip prehab: a switch on the same card. Turn it off and those 10 minutes go to lifting and the prehab prompt does not appear afterwards.
 - Squat stays at 3 sets when time is tight. The app now trims the Romanian deadlift or deadlift to 2 sets first, then the calf raise, then the warm-up ramps, and only then the squat. A 20 minute window now gives squat 3 sets, Romanian deadlift 2 and calf raise 2 (about 21 minutes, shown honestly), and 30 minutes gives 3 sets of squat and calf raise plus an upper-body lift.
 - If you swap calf raises to seated before changing the time, the swap is kept.
+
+## v0.12.1
+
+- Pick what you are doing: a planned easy cardio session (the 30 minute cardio, for example) can be done on the rower, SkiErg, bike or the treadmill. The timer's setup now has a clear "What are you using?" card with big choices, instead of a small row of chips you could miss, and the Today card lists the options and says you choose when you start. Before, it started on the rower and saved the session as a rower session even when you were on the treadmill. The treadmill options open the treadmill screen, which sets the speed and incline for you.
+- Your pick is remembered for the next easy session. Run-walk, hard and Hyrox sessions always follow your plan, so a remembered choice can never change a knee-gated run.
+- If you picked wrong, fix it: the finish screen has "What did you use?" (rower, SkiErg or bike), and any session already in History that came from the guided timer can be changed afterwards. Long-press it, tap "Change equipment" and choose what you used, including the incline treadmill walk. Only the equipment changes; the date, time and how you felt stay, nothing is duplicated, and a safety copy of your data is taken first. A session with hard intervals keeps its structure, so the treadmill is not offered for it.
+- Long-pressing a session in History now shows its date and type, and says that Delete is recoverable from "Recently deleted" for 90 days.
+
+## v0.12.0
+
+- One answer for "what next": the Home card, the evening reminder and the plan screens all get the same answer from one place, so they can no longer disagree (before, Home could say "easy aerobic" on one card and "treadmill day" on another).
+- A simpler Home: one Today card shows today's planned session with a big Start button, or the next one when nothing is planned today (starting early is fine), or a calm rest or "nice work" message. Under it are "I have some time", "Skip today" and "Something different", which opens the time, energy and knee picker. This week is a compact ring with the week strip, level, XP and streak are one slim card, and the rarely used buttons (log a session, settings, export, backup, updates) are under "More...".
+- Your good week now follows your plan: while the Hyrox plan is on, the ring counts the sessions the plan asked for that week, and extra sessions are a bonus, never a requirement. The evening reminder stops once the plan's week is done and no longer names an activity of its own. Your streak, XP, rest tokens and trophies are unchanged.
+- After the race: from the Monday after race week (27 February 2027) the plan rolls into a steady maintenance plan: 2 strength sessions with hip prehab and 2 or 3 easy aerobic sessions a week, nothing hard, sized from what you have really been doing. Moves, skips, rest days, knee care and the knee-friendly running return all work the same. Set a new race date in Settings and it switches back to a race plan.
+- Your goal on the plan: the current training block's goal (for example "Squat 90 of 100 kg") now shows at the top of the Plan screen as well as on Home. A goal never changes your sessions.
+- Your data is safer than ever:
+  - Restoring from Google Drive now adds only the sessions your phone is missing and keeps everything else; "Replace everything" needs a second confirmation. A safety copy is always taken first.
+  - Deleting a session moves it to "Recently deleted" for 90 days, with a Restore button on Home.
+  - If a save ever fails (for example the phone is full), Home says so with a Try again button instead of looking saved.
+  - A save that would lose sessions is refused, and the app keeps daily safety copies plus one a week for 12 weeks.
+  - If the app is closed or the phone dies in the middle of a gym session, the sets you had done are saved as a session next time you open it, with a note.
+- Your saved data is upgraded to a new format the first time you open this version, and a safety copy is taken first. Nothing is rewritten or removed. Older versions of the app cannot open the new format, so update rather than going back.
 
 ## v0.11.3
 

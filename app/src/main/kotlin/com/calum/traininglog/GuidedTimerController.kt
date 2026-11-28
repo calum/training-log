@@ -54,6 +54,11 @@ class GuidedTimerController {
         u.copy(modality = m, plan = plan, rpe = plan.defaultRpe, distanceM = null)
     }
 
+    /** On the finish card: fixes which equipment was used (the saved session is rewritten with it when "Save" is pressed). */
+    fun correctModality(m: Modality) = _ui.update { u ->
+        if (u.phase != GuidedPhase.DONE || m !in GuidedPlan.TIMER_MODALITIES) u else u.copy(modality = m)
+    }
+
     fun start() = _ui.update { u ->
         val plan = u.plan ?: return@update u
         u.copy(phase = GuidedPhase.RUNNING, run = GuidedRun(plan.steps), changes = 0, savedId = null)

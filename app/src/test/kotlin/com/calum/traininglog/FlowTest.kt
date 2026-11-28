@@ -3,18 +3,29 @@ package com.calum.traininglog
 import android.app.Application
 import android.content.Context
 import androidx.activity.ComponentActivity
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.Surface
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.test.core.app.ApplicationProvider
+import com.calum.traininglog.core.BlockState
+import com.calum.traininglog.core.BlockTarget
 import com.calum.traininglog.core.CueType
 import com.calum.traininglog.core.Effort
 import com.calum.traininglog.core.ExerciseLibrary
 import com.calum.traininglog.core.Feeling
 import com.calum.traininglog.core.PublicExport
+import com.calum.traininglog.core.Profile
 import com.calum.traininglog.core.RestDays
 import com.calum.traininglog.core.SessionType
+import com.calum.traininglog.core.TrainingBlock
 import com.calum.traininglog.core.TreadmillStyle
+import com.calum.traininglog.ui.AppColors
+import com.calum.traininglog.ui.TrainingTheme
 import org.junit.After
 import org.junit.Before
 import org.junit.Rule
@@ -382,6 +393,211 @@ class FlowTest {
         assertEquals(StoreNote.Kind.TOO_NEW, vm.storeNote.value!!.kind)
         vm.saveManual(SessionType.HIKE, 1, 30, null, "x")
         assertEquals(original, main.readText())
+    }
+
+    @Test fun aDeletedSessionGoesToTheTrashAndComesBackExactlyAsItWas() {
+        val vm = newVm()
+        vm.saveManual(SessionType.HIKE, 2, 60, null, "keep me")
+        vm.saveManual(SessionType.CORE, 1, 20, null, "delete me")
+        val victim = vm.data.value.records.first { it.note == "delete me" }
+        vm.deleteRecord(victim.id)
+        assertEquals(listOf("keep me"), onDisk().records.map { it.note })
+        assertEquals(listOf(victim), onDisk().trash.map { it.record })
+        vm.dismissCelebration() // from logging the sessions above
+        vm.restoreFromTrash(victim.id)
+        assertEquals(victim, onDisk().records.first { it.id == victim.id })
+        assertEquals(2, onDisk().records.size)
+        assertEquals(emptyList(), onDisk().trash)
+        assertNull(vm.celebration.value) // a restore is not a new achievement
+    }
+
+    @Test fun aRestoreFromBackupDoesNotBringBackASessionYouDeleted() {
+        val vm = newVm()
+        vm.saveManual(SessionType.HIKE, 1, 30, null, "gone")
+        val rec = vm.data.value.records.single()
+        vm.deleteRecord(rec.id)
+        assertEquals(0, vm.mergeData(AppData(listOf(rec))))
+        assertEquals(emptyList(), onDisk().records)
+        assertEquals(1, onDisk().trash.size)
+    }
+
+    @Test fun trashIsKeptForNinetyDaysThenPurgedOnStartup() {
+        val vm = newVm()
+        vm.saveManual(SessionType.HIKE, 1, 30, null, "old")
+        vm.deleteRecord(vm.data.value.records.single().id)
+        today = today.plusDays(90)
+        assertEquals(1, newVm().data.value.trash.size) // exactly 90 days: still there
+        today = today.plusDays(1)
+        val later = newVm()
+        assertEquals(emptyList(), later.data.value.trash)
+        assertEquals(emptyList(), onDisk().trash)
+    }
+
+    // The current block's goal is shown with the plan (it never changes a session).
+
+    private fun planScreen(profile: Profile) = rule.setContent {
+        CompositionLocalProvider(LocalToday provides today) {
+            TrainingTheme {
+                Surface(Modifier.fillMaxSize(), color = AppColors.background) {
+                    RacePlanContent(emptyList(), profile, today, onSettings = {}, onStart = {}, onBack = {})
+                }
+            }
+        }
+    }
+
+    @Test fun thePlanScreenShowsTheCurrentBlockGoal() {
+        val block = TrainingBlock(id = "b1", name = "Squat 100 push", startDate = today.minusDays(7), weeks = 6, headline = BlockTarget("squat", 100.0, 80.0))
+        planScreen(Profile(blocks = BlockState(listOf(block))))
+        rule.waitForIdle()
+        rule.onNodeWithText("Squat 100 push").assertExists()
+        rule.onNodeWithText("Add a goal").assertDoesNotExist()
+    }
+
+    @Test fun withNoBlocksThePlanScreenInvitesAGoalAndAGoalNeverChangesTheSessions() {
+        planScreen(Profile())
+        rule.waitForIdle()
+        rule.onNodeWithText("Add a goal").assertExists()
+    }
+
+    // Home: one Today card instead of the Hyrox card, the big Start button and the NEXT UP card.
+
+    @Test fun homeHasOneTodayCardWithStartAndNoSeparateNextUpOrStartASessionButton() {
+        val vm = newVm()
+        rule.setContent { AppRoot(vm, inPip = false) }
+        rule.waitForIdle()
+        rule.onNodeWithTag("today-start").assertExists()
+        rule.onNodeWithText("Start a session").assertDoesNotExist()
+        rule.onNodeWithText("NEXT UP").assertDoesNotExist()
+        rule.onNodeWithText("I have some time").assertExists()
+    }
+
+    @Test fun somethingDifferentOpensTheTimeAndEnergyPicker() {
+        val vm = newVm()
+        rule.setContent { AppRoot(vm, inPip = false) }
+        rule.waitForIdle()
+        rule.onNodeWithTag("something-different").performClickAndSettle()
+        assertEquals(Screen.Start, vm.screen.value)
+    }
+
+    // Data safety: a gym session in progress is kept in a draft, so a killed app cannot lose sets.
+
+    private val draftFile get() = File(app.filesDir, "draft-gym.json")
+    private fun idleMain() = shadowOf(Looper.getMainLooper()).idle()
+    private fun startGymWithSquatDone(vm: AppViewModel): Int {
+        vm.begin(SessionType.GYM, 75)
+        logAllSets(vm, rir = 3, only = { it == "squat" })
+        idleMain()
+        return vm.gym.value!!.exercises.first { it.planned.exercise.id == "squat" }.sets.size
+    }
+
+    @Test fun theGymDraftIsWrittenAsSetsAreDoneAndRemovedWhenTheSessionIsSaved() {
+        val vm = newVm()
+        vm.begin(SessionType.GYM, 75)
+        idleMain()
+        assertFalse(draftFile.exists()) // nothing done yet, nothing to keep
+        logAllSets(vm, rir = 3, only = { it == "squat" })
+        idleMain()
+        assertTrue(draftFile.exists())
+        vm.finishGym()
+        idleMain()
+        assertFalse(draftFile.exists())
+        assertEquals(1, onDisk().records.size)
+    }
+
+    @Test fun aSessionKilledInTheMiddleIsRecoveredWithTheSetsThatWereDone() {
+        val first = newVm()
+        val sets = startGymWithSquatDone(first)
+        // The process is killed here: finishGym is never called.
+        val second = newVm()
+        idleMain()
+        val rec = second.data.value.records.single()
+        assertEquals(SessionType.GYM, rec.type)
+        assertEquals(sets, rec.exercises.single { it.exerciseId == "squat" }.sets.size)
+        assertEquals("Recovered after the app closed", rec.note)
+        assertEquals(StoreNote.Kind.RECOVERED_SESSION, second.storeNote.value!!.kind)
+        assertFalse(draftFile.exists())
+        assertEquals(1, onDisk().records.size)
+        assertEquals(1, newVm().data.value.records.size) // a later start does not add it again
+    }
+
+    @Test fun aDraftOfASessionThatIsAlreadySavedIsNotSavedTwice() {
+        val vm = newVm()
+        startGymWithSquatDone(vm)
+        vm.finishGym()
+        val rec = onDisk().records.single()
+        Store(app).saveGymDraft(
+            com.calum.traininglog.core.GymDraft(
+                rec.date, rec.minutesAvailable, rec.minutesActual, rec.feeling, rec.kneePain, rec.dayLabel, rec.deload, rec.exercises,
+            ),
+        )
+        val again = newVm()
+        assertEquals(1, again.data.value.records.size)
+        assertNull(again.storeNote.value)
+        assertFalse(draftFile.exists())
+    }
+
+    @Test fun discardingKeepsTheLoggedSetsInAFileOfTheirOwn() {
+        val vm = newVm()
+        startGymWithSquatDone(vm)
+        vm.discardGym()
+        idleMain()
+        assertFalse(draftFile.exists())
+        assertTrue(app.filesDir.listFiles()!!.any { it.name.startsWith("draft-gym.discarded-") })
+        assertEquals(emptyList(), newVm().data.value.records) // a deliberate discard is respected
+    }
+
+    @Test fun anUnreadableDraftIsKeptAsideAndNeverBreaksStartup() {
+        draftFile.writeText("{broken")
+        val vm = newVm()
+        assertEquals(emptyList(), vm.data.value.records)
+        assertNull(vm.storeNote.value)
+        assertFalse(draftFile.exists())
+        assertEquals("{broken", app.filesDir.listFiles()!!.single { it.name.startsWith("draft-gym.unreadable-") }.readText())
+    }
+
+    // Data safety: restores never destroy what is on the phone, and a failed save is never silent.
+
+    private fun backupRecord(id: String, note: String) = com.calum.traininglog.core.SessionRecord(
+        id, today.minusDays(40), SessionType.HIKE, 30, 30, Feeling.GOOD, note = note,
+    )
+
+    @Test fun mergeRestoreAddsMissingSessionsKeepsLocalOnesAndTakesASafetyCopy() {
+        val vm = newVm()
+        vm.saveManual(SessionType.HIKE, 1, 30, null, "logged today")
+        vm.saveManual(SessionType.HIKE, 2, 30, null, "logged yesterday") // the first overwrite of the day makes the daily copy
+        val local = vm.data.value.records
+        val remote = AppData(listOf(backupRecord("old-1", "from backup")) + local.take(1).map { it.copy(note = "older copy") })
+
+        assertEquals(1, vm.mergeData(remote))
+
+        val ids = onDisk().records.map { it.id }.toSet()
+        assertEquals(local.map { it.id }.toSet() + "old-1", ids)
+        assertEquals(local.first().note, onDisk().records.first { it.id == local.first().id }.note) // local wins on a shared id
+        assertTrue(File(app.filesDir, "backups").listFiles()!!.any { it.name.endsWith("-pre-restore.json") })
+        assertEquals(0, vm.mergeData(remote)) // again: nothing more to add, nothing rewritten
+    }
+
+    @Test fun replaceRestoreStillKeepsEverythingThatWasOnThePhoneInASafetyCopy() {
+        val vm = newVm()
+        vm.saveManual(SessionType.HIKE, 1, 30, null, "mine")
+        vm.replaceData(AppData(listOf(backupRecord("old-1", "from backup"))))
+        assertEquals(listOf("from backup"), onDisk().records.map { it.note })
+        val snap = File(app.filesDir, "backups").listFiles()!!.single { it.name.endsWith("-pre-restore.json") }
+        assertTrue(snap.readText().contains("mine"))
+    }
+
+    @Test fun aFailedSaveShowsABannerKeepsTheDataOnScreenAndRetrySavesIt() {
+        val vm = newVm()
+        vm.saveManual(SessionType.HIKE, 3, 30, null, "first")
+        File(app.filesDir, "training-data.json.tmp").mkdirs() // the write cannot happen
+        vm.saveManual(SessionType.HIKE, 2, 30, null, "second")
+        assertEquals(StoreNote.Kind.SAVE_FAILED, vm.storeNote.value!!.kind)
+        assertEquals(2, vm.data.value.records.size)          // still there on screen
+        assertEquals(1, onDisk().records.size)                // disk is the old, intact file
+        File(app.filesDir, "training-data.json.tmp").deleteRecursively()
+        vm.retrySave()
+        assertNull(vm.storeNote.value)
+        assertEquals(listOf("first", "second"), onDisk().records.map { it.note })
     }
 
     private fun androidx.compose.ui.test.SemanticsNodeInteraction.performClickAndSettle() {

@@ -22,6 +22,7 @@ fun StoreNoteBanner(vm: AppViewModel, modifier: Modifier = Modifier) {
     Card(modifier.fillMaxWidth().testTag("store-note")) {
         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text(n.message)
+            if (n.kind == StoreNote.Kind.SAVE_FAILED) TextButton(onClick = { vm.retrySave() }) { Text("Try again") }
             if (n.kind != StoreNote.Kind.TOO_NEW) TextButton(onClick = { vm.dismissStoreNote() }) { Text("OK") }
         }
     }

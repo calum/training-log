@@ -239,6 +239,57 @@ object GuidedRecord {
     fun note(minutes: Int, hardMin: Int, m: Modality): String =
         "Race plan: " + (if (hardMin > 0) "$hardMin min hard in $minutes min" else "easy $minutes min") + ", ${m.label.lowercase()}"
 
+    /** The equipment choices offered when correcting a saved session: the timer's three and the incline treadmill walk. */
+    val CORRECTION_CHOICES = listOf(Modality.ROW, Modality.SKIERG, Modality.BIKE, Modality.TREADMILL_WALK)
+
+    /**
+     * The equipment a session made here was logged on, or null when [r] is not one (a normal treadmill, gym or
+     * Hyrox session). Sessions corrected to the treadmill keep the "Race plan" label and a treadmill log, so they are
+     * recognised too and can be changed back.
+     */
+    fun equipmentOf(r: SessionRecord): Modality? {
+        if (r.dayLabel != DAY_LABEL) return null
+        if (r.type == SessionType.TREADMILL && r.treadmill != null) return Modality.TREADMILL_WALK
+        val sid = r.stations.firstOrNull()?.stationId ?: return null
+        return GuidedPlan.TIMER_MODALITIES.firstOrNull { stationId(it) == sid }
+    }
+
+    /** Equipment [r] can be changed to: the other choices, and not the treadmill for a session with hard intervals. */
+    fun correctionOptions(r: SessionRecord): List<Modality> {
+        val current = equipmentOf(r) ?: return emptyList()
+        return CORRECTION_CHOICES.filter { it != current && (it != Modality.TREADMILL_WALK || r.stations.size <= 1) }
+    }
+
+    private fun relabel(note: String?, m: Modality, fallback: String): String =
+        if (note != null && note.startsWith("Race plan:") && ", " in note) note.substringBeforeLast(", ") + ", ${m.label.lowercase()}" else fallback
+
+    /**
+     * [r] re-logged on [m] (the user picked the wrong equipment). Same id, date, time and feeling; only the equipment
+     * changes, so nothing is added or lost. Null when [r] is not a session made here, [m] is what it already is, or
+     * [m] is not offered (see [correctionOptions]).
+     */
+    fun withEquipment(r: SessionRecord, m: Modality): SessionRecord? {
+        val current = equipmentOf(r) ?: return null
+        if (m !in correctionOptions(r)) return null
+        val workSec = r.stations.sumOf { it.seconds ?: 0 }.takeIf { it > 0 } ?: (r.minutesActual * 60)
+        val fallback = note(r.minutesActual, 0, m)
+        return when {
+            m == Modality.TREADMILL_WALK -> r.copy(
+                type = SessionType.TREADMILL, stations = emptyList(),
+                treadmill = TreadmillLog(TreadmillStyle.STEADY, maxOf(workSec, r.minutesAvailable * 60), workSec),
+                note = relabel(r.note, m, fallback),
+            )
+            current == Modality.TREADMILL_WALK -> {
+                val sec = r.treadmill?.completedSec ?: (r.minutesActual * 60)
+                build(r.id, r.date, r.minutesAvailable, m, sec, 0, null, EASY_RPE, r.feeling)?.copy(kneePain = r.kneePain)
+            }
+            else -> r.copy(
+                type = type(m), stations = r.stations.map { it.copy(stationId = stationId(m)) },
+                note = relabel(r.note, m, fallback),
+            )
+        }
+    }
+
     /** Null when under a minute was done (nothing worth saving). */
     fun build(
         id: String, date: LocalDate, planned: Int, modality: Modality, completedSec: Int, hardSec: Int,

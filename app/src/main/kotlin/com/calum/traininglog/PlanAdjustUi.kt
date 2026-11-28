@@ -34,6 +34,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import com.calum.traininglog.core.Coach
 import com.calum.traininglog.core.Feeling
 import com.calum.traininglog.core.HealthLevel
 import com.calum.traininglog.core.MoveOption
@@ -125,7 +126,7 @@ internal fun ChangeBanner(text: String, onUndo: () -> Unit, modifier: Modifier =
 /** The new profile and the plain 'what changed' line for skipping [s] with [reason]. */
 internal fun skipWithMessage(profile: Profile, records: List<SessionRecord>, today: LocalDate, s: PlannedSession, reason: SkipReason): Pair<Profile, String> {
     val np = RacePlanner.skip(profile, s, reason, today)
-    val after = RacePlanner.build(profile.settings.racePlan, records, today, np)
+    val after = Coach.plan(np, records, today)
     return np to "Skipped. " + RacePlanner.skipOutcome(after, s)
 }
 
@@ -207,6 +208,8 @@ private enum class TodayPanel { NONE, TIME, SKIP }
 internal fun TodayActions(
     plan: RacePlan, records: List<SessionRecord>, profile: Profile, today: LocalDate,
     onStart: (PlannedSession) -> Unit, onProfile: ((Profile) -> Profile) -> Unit, modifier: Modifier = Modifier,
+    /** Opens the time and energy picker ("Something different"); null leaves the button out. */
+    onFreeChoice: (() -> Unit)? = null,
 ) {
     if (plan.segmentOf(today) == null) return
     var panel by remember { mutableStateOf(TodayPanel.NONE) }
@@ -225,6 +228,7 @@ internal fun TodayActions(
                 Modifier.weight(1f).testTag("skip-today"),
             )
         }
+        onFreeChoice?.let { SecondaryButton("Something different", it, Modifier.fillMaxWidth().testTag("something-different"), accent = AppColors.textMuted) }
         banner?.let { (text, skipped) ->
             ChangeBanner(text, onUndo = { onProfile { RacePlanner.undo(it, skipped) }; banner = null })
         }

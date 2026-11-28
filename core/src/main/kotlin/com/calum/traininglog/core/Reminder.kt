@@ -19,18 +19,39 @@ object Reminder {
         "A calm bit of exercise could be a good way to unwind tonight, if you like.",
     )
 
-    fun phrase(date: LocalDate): String = phrases[Math.floorMod(date.toEpochDay(), phrases.size.toLong()).toInt()]
+    /** Used while a race plan is on: they name no activity, because the suggestion that follows comes from the plan. */
+    val planPhrases = listOf(
+        "Kids down? A short session could be a nice way to end the day, if you fancy it.",
+        "Quiet house? A little movement could be a good way to end the day.",
+        "No pressure at all. Something easy is on offer if the evening suits.",
+        "Evening's yours. Feet up is fine too, but something gentle is waiting if you like.",
+        "Whenever you're ready, a calm session is there. Totally optional.",
+    )
+
+    fun phrase(date: LocalDate, planOn: Boolean = false): String {
+        val list = if (planOn) planPhrases else phrases
+        return list[Math.floorMod(date.toEpochDay(), list.size.toLong()).toInt()]
+    }
 
     /** True when a nudge is appropriate today. [sentThisWeek] is how many were already sent this Mon-Sun week. */
-    fun shouldNudge(records: List<SessionRecord>, profile: Profile, today: LocalDate, sentThisWeek: Int): Boolean {
+    fun shouldNudge(
+        records: List<SessionRecord>, profile: Profile, today: LocalDate, sentThisWeek: Int,
+        plan: RacePlan? = Coach.racePlan(profile, records, today),
+    ): Boolean {
         val s = profile.settings
         if (!s.reminderEnabled) return false
         if (today.dayOfWeek !in s.reminderDays) return false
         if (sentThisWeek >= s.reminderMaxPerWeek) return false
         if (RestDays.isRestDay(profile, today)) return false
         if (records.withoutKneeCare().any { it.date == today }) return false
-        val week = Stats.week(records.filter { it.date <= today }, today)
-        if (minOf(week.gym, s.gymTarget) + minOf(week.treadmill, s.treadmillTarget) >= s.gymTarget + s.treadmillTarget) return false
+        val planned = Coach.weekProgress(plan, records, today)
+        if (planned != null) {
+            // The plan owns the week: once everything it asked for is done there is nothing to nudge about.
+            if (planned.total > 0 && planned.done >= planned.total) return false
+        } else {
+            val week = Stats.week(records.filter { it.date <= today }, today)
+            if (minOf(week.gym, s.gymTarget) + minOf(week.treadmill, s.treadmillTarget) >= s.gymTarget + s.treadmillTarget) return false
+        }
         val lastFeeling = records.withoutKneeCare().filter { it.date <= today && it.date >= today.minusDays(2) }.maxByOrNull { it.date }?.feeling
         if (lastFeeling == Feeling.ILL || lastFeeling == Feeling.ROUGH) return false
         return true
@@ -38,10 +59,10 @@ object Reminder {
 
     /** The notification text for [today], or null when no nudge should be sent. */
     fun nudgeText(records: List<SessionRecord>, profile: Profile, today: LocalDate, sentThisWeek: Int): String? {
-        if (!shouldNudge(records, profile, today, sentThisWeek)) return null
-        val base = phrase(today)
-        val view = WeekPlanner.plan(records, profile, today)
-        val suggestion = NextUp.describe(records, view, today)
+        val plan = Coach.racePlan(profile, records, today)
+        if (!shouldNudge(records, profile, today, sentThisWeek, plan)) return null
+        val base = phrase(today, planOn = plan != null)
+        val suggestion = Coach.nextUpText(plan, records, profile, today)
         return if (suggestion == null) base else "$base $suggestion"
     }
 }
